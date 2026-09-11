@@ -1,21 +1,29 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, ChevronLeft, ChevronRight, BookHeart } from "lucide-react";
 import type { Diary } from "../types";
-import { moodById, monthCells, parseDate, pad, today } from "../data";
+import { monthCells, moodById } from "../data";
 import MoodStats from "./MoodStats";
 import DayList from "./DayList";
 
-interface Props { diaries: Diary[]; }
+interface Props {
+  diaries: Diary[];
+}
+
+const WEEK_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 
 export default function CalendarPage({ diaries }: Props) {
   const nav = useNavigate();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth()); // 0-11
-  const [selected, setSelected] = useState<string>(today());
+  const [month, setMonth] = useState(now.getMonth()); // 0-indexed
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    const d = now;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
 
-  // diary map: date -> diaries
+  const cells = useMemo(() => monthCells(year, month), [year, month]);
+
+  // 按 date 索引日记
   const byDate = useMemo(() => {
     const m = new Map<string, Diary[]>();
     for (const d of diaries) {
@@ -26,105 +34,118 @@ export default function CalendarPage({ diaries }: Props) {
     return m;
   }, [diaries]);
 
-  // 心情统计（当月）
-  const monthDiaries = useMemo(() => {
-    return diaries.filter((d) => {
-      const pd = parseDate(d.date);
-      return pd.getFullYear() === year && pd.getMonth() === month;
-    });
-  }, [diaries, year, month]);
+  // 按 date 索引心情（每天取最后一篇日记的心情）
+  const moodByDate = useMemo(() => {
+    const m = new Map<string, { moodId: string; count: number }>();
+    for (const d of diaries) {
+      const prev = m.get(d.date);
+      if (prev) {
+        m.set(d.date, { moodId: d.moodId ?? prev.moodId, count: prev.count + 1 });
+      } else {
+        m.set(d.date, { moodId: d.moodId ?? "", count: 1 });
+      }
+    }
+    return m;
+  }, [diaries]);
 
-  const cells = useMemo(() => monthCells(year, month), [year, month]);
-
-  const prevMonth = () => {
-    if (month === 0) { setYear((y) => y - 1); setMonth(11); } else setMonth((m) => m - 1);
+  const goPrev = () => {
+    if (month === 0) { setMonth(11); setYear((y) => y - 1); }
+    else setMonth((m) => m - 1);
   };
-  const nextMonth = () => {
-    if (month === 11) { setYear((y) => y + 1); setMonth(0); } else setMonth((m) => m + 1);
+  const goNext = () => {
+    if (month === 11) { setMonth(0); setYear((y) => y + 1); }
+    else setMonth((m) => m + 1);
   };
 
-  const selectedDiaries = byDate.get(selected) ?? [];
+  const todayStr = now.toISOString().slice(0, 10);
 
   return (
-    <div className="min-h-screen bg-paper-bg">
-      <header className="sticky top-0 z-10 bg-paper-bg/90 backdrop-blur border-b border-paper-line">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+    <div className="min-h-screen paper-bg pb-24">
+      {/* 顶部导航 */}
+      <header className="sticky top-0 z-20 backdrop-blur-sm bg-paper-bg/80 border-b border-paper-line/60">
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BookHeart size={22} className="text-paper-accent" />
-            <span className="font-bold text-lg text-paper-ink">MyDiary</span>
+            <div className="w-8 h-8 rounded-xl bg-paper-ink text-paper-bg flex items-center justify-center text-lg">
+              📔
+            </div>
+            <span className="text-paper-ink font-semibold text-lg tracking-wide">MyDiary</span>
           </div>
-          <button
-            onClick={() => nav("/editor")}
-            className="flex items-center gap-1.5 bg-paper-ink text-paper-bg rounded-full px-4 py-1.5 text-sm font-medium hover:opacity-90 active:scale-95 transition"
-          >
-            <Plus size={16} /> 写日记
+          <button onClick={() => nav("/editor")} className="btn-primary flex items-center gap-1.5 text-sm">
+            <span className="text-base leading-none">＋</span> 写日记
           </button>
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 pb-24 pt-2">
-        {/* 月份切换 */}
-        <div className="flex items-center justify-center gap-4 py-3">
-          <button onClick={prevMonth} className="p-1.5 rounded-full hover:bg-paper-surface active:scale-95">
-            <ChevronLeft size={20} className="text-paper-ink" />
-          </button>
-          <div className="font-bold text-paper-ink text-lg min-w-[120px] text-center">
-            {year} 年 {month + 1} 月
+      <main className="max-w-3xl mx-auto px-4 pt-6 space-y-6">
+        {/* 月历卡片 */}
+        <section className="card p-4 md:p-6 animate-fade-up">
+          {/* 月份切换 */}
+          <div className="flex items-center justify-between mb-4">
+            <button onClick={goPrev} className="btn-ghost w-9 h-9 p-0 flex items-center justify-center text-lg">‹</button>
+            <h1 className="text-xl md:text-2xl font-semibold text-paper-ink tracking-wide">
+              {year} 年 {month + 1} 月
+            </h1>
+            <button onClick={goNext} className="btn-ghost w-9 h-9 p-0 flex items-center justify-center text-lg">›</button>
           </div>
-          <button onClick={nextMonth} className="p-1.5 rounded-full hover:bg-paper-surface active:scale-95">
-            <ChevronRight size={20} className="text-paper-ink" />
-          </button>
-        </div>
 
-        {/* 月历 */}
-        <div className="bg-paper-surface/70 rounded-2xl p-3 border border-paper-line">
-          <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-paper-ink2 mb-1">
-            {["一","二","三","四","五","六","日"].map((w) => (
-              <div key={w} className="py-1">{w}</div>
+          {/* 星期 */}
+          <div className="grid grid-cols-7 mb-2">
+            {WEEK_LABELS.map((w) => (
+              <div key={w} className="text-center text-xs md:text-sm text-paper-ink2/70 font-medium py-1">
+                {w}
+              </div>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-1">
+
+          {/* 42 格 */}
+          <div className="grid grid-cols-7 gap-1 md:gap-2">
             {cells.map((d, i) => {
-              const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-              const isCurMonth = d.getMonth() === month;
-              const isSelected = selected === dateStr;
-              const entries = byDate.get(dateStr) ?? [];
-              const topMood = entries[0]?.moodId;
-              const mood = topMood ? moodById(topMood) : null;
-              const isToday = dateStr === today();
+              const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+              const inMonth = d.getMonth() === month;
+              const isToday = ds === todayStr;
+              const isSelected = ds === selectedDate;
+              const moodInfo = moodByDate.get(ds);
+              const mood = moodInfo?.moodId ? moodById(moodInfo.moodId) : null;
 
               return (
                 <button
                   key={i}
-                  onClick={() => setSelected(dateStr)}
+                  onClick={() => setSelectedDate(ds)}
                   className={[
-                    "cal-day aspect-square rounded-xl flex flex-col items-center justify-center text-sm relative",
-                    isSelected ? "bg-paper-ink text-paper-bg shadow-md" :
-                    !isCurMonth ? "text-paper-ink2/40" :
-                    "text-paper-ink hover:bg-paper-line/40",
-                    isToday && !isSelected ? "ring-2 ring-paper-accent/60" : "",
+                    "relative aspect-square md:aspect-[1/1] rounded-lg md:rounded-xl flex flex-col items-center justify-center",
+                    "text-sm md:text-base transition-all duration-150",
+                    !inMonth ? "text-paper-ink3/40" : "text-paper-ink",
+                    isSelected
+                      ? "bg-paper-ink text-paper-bg shadow-cardHover scale-[1.03]"
+                      : "hover:bg-paper-surface active:bg-paper-line/60",
+                    isToday && !isSelected ? "ring-2 ring-paper-accent ring-offset-2 ring-offset-paper-card" : "",
                   ].join(" ")}
                 >
-                  <span className={entries.length > 0 ? "text-base" : "text-sm"}>
-                    {isCurMonth ? d.getDate() : ""}
-                  </span>
-                  {mood && isCurMonth && (
-                    <span className="text-[14px] leading-none mt-0.5">{mood.icon}</span>
+                  <span className="font-medium">{d.getDate()}</span>
+                  {mood && (
+                    <span className="text-[14px] md:text-base leading-none mt-0.5">
+                      {mood.icon}
+                    </span>
                   )}
-                  {entries.length > 1 && isCurMonth && (
-                    <span className="absolute bottom-0.5 right-1 text-[9px] opacity-70">×{entries.length}</span>
+                  {moodInfo && moodInfo.count > 1 && (
+                    <span className={[
+                      "absolute bottom-0.5 right-1 text-[10px] leading-none rounded-full px-1 py-0.5",
+                      isSelected ? "bg-paper-surface text-paper-ink" : "bg-paper-accent/15 text-paper-accent",
+                    ].join(" ")}>
+                      ×{moodInfo.count}
+                    </span>
                   )}
                 </button>
               );
             })}
           </div>
-        </div>
+        </section>
 
-        {/* 心情统计 */}
-        <MoodStats diaries={monthDiaries} />
-
-        {/* 当日日记列表 */}
-        <DayList date={selected} diaries={selectedDiaries} onOpen={(id) => nav(`/editor/${id}`)} />
+        {/* 心情统计 + 当日日记 */}
+        <section className="space-y-6 animate-fade-up" style={{ animationDelay: "80ms" }}>
+          <MoodStats diaries={diaries} year={year} month={month} />
+          <DayList date={selectedDate} diaries={byDate.get(selectedDate) ?? []} />
+        </section>
       </main>
     </div>
   );

@@ -1,58 +1,87 @@
-﻿import { useState } from "react";
-import { X, ZoomIn } from "lucide-react";
+import { useRef, useState } from "react";
 import type { DiaryBlock } from "../types";
 
 interface Props {
   block: DiaryBlock;
-  onRemove: () => void;
+  onChange: (content: string) => void;
 }
 
-export default function ImageBlock({ block, onRemove }: Props) {
+export default function ImageBlock({ block, onChange }: Props) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [preview, setPreview] = useState(false);
 
-  return (
-    <>
-      <div className="group relative mt-2 mb-2">
-        <div className="rounded-2xl overflow-hidden bg-paper-surface border border-paper-line">
-          <img
-            src={block.content}
-            alt=""
-            className="w-full max-h-[420px] object-cover cursor-pointer"
-            onClick={() => setPreview(true)}
-          />
-        </div>
-        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition">
-          <button
-            onClick={() => setPreview(true)}
-            className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white"
-            title="查看大图"
-          >
-            <ZoomIn size={14} />
-          </button>
-          <button
-            onClick={onRemove}
-            className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white"
-            title="删除"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      </div>
+  const pick = () => inputRef.current?.click();
 
+  const onFile = (f: File) => {
+    const reader = new FileReader();
+    reader.onload = () => onChange(reader.result as string);
+    reader.readAsDataURL(f);
+  };
+
+  if (!block.content) {
+    // 空占位
+    return (
+      <div className="img-block py-3">
+        <div
+          onClick={pick}
+          className="flex flex-col items-center justify-center gap-2 py-8 border-2 border-dashed border-paper-line rounded-xl text-paper-ink2 cursor-pointer hover:border-paper-accent hover:text-paper-accent transition-colors"
+        >
+          <span className="text-3xl">🖼️</span>
+          <span className="text-sm">点击选择图片</span>
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onFile(f);
+            e.target.value = "";
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="img-block py-2 relative group">
+      <img
+        src={block.content}
+        alt=""
+        onClick={() => setPreview(true)}
+        className="w-full max-h-[500px] object-contain cursor-zoom-in rounded-xl"
+      />
+      <button
+        onClick={pick}
+        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 bg-paper-bg/90 backdrop-blur-sm text-paper-ink text-xs px-2 py-1 rounded-lg shadow-soft hover:bg-paper-bg transition-opacity"
+      >
+        更换
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.target.value = "";
+        }}
+      />
+
+      {/* 预览弹窗 */}
       {preview && (
         <div
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          className="fixed inset-0 z-40 bg-black/80 flex items-center justify-center animate-fade-in p-4"
           onClick={() => setPreview(false)}
         >
           <img src={block.content} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
-          <button
-            onClick={() => setPreview(false)}
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
-          >
-            <X size={24} />
+          <button className="absolute top-4 right-4 text-white/70 hover:text-white text-2xl w-10 h-10 rounded-full hover:bg-white/10">
+            ✕
           </button>
         </div>
       )}
-    </>
+    </div>
   );
 }

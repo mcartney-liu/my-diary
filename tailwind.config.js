@@ -6,16 +6,59 @@ export default {
       colors: {
         paper: {
           bg: "#faf6ef",
-          surface: "#f5efe3",
-          line: "#e0d8c4",
+          surface: "#fdfaf3",
+          card: "#ffffff",
+          line: "#e8e0cc",
           redline: "#e57373",
-          ink: "#3d2f1f",
+          ink: "#2d1f14",
           ink2: "#7a6a54",
+          ink3: "#b0a28a",
           accent: "#8b6f47",
+          accent2: "#a68656",
+        },
+        mood: {
+          happy: "#ffd93d",
+          calm: "#7bc47f",
+          anxious: "#f0a04b",
+          sad: "#6c8ebf",
+          angry: "#d7263d",
         },
       },
       fontFamily: {
         hand: ['"Ma Shan Zheng"', '"KaiTi"', '"STKaiti"', "serif"],
+      },
+      boxShadow: {
+        card: "0 2px 12px -2px rgba(45,31,20,0.08), 0 1px 3px rgba(45,31,20,0.04)",
+        cardHover: "0 8px 24px -4px rgba(45,31,20,0.12), 0 2px 6px rgba(45,31,20,0.06)",
+        soft: "0 1px 3px rgba(45,31,20,0.06)",
+        inset: "inset 0 1px 2px rgba(45,31,20,0.06)",
+      },
+      borderRadius: {
+        card: "14px",
+        chip: "999px",
+      },
+      keyframes: {
+        "fade-up": {
+          "0%": { opacity: "0", transform: "translateY(12px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "fade-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        "scale-in": {
+          "0%": { opacity: "0", transform: "scale(0.92)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        shimmer: {
+          "0%": { backgroundPosition: "-200% 0" },
+          "100%": { backgroundPosition: "200% 0" },
+        },
+      },
+      animation: {
+        "fade-up": "fade-up 0.35s ease-out both",
+        "fade-in": "fade-in 0.25s ease-out both",
+        "scale-in": "scale-in 0.25s cubic-bezier(0.2,0.8,0.2,1) both",
       },
     },
   },

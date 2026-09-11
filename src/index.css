@@ -1,33 +1,53 @@
-﻿@import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Kalam:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Noto+Serif+SC:wght@400;500;600&family=Kalam:wght@400;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
+
 body {
   margin: 0;
-  font-family: "Kalam", "Ma Shan Zheng", "KaiTi", "STKaiti", system-ui, sans-serif;
+  font-family: "Noto Serif SC", "Kalam", "Ma Shan Zheng", "KaiTi", "STKaiti", system-ui, sans-serif;
   background-color: #faf6ef;
-  color: #3d2f1f;
+  color: #2d1f14;
   -webkit-tap-highlight-color: transparent;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* 复古信纸背景 — 横线 + 左侧红竖线 */
+/* 复古信纸背景 — 整页 */
 .paper-bg {
   position: relative;
   background-color: #faf6ef;
   background-image:
-    linear-gradient(to right, transparent 56px, rgba(229,115,115,0.35) 56px, rgba(229,115,115,0.35) 57px, transparent 57px),
+    linear-gradient(to right, transparent 56px, rgba(229,115,115,0.25) 56px, rgba(229,115,115,0.25) 57px, transparent 57px),
     repeating-linear-gradient(
       to bottom,
       transparent 0px,
       transparent 47px,
-      rgba(224, 216, 196, 0.7) 47px,
-      rgba(224, 216, 196, 0.7) 48px
+      rgba(232, 224, 204, 0.6) 47px,
+      rgba(232, 224, 204, 0.6) 48px
     );
-  background-position: 0 64px;
+  background-position: 0 0;
   background-size: 100% 48px;
+}
+
+/* 编辑器信纸 — 可滚动内容区 */
+.paper-editor {
+  position: relative;
+  background-color: #fdfaf3;
+  background-image:
+    linear-gradient(to right, transparent 56px, rgba(229,115,115,0.3) 56px, rgba(229,115,115,0.3) 57px, transparent 57px),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 43px,
+      rgba(232, 224, 204, 0.8) 43px,
+      rgba(232, 224, 204, 0.8) 44px
+    );
+  background-position: 0 0;
+  background-size: 100% 44px;
 }
 
 /* 自定义滚动条 */
@@ -36,13 +56,61 @@ body {
 ::-webkit-scrollbar-thumb { background: #d4c8a8; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #b8a880; }
 
-/* 块动画 */
-@keyframes slide-up {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.block-enter { animation: slide-up 0.2s ease-out; }
+/* textarea 无滚动条（块内部自己管） */
+textarea::-webkit-scrollbar { width: 0; }
 
-/* 日历格子 hover */
-.cal-day { transition: all 0.15s ease; }
-.cal-day:hover { transform: scale(1.03); }
+/* 按钮按压反馈 */
+button { transition: all 0.15s cubic-bezier(0.2,0.8,0.2,1); }
+button:active { transform: scale(0.97); }
+
+/* 可聚焦元素的柔和描边 */
+*:focus-visible {
+  outline: 2px solid rgba(139, 111, 71, 0.5);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ---- 心情颜色映射 ---- */
+.mood-happy  { background-color: #ffd93d; }
+.mood-calm   { background-color: #7bc47f; }
+.mood-anxious{ background-color: #f0a04b; }
+.mood-sad    { background-color: #6c8ebf; }
+.mood-angry  { background-color: #d7263d; }
+
+/* 选中日期的心情小方块 */
+.day-has-diary::after {
+  content: "";
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+/* Tailwind @components — 常用可复用模式 */
+@layer components {
+  .card {
+    @apply bg-paper-card rounded-card shadow-card;
+  }
+  .btn-primary {
+    @apply px-4 py-2 rounded-card bg-paper-ink text-paper-bg font-medium
+           hover:shadow-cardHover hover:-translate-y-0.5 active:translate-y-0
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-ghost {
+    @apply px-3 py-1.5 rounded-card text-paper-ink2 hover:bg-paper-surface
+           active:bg-paper-line text-sm;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-chip
+           text-xs font-medium;
+  }
+}
+
+/* 图片在日记卡片里的圆角 */
+.img-block img {
+  border-radius: 10px;
+  box-shadow: 0 2px 8px -2px rgba(45,31,20,0.15);
+}

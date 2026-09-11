@@ -1,47 +1,48 @@
-﻿import { useEffect, useRef } from "react";
-import { X } from "lucide-react";
+import { useEffect, useRef } from "react";
 import type { DiaryBlock } from "../types";
 
 interface Props {
   block: DiaryBlock;
   onChange: (content: string) => void;
-  onRemove: () => void;
+  onEnter?: () => void;
 }
 
-export default function TextBlock({ block, onChange, onRemove }: Props) {
-  const ref = useRef<HTMLTextAreaElement>(null);
+export default function TextBlock({ block, onChange, onEnter }: Props) {
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // 自动调整高度
+  // auto-grow textarea
   useEffect(() => {
-    const ta = ref.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = ta.scrollHeight + "px";
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = el.scrollHeight + "px";
   }, [block.content]);
 
-  const empty = block.content.length === 0;
+  const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey && onEnter) {
+      // 在空行回车 → 创建新块
+      if (block.content === "" || block.content.endsWith("\n")) {
+        e.preventDefault();
+        onEnter();
+      }
+    }
+  };
 
   return (
-    <div className="group relative">
-      <textarea
-        ref={ref}
-        value={block.content}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="在此书写..."
-        rows={1}
-        className={`w-full resize-none bg-transparent outline-none py-2 text-[17px] leading-8 font-hand text-paper-ink placeholder:text-paper-ink2/50 ${
-          empty ? "min-h-[48px]" : ""
-        }`}
-      />
-      {!empty && (
-        <button
-          onClick={onRemove}
-          className="absolute -right-2 top-2 opacity-0 group-hover:opacity-100 transition p-1 rounded-full hover:bg-paper-line"
-          title="删除此块"
-        >
-          <X size={14} className="text-paper-ink2" />
-        </button>
-      )}
-    </div>
+    <textarea
+      ref={taRef}
+      value={block.content}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={handleKey}
+      placeholder="今天发生了什么..."
+      rows={1}
+      className={[
+        "w-full resize-none bg-transparent border-0 outline-none",
+        "text-paper-ink placeholder:text-paper-ink3/80",
+        "text-[15px] md:text-base leading-[1.8]",
+        "py-1 md:py-2",
+      ].join(" ")}
+      style={{ minHeight: "44px" }}
+    />
   );
 }
