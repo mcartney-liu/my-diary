@@ -1,0 +1,48 @@
+﻿@import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Kalam:wght@400;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  font-family: "Kalam", "Ma Shan Zheng", "KaiTi", "STKaiti", system-ui, sans-serif;
+  background-color: #faf6ef;
+  color: #3d2f1f;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 复古信纸背景 — 横线 + 左侧红竖线 */
+.paper-bg {
+  position: relative;
+  background-color: #faf6ef;
+  background-image:
+    linear-gradient(to right, transparent 56px, rgba(229,115,115,0.35) 56px, rgba(229,115,115,0.35) 57px, transparent 57px),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 47px,
+      rgba(224, 216, 196, 0.7) 47px,
+      rgba(224, 216, 196, 0.7) 48px
+    );
+  background-position: 0 64px;
+  background-size: 100% 48px;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d4c8a8; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #b8a880; }
+
+/* 块动画 */
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.block-enter { animation: slide-up 0.2s ease-out; }
+
+/* 日历格子 hover */
+.cal-day { transition: all 0.15s ease; }
+.cal-day:hover { transform: scale(1.03); }
