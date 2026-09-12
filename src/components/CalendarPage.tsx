@@ -20,6 +20,7 @@ export default function CalendarPage({ diaries }: Props) {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [selectedDate, setSelectedDate] = useState<string>(() => fmtDate(now));
+  const [view, setView] = useState<"monthly" | "yearly">("monthly");
 
   const cells = useMemo(() => monthCells(year, month), [year, month]);
 
@@ -101,6 +102,32 @@ export default function CalendarPage({ diaries }: Props) {
         {/* 打卡徽章 */}
         <StreakBadge diaries={diaries} />
 
+        {/* 视图切换 */}
+        <div className="flex items-center gap-1 p-1 rounded-full bg-paper-surface border border-paper-line w-fit">
+          <button
+            onClick={() => setView("monthly")}
+            className={`px-3.5 py-1.5 rounded-full text-sm transition ${
+              view === "monthly"
+                ? "bg-paper-ink text-paper-bg shadow-sm"
+                : "text-paper-ink2 hover:text-paper-ink"
+            }`}
+          >
+            📅 月历
+          </button>
+          <button
+            onClick={() => setView("yearly")}
+            className={`px-3.5 py-1.5 rounded-full text-sm transition ${
+              view === "yearly"
+                ? "bg-paper-ink text-paper-bg shadow-sm"
+                : "text-paper-ink2 hover:text-paper-ink"
+            }`}
+          >
+            📊 年度回顾
+          </button>
+        </div>
+
+        {view === "monthly" ? (
+          <>
         {/* 月历卡片 */}
         <section className="card p-4 md:p-6 animate-fade-up">
           {/* 月份切换 */}
@@ -179,9 +206,10 @@ export default function CalendarPage({ diaries }: Props) {
         <section className="animate-fade-up" style={{ animationDelay: "100ms" }}>
           <DayList date={selectedDate} diaries={byDate.get(selectedDate) ?? []} />
         </section>
-
-        {/* 年度热力图 */}
-        <MoodHeatmap diaries={diaries} />
+          </>
+        ) : (
+          <MoodHeatmap diaries={diaries} />
+        )}
       </main>
     </div>
   );
