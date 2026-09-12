@@ -312,25 +312,41 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
     pendingSpeechTextRef.current = speechText;
   };
 
+  // 把文字 append 到最后一个 text block（空的就填充，有内容就加换行追加）
+  // 如果最后没有 text block（不太可能，因为 addBlock 会自动补），就新建一个
+  const appendToLastText = (text: string) => {
+    if (!text) return;
+    setBlocks((prev) => {
+      // 找最后一个 text block
+      const lastTextIdx = [...prev].reverse().findIndex((b) => b.kind === "text");
+      if (lastTextIdx === -1) {
+        return [...prev, { id: uid("t"), kind: "text" as const, content: text }];
+      }
+      const realIdx = prev.length - 1 - lastTextIdx;
+      const target = prev[realIdx];
+      const sep = target.content.trim() ? "\n" : "";
+      const updated = [...prev];
+      updated[realIdx] = { ...target, content: target.content + sep + text };
+      return updated;
+    });
+  };
+
   // 弹窗里的按钮动作
   const confirmSaveAudioAndText = () => {
     if (!pendingRec) return;
     const text = editableTranscript.trim();
-    // audio 用 autoText=false，然后手动接 text（避免中间多一个空 text）
-    addBlock("audio", pendingRec.dataUrl, pendingRec.durationMs, false);
-    if (text) addBlock("text", text);
-    else addBlock("text", "");
+    // 先加音频块（带自动补空 text），然后 append 转写文字到最后一个 text block
+    addBlock("audio", pendingRec.dataUrl, pendingRec.durationMs);
+    if (text) appendToLastText(text);
     cancelPending();
   };
   const confirmSaveTextOnly = () => {
     if (!pendingRec) return;
-    const text = editableTranscript.trim();
-    if (text) addBlock("text", text);
+    appendToLastText(editableTranscript.trim());
     cancelPending();
   };
   const confirmSaveAudioOnly = () => {
     if (!pendingRec) return;
-    // audio 用默认 autoText=true → 自动在后面补空 text
     addBlock("audio", pendingRec.dataUrl, pendingRec.durationMs);
     cancelPending();
   };

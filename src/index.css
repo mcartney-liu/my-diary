@@ -49,7 +49,7 @@ input::placeholder, textarea::placeholder {
       rgba(200, 190, 165, 0.6) 31px,
       rgba(200, 190, 165, 0.6) 32px
     );
-  background-position: 0 2px;
+  background-position: 0 0;
   background-size: 100% 32px;
 }
 
