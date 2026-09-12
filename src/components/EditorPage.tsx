@@ -169,9 +169,17 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
       return next.length ? next : [{ id: uid("b"), kind: "text" as const, content: "" }];
     });
   };
-  const addBlock = (kind: DiaryBlock["kind"], content = "", durationMs?: number) => {
+  const addBlock = (kind: DiaryBlock["kind"], content = "", durationMs?: number, autoText = true) => {
     const block: DiaryBlock = { id: uid(kind[0]), kind, content, durationMs };
-    setBlocks((prev) => [...prev, block]);
+    setBlocks((prev) => {
+      // 非 text 块 + autoText=true → 自动在后面补一个空 text block
+      // 确保用户永远有地方点（模仿 Notion/Word）
+      if (kind !== "text" && autoText) {
+        const emptyText: DiaryBlock = { id: uid("t"), kind: "text", content: "" };
+        return [...prev, block, emptyText];
+      }
+      return [...prev, block];
+    });
   };
 
   // 图片压缩：长边≤1280px，JPEG quality=0.85 → 通常从 3MB 降到 200-400KB
@@ -308,8 +316,10 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
   const confirmSaveAudioAndText = () => {
     if (!pendingRec) return;
     const text = editableTranscript.trim();
-    addBlock("audio", pendingRec.dataUrl, pendingRec.durationMs);
+    // audio 用 autoText=false，然后手动接 text（避免中间多一个空 text）
+    addBlock("audio", pendingRec.dataUrl, pendingRec.durationMs, false);
     if (text) addBlock("text", text);
+    else addBlock("text", "");
     cancelPending();
   };
   const confirmSaveTextOnly = () => {
@@ -320,6 +330,7 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
   };
   const confirmSaveAudioOnly = () => {
     if (!pendingRec) return;
+    // audio 用默认 autoText=true → 自动在后面补空 text
     addBlock("audio", pendingRec.dataUrl, pendingRec.durationMs);
     cancelPending();
   };
