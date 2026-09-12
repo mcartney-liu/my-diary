@@ -358,12 +358,12 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
             <button
               onClick={() => setShowCapsuleMenu((s) => !s)}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition ${
-                capsuleDays || todayCapsuleUnlock
+                capsuleDays || isLocked
                   ? "bg-amber-100 border-amber-300 text-amber-800"
                   : "border-paper-line bg-paper-surface text-paper-ink2 hover:bg-paper-line/50"
               }`}
             >
-              🔒 {todayCapsuleUnlock
+              🔒 {isLocked
                 ? `解锁中 ${Math.ceil((initialDiary!.capsuleUnlockAt! - Date.now()) / 86400000)}天`
                 : capsuleDays ? `${capsuleDays}天后解锁` : "时间胶囊"}
             </button>
