@@ -68,6 +68,8 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
   const recordedChunksRef = useRef<Blob[]>([]);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const savedIdRef = useRef<string | null>(initialDiary?.id ?? null);
+  const toastTimerRef = useRef<number | null>(null);
   const prompt = promptForDate(date);
 
   // 自动抓天气 + 位置（仅新建日记时）
@@ -173,6 +175,7 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
   };
 
   const handleSave = async () => {
+    if (savingRef.current) return; // 防重复
     const now = Date.now();
     const cleaned = blocks.filter((b) => {
       if (b.kind === "text") return b.content.trim().length > 0;
@@ -184,8 +187,12 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
       ? now + capsuleDays * 24 * 60 * 60 * 1000
       : initialDiary?.capsuleUnlockAt;
 
+    // 新建日记第一次保存 → 生成 id 并记住；后续保存复用同一 id
+    const id = initialDiary?.id ?? savedIdRef.current ?? uid("d");
+    if (!savedIdRef.current) savedIdRef.current = id;
+
     const diary: Diary = {
-      id: initialDiary?.id ?? uid("d"),
+      id,
       title: title.trim(),
       date,
       moodId,
@@ -200,7 +207,15 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
     setSaving(true);
     savingRef.current = true;
     setSaveToast(true);
-    await onSave(diary);
+    // toast 2 秒后自动消失
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setSaveToast(false), 2000);
+    try {
+      await onSave(diary);
+    } finally {
+      setSaving(false);
+      savingRef.current = false;
+    }
   };
 
   const handleDelete = () => {
@@ -220,7 +235,11 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
       <header className="sticky top-0 z-10 bg-[#faf6ef]/95 backdrop-blur border-b border-paper-line">
         <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center justify-between">
           <button
-            onClick={() => { if (hasContent && !initialDiary && !savingRef.current) { alert("请先保存再离开"); return; } onCancel(); }}
+            onClick={() => {
+              // 有内容 + 从未保存过（新建模式）才弹警告；编辑模式或已保存过直接放行
+              if (hasContent && !initialDiary && !savedIdRef.current) { alert("请先保存再离开"); return; }
+              onCancel();
+            }}
             className="p-2 -ml-2 rounded-full hover:bg-paper-surface active:scale-95"
           >
             <ArrowLeft size={20} className="text-paper-ink" />

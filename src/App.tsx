@@ -1,9 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import { Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
 import type { Diary } from "./types";
-import { loadDiaries, upsertDiary, deleteDiary, seedIfEmpty } from "./storage";
+import { loadDiaries, seedIfEmpty } from "./storage";
+import { upsertDiary as apiUpsert, deleteDiary as apiDelete } from "./api";
 import CalendarPage from "./components/CalendarPage";
 import EditorPage from "./components/EditorPage";
+
+function saveLocal(list: Diary[]) {
+  localStorage.setItem("mydiary-web:diaries:v1", JSON.stringify(list));
+}
+
+function upsertLocal(list: Diary[], d: Diary): Diary[] {
+  const i = list.findIndex((x) => x.id === d.id);
+  if (i >= 0) {
+    const next = [...list];
+    next[i] = d;
+    return next;
+  }
+  return [...list, d];
+}
+
+function deleteLocal(list: Diary[], id: string): Diary[] {
+  return list.filter((x) => x.id !== id);
+}
 
 export default function App() {
   const [diaries, setDiaries] = useState<Diary[]>([]);
@@ -46,15 +65,25 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [offlineBanner]);
 
-  const handleUpsert = async (d: Diary) => {
+  const handleUpsert = (d: Diary) => {
     skipBackgroundSyncRef.current = true;
-    const next = await upsertDiary(diaries, d);
-    setDiaries(next);
+    // 立即本地更新（乐观），不阻塞 UI
+    setDiaries((prev) => {
+      const next = upsertLocal(prev, d);
+      saveLocal(next);
+      return next;
+    });
+    // 云端后台同步
+    apiUpsert(d).catch(() => { /* offline — 下次 sync 会推 */ });
   };
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     skipBackgroundSyncRef.current = true;
-    const next = await deleteDiary(diaries, id);
-    setDiaries(next);
+    setDiaries((prev) => {
+      const next = deleteLocal(prev, id);
+      saveLocal(next);
+      return next;
+    });
+    apiDelete(id).catch(() => { /* offline */ });
   };
 
   if (loading) {
@@ -106,8 +135,8 @@ function EditorPageWrapper(props: {
   return (
     <EditorPage
       initialDiary={existing}
-      onSave={async (d) => { props.onUpsert(d); nav("/", { replace: true }); }}
-      onDelete={async (d) => { await props.onDelete(d.id); nav("/", { replace: true }); }}
+      onSave={(d) => { props.onUpsert(d); }}
+      onDelete={(d) => { props.onDelete(d.id); nav("/", { replace: true }); }}
       onCancel={() => nav("/", { replace: true })}
     />
   );
