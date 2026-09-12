@@ -4,7 +4,6 @@ import { weatherIcon } from "./data";
 /** Open-Meteo 免费天气 API（无需 key） */
 export async function fetchWeather(lat?: number, lon?: number): Promise<WeatherInfo | null> {
   try {
-    // 没坐标就用默认（北京）
     const latitude = lat ?? 39.9042;
     const longitude = lon ?? 116.4074;
 
@@ -15,7 +14,6 @@ export async function fetchWeather(lat?: number, lon?: number): Promise<WeatherI
     const cur = json.current;
     if (!cur) return null;
 
-    // weather code → 中文描述
     const desc = openMeteoDesc(cur.weather_code);
     return {
       temp: Math.round(cur.temperature_2m),
@@ -28,7 +26,6 @@ export async function fetchWeather(lat?: number, lon?: number): Promise<WeatherI
 }
 
 function openMeteoDesc(code: number): string {
-  // WMO weather interpretation codes
   if (code === 0) return "晴";
   if ([1, 2, 3].includes(code)) return "多云";
   if (code === 45 || code === 48) return "雾";
@@ -45,25 +42,18 @@ function openMeteoDesc(code: number): string {
   return "晴";
 }
 
-/** 获取浏览器定位 → 反向地理编码成人类可读地名 */
-export async function fetchLocation(): Promise<{ lat: number; lon: number; name: string } | null> {
+/** Nominatim 反向地理编码：坐标 → "北京市 · 中国" */
+async function reverseGeocode(lat: number, lon: number): Promise<string> {
   try {
-    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
-    });
-    const lat = pos.coords.latitude;
-    const lon = pos.coords.longitude;
-
-    // Nominatim (OpenStreetMap) 免费反向地理编码
     const r = await fetch(
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=zh&zoom=14`,
       { headers: { "Accept": "application/json" } }
     );
+    if (!r.ok) return "";
     const json = await r.json();
     const addr = json.address ?? {};
 
-    // 拼接简洁地名 — 处理直辖市坑（北京 city=东城区, state_district=北京市）
-    // 规则：优先 state_district > state > city，避免把区当城市
+    // 规则：优先 state_district > state > city（处理北京直辖市坑）
     const topRegion =
       (addr.state_district && addr.city !== addr.state_district) ? addr.state_district
       : addr.state ?? addr.province ?? addr.region
@@ -74,16 +64,47 @@ export async function fetchLocation(): Promise<{ lat: number; lon: number; name:
     const parts = [topRegion, country].filter((x) => x && x.trim());
     let name = parts.join(" · ");
 
-    // Fallback：如果结果太短或太怪，用 display_name 截断
-    if (!name || name.length > 40) {
-      if (json.display_name) {
-        name = json.display_name.split(",").slice(0, 2).join("").trim();
-      }
+    // fallback: display_name 截断
+    if (!name && json.display_name) {
+      name = json.display_name.split(",").slice(0, 2).join("").trim();
     }
-    if (!name) name = "当前位置";
-
-    return { lat, lon, name };
+    return name;
   } catch {
-    return null;
+    return "";
   }
+}
+
+/** 默认坐标 — 当浏览器 geolocation 不可用时用这个反查地名 */
+const DEFAULT_COORDS = { lat: 39.9042, lon: 116.4074, name: "北京市 · 中国" };
+
+/** 获取位置：优先浏览器 GPS，失败 fallback 默认坐标但**一定反查地名** */
+export async function fetchLocation(): Promise<{ lat: number; lon: number; name: string } | null> {
+  let lat: number | undefined;
+  let lon: number | undefined;
+  let gpsOk = false;
+
+  try {
+    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+    });
+    lat = pos.coords.latitude;
+    lon = pos.coords.longitude;
+    gpsOk = true;
+  } catch (e) {
+    // GPS 不可用 — 平板没开、HTTP 环境被 Chrome 限制、或用户拒绝
+    console.info("[mydiary] geolocation 不可用，用默认坐标反查:", (e as any)?.message ?? e);
+  }
+
+  // 不管坐标哪来的，都 reverse geocoding
+  const useLat = lat ?? DEFAULT_COORDS.lat;
+  const useLon = lon ?? DEFAULT_COORDS.lon;
+  const name = await reverseGeocode(useLat, useLon);
+
+  if (!name) return null; // 反查也失败了
+
+  return {
+    lat: useLat,
+    lon: useLon,
+    name: gpsOk ? name : `${name}（默认）`,
+  };
 }
