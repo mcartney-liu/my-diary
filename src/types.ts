@@ -40,6 +40,8 @@ export interface Diary {
   capsuleUnlockAt?: number;  // 时间胶囊：设定后日记锁定，直到此时间戳解锁
   tags?: string[];           // 标签，比如 ["工作", "旅行", "感恩"]
   deletedAt?: number;        // 软删时间戳，undefined 表示未删除
+  wallpaper?: string;        // 壁纸图片 dataURL（undefined=默认米白色）
+  showLines?: boolean;       // 是否显示横线（默认 true）
   createdAt: number;
   updatedAt: number;
 }

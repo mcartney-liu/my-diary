@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot } from "lucide-react";
+import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
@@ -115,6 +115,10 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [capsuleDays, setCapsuleDays] = useState<number | null>(null);
   const [showCapsuleMenu, setShowCapsuleMenu] = useState(false);
+  const [wallpaper, setWallpaper] = useState<string | undefined>(initialDiary?.wallpaper);
+  const [showLines, setShowLines] = useState<boolean>(initialDiary?.showLines ?? true);
+  const [showWallpaperMenu, setShowWallpaperMenu] = useState(false);
+  const wallpaperInputRef = useRef<HTMLInputElement>(null);
   const [saveToast, setSaveToast] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -214,6 +218,8 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
     setLocation(initialDiary.location ?? null);
     setTags(initialDiary.tags ?? []);
     setCapsuleDays(null);
+    setWallpaper(initialDiary.wallpaper);
+    setShowLines(initialDiary.showLines ?? true);
   }, [initialDiary?.id]);
 
   const updateBlock = (id: string, patch: Partial<DiaryBlock>) => {
@@ -259,6 +265,18 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
       img.onerror = reject;
       img.src = URL.createObjectURL(file);
     });
+
+  // 壁纸图片压缩 — 长边≤1920px（壁纸需要覆盖全屏，比日记图片大一点）
+  const handleWallpaperPick = async (file: File) => {
+    try {
+      const compressed = await compressImage(file, 1920, 0.8);
+      setWallpaper(compressed);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => setWallpaper(reader.result as string);
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleImagePick = async (file: File) => {
     try {
@@ -466,6 +484,8 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
       promptId: capsuleDays ? `capsule-${capsuleDays}d` : undefined,
       capsuleUnlockAt,
       tags: mergedTags.length > 0 ? mergedTags : undefined,
+      wallpaper,
+      showLines,
       createdAt: initialDiary?.createdAt ?? now,
       updatedAt: now,
     };
@@ -661,6 +681,76 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
             )}
           </div>
 
+          {/* 壁纸设置 */}
+          <div className="relative">
+            <button
+              onClick={() => setShowWallpaperMenu((s) => !s)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition ${
+                wallpaper
+                  ? "bg-sky-50 border-sky-300 text-sky-800"
+                  : "border-paper-line bg-paper-surface text-paper-ink2 hover:bg-paper-line/50"
+              }`}
+            >
+              <Palette size={14} /> {wallpaper ? "已设壁纸" : "壁纸"}
+            </button>
+            {showWallpaperMenu && (
+              <div
+                className="absolute top-full mt-1 right-0 z-30 bg-paper-card rounded-xl shadow-xl border border-paper-line p-3 w-52 animate-[fade-in_0.15s]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <input
+                  ref={wallpaperInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleWallpaperPick(f);
+                    e.target.value = "";
+                  }}
+                />
+                <div className="text-[11px] text-paper-ink2 px-1 mb-2">信纸背景 · 横线独立控制</div>
+
+                <button
+                  onClick={() => wallpaperInputRef.current?.click()}
+                  className="w-full text-left px-2 py-2 rounded-lg text-sm hover:bg-paper-surface flex items-center gap-2"
+                >
+                  📷 从相册选图
+                </button>
+                {wallpaper && (
+                  <button
+                    onClick={() => setWallpaper(undefined)}
+                    className="w-full text-left px-2 py-2 rounded-lg text-sm hover:bg-paper-surface flex items-center gap-2 text-paper-ink2"
+                  >
+                    🗑 移除壁纸
+                  </button>
+                )}
+
+                <div className="border-t border-paper-line my-2" />
+
+                {/* 横线开关 */}
+                <label className="flex items-center justify-between px-2 py-1.5 cursor-pointer select-none">
+                  <span className="text-sm text-paper-ink">显示横线</span>
+                  <span
+                    onClick={() => setShowLines((v) => !v)}
+                    className={`relative inline-block w-8 h-4 rounded-full transition ${showLines ? "bg-amber-400" : "bg-gray-300"}`}
+                  >
+                    <span
+                      className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-all ${showLines ? "left-4" : "left-0.5"}`}
+                    />
+                  </span>
+                </label>
+
+                {wallpaper && (
+                  <>
+                    <div className="border-t border-paper-line my-2" />
+                    <div className="text-[10px] text-paper-ink3 text-center">壁纸会被压缩存储 · 建议选上面留白的图</div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* 标签按钮 */}
           <div className="relative">
             <button
@@ -774,7 +864,10 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
 
       {/* 块列表 — 信纸区域 */}
       <div className="max-w-2xl w-full mx-auto px-4 pb-24">
-        <div className="paper-editor rounded-card shadow-card min-h-[200px]">
+        <div
+          className={`paper-editor rounded-card shadow-card min-h-[200px] ${wallpaper ? "has-wallpaper" : ""} ${!showLines ? "no-lines" : ""}`}
+          style={wallpaper ? { backgroundImage: `url(${wallpaper})` } : undefined}
+        >
           {blocks.map((b, idx) => (
           <div key={b.id} className="block-enter px-4 md:px-6">
             {b.kind === "text" && (

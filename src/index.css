@@ -37,7 +37,10 @@ input::placeholder, textarea::placeholder {
   font-family: inherit;
 }
 
-/* 编辑器信纸 — 只有横线（没有红色竖线） */
+/* 编辑器信纸 — 横线由 CSS 变量 --editor-bg-lines 控制
+   默认：米白背景 + 横线
+   带壁纸：壁纸图片 + 横线（横线叠在壁纸上）
+   showLines=false：壁纸或纯色，没横线 */
 .paper-editor {
   position: relative;
   background-color: #faf6ef;
@@ -51,6 +54,46 @@ input::placeholder, textarea::placeholder {
     );
   background-position: 0 0;
   background-size: 100% 32px;
+}
+
+/* 带壁纸时：壁纸图片 + 横线（用伪元素叠上去更干净） */
+.paper-editor.has-wallpaper {
+  background-color: transparent;
+  background-image: none;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-attachment: local;
+}
+
+/* 带壁纸的横线叠加层 */
+.paper-editor.has-wallpaper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 31px,
+    rgba(255, 255, 255, 0.35) 31px,
+    rgba(255, 255, 255, 0.35) 32px
+  );
+  z-index: 0;
+}
+
+/* 关闭横线：不管有没有壁纸都不显示横线 */
+.paper-editor.no-lines {
+  background-image: none;
+}
+.paper-editor.no-lines::before {
+  display: none;
+}
+
+/* paper-editor 内的内容要在横线叠层之上 */
+.paper-editor > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* 自定义滚动条 */
