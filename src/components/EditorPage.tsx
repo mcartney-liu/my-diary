@@ -303,19 +303,24 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
     pendingSpeechTextRef.current = speechText;
   };
 
-  // 弹窗里的按钮动作：用 Web Speech 实时转写的文字（已可编辑）
+  // 弹窗里的按钮动作
   const confirmSaveAudioAndText = () => {
     if (!pendingRec) return;
-    const rec = pendingRec;
     const text = editableTranscript.trim();
-    setPendingRec(null);
-    addBlock("audio", rec.dataUrl, rec.durationMs);
+    addBlock("audio", pendingRec.dataUrl, pendingRec.durationMs);
     if (text) addBlock("text", text);
+    cancelPending();
+  };
+  const confirmSaveTextOnly = () => {
+    if (!pendingRec) return;
+    const text = editableTranscript.trim();
+    if (text) addBlock("text", text);
+    cancelPending();
   };
   const confirmSaveAudioOnly = () => {
     if (!pendingRec) return;
     addBlock("audio", pendingRec.dataUrl, pendingRec.durationMs);
-    setPendingRec(null);
+    cancelPending();
   };
   const confirmRerunAI = async () => {
     if (!pendingRec) return;
@@ -753,37 +758,42 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
              )}
 
              <div className="space-y-2 pt-1">
-               {/* 主按钮：保存音频 + 添加编辑后的文字 */}
-               <button
-                 onClick={confirmSaveAudioAndText}
-                 className="w-full py-3 rounded-xl bg-paper-ink text-paper-bg text-sm font-medium hover:opacity-90 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
-               >
-                 ✅ 保存音频 + 添加到日记
-               </button>
-               {/* 次按钮：仅保存音频 */}
-               <button
-                 onClick={confirmSaveAudioOnly}
-                 className="w-full py-2.5 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm hover:bg-paper-line/50 active:scale-95 transition"
-               >
-                 🎵 仅保存音频
-               </button>
-               {/* 次按钮：AI 重新转写（后端 fallback） */}
-               {!speechSupported && (
-                 <button
-                   onClick={confirmRerunAI}
-                   disabled={transcribing}
-                   className="w-full py-2.5 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm hover:bg-paper-line/50 active:scale-95 transition disabled:opacity-50"
-                 >
-                   🤖 {transcribing ? "AI 识别中..." : "AI 重新转写"}
-                 </button>
-               )}
-               <button
-                 onClick={cancelPending}
-                 className="w-full py-2 rounded-xl text-paper-ink2 text-sm hover:bg-paper-surface active:scale-95"
-               >
-                 取消
-               </button>
-             </div>
+              {editableTranscript.trim() && (
+                <button
+                  onClick={confirmSaveTextOnly}
+                  className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition"
+                >
+                  📝 仅保留文字
+                </button>
+              )}
+              <button
+                onClick={confirmSaveAudioAndText}
+                className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition"
+              >
+                ✅ 保留音频 + 文字
+              </button>
+              <button
+                onClick={confirmSaveAudioOnly}
+                className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition"
+              >
+                🎵 仅保留音频
+              </button>
+              {!speechSupported && (
+                <button
+                  onClick={confirmRerunAI}
+                  disabled={transcribing}
+                  className="w-full py-2.5 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm hover:bg-paper-line/50 active:scale-95 transition disabled:opacity-50"
+                >
+                  🤖 {transcribing ? "AI 识别中..." : "AI 重新转写"}
+                </button>
+              )}
+              <button
+                onClick={cancelPending}
+                className="w-full py-2 rounded-xl text-paper-ink2 text-sm hover:bg-paper-surface active:scale-95"
+              >
+                取消
+              </button>
+            </div>
            </div>
          </div>
        )}
