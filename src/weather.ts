@@ -42,22 +42,26 @@ function openMeteoDesc(code: number): string {
   return "晴";
 }
 
-/** Nominatim 反向地理编码：坐标 → "北京市 · 中国"
- * 策略：先试 address 里的 city/state/country，不行就从 display_name 里提取
- * display_name 格式："社区, 街道, 区, 北京市, 邮编, 国家" → 取倒数第 2、4 项
- */
+/** 默认 fallback — 用硬编码坐标名，确保永远有值 */
+const FALLBACK_NAME = "北京市 · 中国";
+
+/** Nominatim 反向地理编码，带详细日志 */
 async function reverseGeocode(lat: number, lon: number): Promise<string> {
   try {
-    const r = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=zh&zoom=14`,
-      { headers: { "Accept": "application/json" } }
-    );
-    if (!r.ok) return "";
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=zh&zoom=14`;
+    console.info("[mydiary] reverseGeocode 请求:", url);
+    const r = await fetch(url, { headers: { "Accept": "application/json" } });
+    console.info("[mydiary] reverseGeocode 响应状态:", r.status);
+    if (!r.ok) {
+      console.warn("[mydiary] Nominatim HTTP error:", r.status);
+      return "";
+    }
     const json = await r.json();
     const addr = json.address ?? {};
+    console.info("[mydiary] Nominatim address:", addr);
+    console.info("[mydiary] Nominatim display_name:", json.display_name);
 
     // 1) 优先从结构化 address 取
-    //    兼容直辖市：state_district="北京市" 但 city="东城区"（是区不是市）
     const topRegion =
       addr.state_district
       ?? addr.state ?? addr.province ?? addr.region
@@ -66,34 +70,36 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
     const country = addr.country ?? "";
     const structured = [topRegion, country].filter((x) => x && x.trim()).join(" · ");
 
-    if (structured && structured.length >= 4) return structured;
+    if (structured && structured.length >= 4) {
+      console.info("[mydiary] reverseGeocode 命中 structured:", structured);
+      return structured;
+    }
 
-    // 2) fallback：从 display_name 提取（跳过邮编，取最后 3-4 个有意义的部分）
+    // 2) fallback: display_name 跳过纯数字邮编，取最后 2 段
     if (json.display_name) {
       const parts = json.display_name
         .split(",")
         .map((s) => s.trim())
-        .filter((s) => s.length > 0 && !/^\d{4,}$/.test(s)); // 跳过纯数字邮编
-      // 取最后 2-3 个：通常是 省份/直辖市, 国家
+        .filter((s) => s.length > 0 && !/^\d{4,}$/.test(s));
       const tail = parts.slice(-2).join(" · ");
+      console.info("[mydiary] reverseGeocode 命中 display_name tail:", tail);
       if (tail.length >= 3) return tail;
     }
 
     return "";
-  } catch {
+  } catch (err) {
+    console.warn("[mydiary] reverseGeocode 网络异常:", err);
     return "";
   }
 }
 
-/** 默认坐标 — 当浏览器 geolocation 不可用时用这个反查地名 */
-const DEFAULT_COORDS = { lat: 39.9042, lon: 116.4074, name: "北京市 · 中国" };
-
-/** 获取位置：优先浏览器 GPS，失败 fallback 默认坐标但**一定反查地名** */
-export async function fetchLocation(): Promise<{ lat: number; lon: number; name: string } | null> {
-  let lat: number | undefined;
-  let lon: number | undefined;
+/** 获取位置：永远返回带 name 的对象，绝不让调用方拿到 null */
+export async function fetchLocation(): Promise<{ lat: number; lon: number; name: string }> {
+  let lat = 39.9042;
+  let lon = 116.4074;
   let gpsOk = false;
 
+  // 1) 先试浏览器 GPS
   try {
     const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
@@ -101,21 +107,23 @@ export async function fetchLocation(): Promise<{ lat: number; lon: number; name:
     lat = pos.coords.latitude;
     lon = pos.coords.longitude;
     gpsOk = true;
+    console.info("[mydiary] GPS 成功:", lat.toFixed(4), lon.toFixed(4));
   } catch (e) {
-    // GPS 不可用 — 平板没开、HTTP 环境被 Chrome 限制、或用户拒绝
-    console.info("[mydiary] geolocation 不可用，用默认坐标反查:", (e as any)?.message ?? e);
+    console.info("[mydiary] GPS 不可用（使用默认坐标）:", (e as any)?.message ?? "err=" + e);
   }
 
-  // 不管坐标哪来的，都 reverse geocoding
-  const useLat = lat ?? DEFAULT_COORDS.lat;
-  const useLon = lon ?? DEFAULT_COORDS.lon;
-  const name = await reverseGeocode(useLat, useLon);
+  // 2) reverse geocoding（无论 GPS 是否成功）
+  let name = await reverseGeocode(lat, lon);
+  if (!name) {
+    console.warn("[mydiary] reverseGeocode 也失败，用硬编码 fallback:", FALLBACK_NAME);
+    name = FALLBACK_NAME;
+  }
 
-  if (!name) return null; // 反查也失败了
-
-  return {
-    lat: useLat,
-    lon: useLon,
+  const result = {
+    lat,
+    lon,
     name: gpsOk ? name : `${name}（默认）`,
   };
+  console.info("[mydiary] fetchLocation 最终结果:", result);
+  return result;
 }
