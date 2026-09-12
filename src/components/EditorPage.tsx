@@ -67,6 +67,22 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagInput, setTagInput] = useState("");
 
+  // 添加标签（支持逗号/分号/空格分隔批量）
+  const addTag = () => {
+    const raw = tagInput.trim();
+    if (!raw) return;
+    const cleanList = raw
+      .split(/[,，;；\s]+/)
+      .map((s) => s.trim().replace(/^#+/, ""))
+      .filter((s) => s.length > 0);
+    setTags((prev) => {
+      const set = new Set(prev);
+      for (const c of cleanList) set.add(c);
+      return Array.from(set);
+    });
+    setTagInput("");
+  };
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -481,26 +497,36 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
                   ))}
                   {tags.length === 0 && <span className="text-xs text-paper-ink3 italic">还没有标签</span>}
                 </div>
-                <div className="flex items-center rounded-lg border border-paper-line bg-paper-surface focus-within:border-paper-accent">
-                  <span className="pl-2 text-emerald-600 text-xs font-medium select-none">#</span>
-                  <input
-                    type="text"
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && tagInput.trim()) {
-                        const clean = tagInput.trim().replace(/^#+/, "");
-                        setTags((prev) => prev.includes(clean) ? prev : [...prev, clean]);
-                        setTagInput("");
-                      } else if (e.key === "Backspace" && !tagInput && tags.length > 0) {
-                        setTags((prev) => prev.slice(0, -1));
-                      }
-                    }}
-                    placeholder="标签名，回车添加"
-                    className="flex-1 px-1 py-1.5 text-xs bg-transparent outline-none"
-                    autoFocus
-                  />
-                </div>
+                <div className="flex items-center gap-1 rounded-lg border border-paper-line bg-paper-surface focus-within:border-paper-accent">
+                   <span className="pl-2 text-emerald-600 text-xs font-medium select-none">#</span>
+                   <input
+                     type="text"
+                     value={tagInput}
+                     enterKeyHint="done"
+                     onChange={(e) => setTagInput(e.target.value)}
+                     onBlur={() => {
+                       if (tagInput.trim()) addTag();
+                     }}
+                     onKeyDown={(e) => {
+                       if (e.key === "Enter" && tagInput.trim()) {
+                         e.preventDefault();
+                         addTag();
+                       } else if (e.key === "Backspace" && !tagInput && tags.length > 0) {
+                         setTags((prev) => prev.slice(0, -1));
+                       }
+                     }}
+                     placeholder="标签名（多个用逗号分隔）"
+                     className="flex-1 px-1 py-1.5 text-xs bg-transparent outline-none"
+                     autoFocus
+                   />
+                   <button
+                     onClick={addTag}
+                     disabled={!tagInput.trim()}
+                     className="mr-1 px-2 py-1 text-[11px] rounded-md bg-emerald-500 text-white disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
+                   >
+                     添加
+                   </button>
+                 </div>
               </div>
             )}
           </div>

@@ -62,17 +62,23 @@ export async function fetchLocation(): Promise<{ lat: number; lon: number; name:
     const json = await r.json();
     const addr = json.address ?? {};
 
-    // 拼一个简洁好看的名字：优先 city/state/country，fallback 到 display_name
-    const parts = [
-      addr.city ?? addr.town ?? addr.county ?? addr.state_district ?? "",
-      addr.state ?? addr.province ?? addr.region ?? "",
-      addr.country ?? "",
-    ].filter((x) => x && x.trim());
+    // 拼接简洁地名 — 处理直辖市坑（北京 city=东城区, state_district=北京市）
+    // 规则：优先 state_district > state > city，避免把区当城市
+    const topRegion =
+      (addr.state_district && addr.city !== addr.state_district) ? addr.state_district
+      : addr.state ?? addr.province ?? addr.region
+      ?? addr.city ?? addr.town ?? addr.village
+      ?? "";
+    const country = addr.country ?? "";
 
+    const parts = [topRegion, country].filter((x) => x && x.trim());
     let name = parts.join(" · ");
-    if (!name && json.display_name) {
-      // display_name 太长，取前两个逗号
-      name = json.display_name.split(",").slice(0, 2).join("").trim();
+
+    // Fallback：如果结果太短或太怪，用 display_name 截断
+    if (!name || name.length > 40) {
+      if (json.display_name) {
+        name = json.display_name.split(",").slice(0, 2).join("").trim();
+      }
     }
     if (!name) name = "当前位置";
 
