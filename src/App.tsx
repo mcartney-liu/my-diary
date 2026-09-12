@@ -207,7 +207,7 @@ function EditorPageWrapper(props: {
   return (
     <EditorPage
       initialDiary={existing}
-      onSave={(d) => { props.onUpsert(d); }}
+      onSave={async (d) => { await props.onUpsert(d); }}
       onSoftDelete={(d) => { props.onSoftDelete(d.id); nav("/", { replace: true }); }}
       onCancel={() => nav("/", { replace: true })}
     />

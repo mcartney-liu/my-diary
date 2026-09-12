@@ -91,6 +91,17 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
   const toastTimerRef = useRef<number | null>(null);
   const prompt = promptForDate(date);
 
+  // Web Speech API（浏览器原生语音转写，PM-OS 同款）
+  const speechRecRef = useRef<any>(null);
+  const speechStreamRef = useRef<MediaStream | null>(null);
+  const recordingStartRef = useRef(0);
+  const speechFinalRef = useRef<string>("");
+  const [speechInterim, setSpeechInterim] = useState("");
+  const [speechSupported] = useState<boolean>(() =>
+    typeof window !== "undefined" &&
+    ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)
+  );
+
   // 标签弹框 outside-click 关闭
   const tagPopoverRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -199,8 +210,42 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
   };
 
   const startRecording = async () => {
+    speechFinalRef.current = "";
+    setSpeechInterim("");
+
+    // 1) 申请麦克风权限
+    let stream: MediaStream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      speechStreamRef.current = stream;
+    } catch {
+      alert("无法访问麦克风，请检查权限或改用上方📎上传录音文件");
+      return;
+    }
+
+    // 2) Web Speech API 实时转写（支持就用它，PM-OS 同款）
+    if (speechSupported) {
+      const SR = (window as any).webkitSpeechRecognition ?? (window as any).SpeechRecognition;
+      const rec = new SR();
+      rec.lang = "zh-CN";
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.onresult = (e: any) => {
+        let interim = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const res = e.results[i];
+          if (res.isFinal) speechFinalRef.current += res[0].transcript;
+          else interim += res[0].transcript;
+        }
+        setSpeechInterim(interim);
+      };
+      rec.onerror = (e: any) => console.warn("[mydiary] speechRec:", e.error);
+      rec.start();
+      speechRecRef.current = rec;
+    }
+
+    // 3) 同时录一份音频做备份
+    try {
       const mimeCandidates = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"];
       const mime = mimeCandidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "audio/webm";
       const mr = new MediaRecorder(stream, { mimeType: mime });
@@ -208,26 +253,42 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
       mr.ondataavailable = (e) => { if (e.data.size) recordedChunksRef.current.push(e.data); };
       mr.onstop = () => {
         const blob = new Blob(recordedChunksRef.current, { type: mime });
-        const durationMs = Date.now() - startTime;
+        const durationMs = Date.now() - recordingStartRef.current;
         const reader = new FileReader();
-        reader.onload = () => {
-          setPendingRec({ blob, dataUrl: reader.result as string, durationMs });
-          stream.getTracks().forEach((t) => t.stop());
-        };
+        reader.onload = () => setPendingRec({ blob, dataUrl: reader.result as string, durationMs });
         reader.readAsDataURL(blob);
       };
-      const startTime = Date.now();
       mr.start();
       mediaRecorderRef.current = mr;
-      setRecording(true);
-    } catch {
-      alert("无法访问麦克风，请检查权限或改用上方📎上传录音文件");
+    } catch (e) {
+      console.warn("[mydiary] MediaRecorder 不可用，仅语音转写:", e);
     }
+
+    recordingStartRef.current = Date.now();
+    setRecording(true);
   };
+
   const stopRecording = () => {
-    mediaRecorderRef.current?.stop();
+    const finalText = speechFinalRef.current.trim();
+    const interimText = speechInterim.trim();
+    const allText = (finalText + " " + interimText).trim();
+
+    // 停 Web Speech
+    try { speechRecRef.current?.stop(); } catch {}
+    speechRecRef.current = null;
+    // 停 MediaRecorder
+    try { mediaRecorderRef.current?.stop(); } catch {}
     mediaRecorderRef.current = null;
+    // 停麦克风
+    speechStreamRef.current?.getTracks().forEach((t) => t.stop());
+    speechStreamRef.current = null;
     setRecording(false);
+    setSpeechInterim("");
+
+    // 有实时转写文字 → 直接贴成文字块（PM-OS 风格，零延迟零后端）
+    if (allText) addBlock("text", allText);
+    // 录音文件（pendingRec）等 MediaRecorder 的 onstop 回调来处理
+    // 用户可以选择「仅保存音频」或如果有后端再「AI 转写」
   };
 
   const confirmAudioOnly = () => {
@@ -679,6 +740,21 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
             <ImagePlus size={16} /> 图片
           </button>
 
+          {/* Web Speech API 实时转写显示（PM-OS 同款打字机效果） */}
+          {recording && speechSupported && (
+            <div className="col-span-full px-3 py-2 mb-2 rounded-lg bg-red-50 border border-red-200 text-sm">
+              <div className="text-xs text-red-400 font-medium mb-1 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                实时转写中… 说话就会自动变成文字
+              </div>
+              <div className="text-red-900 leading-relaxed">
+                {speechFinalRef.current.split(/(?<=[。！？，])/).filter(Boolean).join(" ")}
+                {speechInterim && <span className="text-red-400 italic">{speechInterim}</span>}
+                {!speechFinalRef.current && !speechInterim && <span className="text-red-300 italic">开始说话…</span>}
+              </div>
+            </div>
+          )}
+
           <button
             onMouseDown={recording ? stopRecording : startRecording}
             onTouchStart={(e) => { e.preventDefault(); recording ? stopRecording() : startRecording(); }}
@@ -691,7 +767,7 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
             }`}
           >
             <Mic size={16} />
-            {recording ? "松开停止录音" : transcribing ? "AI 转写中..." : "按住录音"}
+            {recording ? "松开停止录音" : transcribing ? "AI 转写中..." : speechSupported ? "🎙️ 按住说话（实时转文字）" : "按住录音"}
           </button>
         </div>
       </footer>
