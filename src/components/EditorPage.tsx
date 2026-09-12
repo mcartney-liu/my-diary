@@ -158,12 +158,41 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
     setBlocks((prev) => [...prev, block]);
   };
 
+  // 图片压缩：长边≤1280px，JPEG quality=0.85 → 通常从 3MB 降到 200-400KB
+  const compressImage = (file: File, maxEdge = 1280, quality = 0.85): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const { width, height } = img;
+        const scale = Math.min(maxEdge / Math.max(width, height), 1);
+        const w = Math.round(width * scale);
+        const h = Math.round(height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { reject(new Error("canvas 不可用")); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        // 统一存 JPEG（比 PNG 小 5-10 倍），保留 EXIF 无关紧要
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+
   const handleImagePick = async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => addBlock("image", reader.result as string);
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await compressImage(file);
+      addBlock("image", compressed);
+    } catch {
+      // fallback：压缩失败就存原始
+      const reader = new FileReader();
+      reader.onload = () => addBlock("image", reader.result as string);
+      reader.readAsDataURL(file);
+    }
   };
   const handleAudioPick = async (file: File) => {
+    // 音频不做浏览器端压缩（成本高），以后接 FFmpeg.wasm 再说
     const reader = new FileReader();
     reader.onload = () => addBlock("audio", reader.result as string);
     reader.readAsDataURL(file);

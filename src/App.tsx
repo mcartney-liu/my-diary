@@ -8,9 +8,32 @@ import EditorPage from "./components/EditorPage";
 import TrashPage from "./components/TrashPage";
 import TagsPage from "./components/TagsPage";
 
+// 后台写入 localStorage（不阻塞主线程）
+let saveQueue = Promise.resolve();
+function saveLocalAsync(list: Diary[]) {
+  saveQueue = saveQueue.then(() => new Promise<void>((resolve) => {
+    // 用 requestIdleCallback / setTimeout 把 JSON.stringify + setItem 丢到空闲期
+    const run = () => {
+      try {
+        const raw = JSON.stringify(list);
+        localStorage.setItem("mydiary-web:diaries:v1", raw);
+        console.info("[mydiary] 💾 saveLocalAsync →", list.length, "条", "≈", (raw.length / 1024 / 1024).toFixed(2), "MB");
+      } catch (err) {
+        // QuotaExceededError 或其它存储失败 → 只 warn，不 crash
+        console.warn("[mydiary] localStorage 写入失败:", err);
+      }
+      resolve();
+    };
+    if ("requestIdleCallback" in window) {
+      (window as any).requestIdleCallback(run, { timeout: 1500 });
+    } else {
+      setTimeout(run, 0);
+    }
+  }));
+}
+
 function saveLocal(list: Diary[]) {
-  localStorage.setItem("mydiary-web:diaries:v1", JSON.stringify(list));
-  console.info("[mydiary] 💾 saveLocal →", list.length, "条");
+  saveLocalAsync(list);
 }
 
 function upsertLocal(list: Diary[], d: Diary): Diary[] {
