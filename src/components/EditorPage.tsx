@@ -144,7 +144,7 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const now = Date.now();
     const cleaned = blocks.filter((b) => {
       if (b.kind === "text") return b.content.trim().length > 0;
@@ -162,7 +162,8 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
       updatedAt: now,
     };
     setSaveToast(true);
-    setTimeout(() => onSave(diary), 300);
+    // 同步保存，立即触发 App 的 setDiaries → CalendarPage 重渲染
+    await onSave(diary);
   };
 
   const handleDelete = () => {

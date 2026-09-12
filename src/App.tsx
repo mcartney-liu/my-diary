@@ -9,16 +9,13 @@ export default function App() {
   const [diaries, setDiaries] = useState<Diary[]>([]);
   const [loading, setLoading] = useState(true);
   const [offlineBanner, setOfflineBanner] = useState(false);
-  const lastUserWriteRef = useRef(0);
-  // 防止后台 sync 覆盖刚保存的数据
   const skipBackgroundSyncRef = useRef(false);
 
   useEffect(() => {
     async function init() {
       seedIfEmpty();
 
-      // === 乐观渲染：先 localStorage（0ms），再云端 ===
-      // 先直接读 localStorage（storage.ts 内部用的同一个 key）
+      // 乐观渲染：先 localStorage (0ms)，再云端
       const raw = localStorage.getItem("mydiary-web:diaries:v1");
       if (raw) {
         try {
@@ -27,14 +24,13 @@ export default function App() {
       }
       setLoading(false);
 
-      // === 后台静默 sync（不阻塞首屏） ===
+      // 后台静默 sync（不阻塞首屏）
       fetch(`${import.meta.env.VITE_API_BASE ?? "https://mydiary-api.mcartneyliu.workers.dev"}/api/health`)
         .then((r) => r.ok)
         .then(async (online) => {
           if (!online) return;
           const fresh = await loadDiaries().catch(() => null);
           if (!fresh) return;
-          // 只有没被用户操作过，才用云端数据覆盖
           if (!skipBackgroundSyncRef.current) {
             setDiaries(fresh);
           }
@@ -51,13 +47,11 @@ export default function App() {
   }, [offlineBanner]);
 
   const handleUpsert = async (d: Diary) => {
-    lastUserWriteRef.current = Date.now();
-    skipBackgroundSyncRef.current = true; // 告诉后台 sync 别覆盖
+    skipBackgroundSyncRef.current = true;
     const next = await upsertDiary(diaries, d);
     setDiaries(next);
   };
   const handleDelete = async (id: string) => {
-    lastUserWriteRef.current = Date.now();
     skipBackgroundSyncRef.current = true;
     const next = await deleteDiary(diaries, id);
     setDiaries(next);
@@ -75,7 +69,7 @@ export default function App() {
     <>
       {offlineBanner && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-yellow-100 text-yellow-800 text-xs text-center py-1 animate-[fade-in_0.3s]">
-          ⚠️ 当前离线，数据仅保存在本地，联网后自动同步
+          Offline - saved locally, will sync when online
         </div>
       )}
 
@@ -112,9 +106,9 @@ function EditorPageWrapper(props: {
   return (
     <EditorPage
       initialDiary={existing}
-      onSave={async (d) => { await props.onUpsert(d); nav("/"); }}
-      onDelete={async (d) => { await props.onDelete(d.id); nav("/"); }}
-      onCancel={() => nav("/")}
+      onSave={async (d) => { await props.onUpsert(d); nav("/", { replace: true }); }}
+      onDelete={async (d) => { await props.onDelete(d.id); nav("/", { replace: true }); }}
+      onCancel={() => nav("/", { replace: true })}
     />
   );
 }
