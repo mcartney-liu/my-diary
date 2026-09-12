@@ -42,7 +42,10 @@ function openMeteoDesc(code: number): string {
   return "晴";
 }
 
-/** Nominatim 反向地理编码：坐标 → "北京市 · 中国" */
+/** Nominatim 反向地理编码：坐标 → "北京市 · 中国"
+ * 策略：先试 address 里的 city/state/country，不行就从 display_name 里提取
+ * display_name 格式："社区, 街道, 区, 北京市, 邮编, 国家" → 取倒数第 2、4 项
+ */
 async function reverseGeocode(lat: number, lon: number): Promise<string> {
   try {
     const r = await fetch(
@@ -53,22 +56,30 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
     const json = await r.json();
     const addr = json.address ?? {};
 
-    // 规则：优先 state_district > state > city（处理北京直辖市坑）
+    // 1) 优先从结构化 address 取
+    //    兼容直辖市：state_district="北京市" 但 city="东城区"（是区不是市）
     const topRegion =
-      (addr.state_district && addr.city !== addr.state_district) ? addr.state_district
-      : addr.state ?? addr.province ?? addr.region
+      addr.state_district
+      ?? addr.state ?? addr.province ?? addr.region
       ?? addr.city ?? addr.town ?? addr.village
       ?? "";
     const country = addr.country ?? "";
+    const structured = [topRegion, country].filter((x) => x && x.trim()).join(" · ");
 
-    const parts = [topRegion, country].filter((x) => x && x.trim());
-    let name = parts.join(" · ");
+    if (structured && structured.length >= 4) return structured;
 
-    // fallback: display_name 截断
-    if (!name && json.display_name) {
-      name = json.display_name.split(",").slice(0, 2).join("").trim();
+    // 2) fallback：从 display_name 提取（跳过邮编，取最后 3-4 个有意义的部分）
+    if (json.display_name) {
+      const parts = json.display_name
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0 && !/^\d{4,}$/.test(s)); // 跳过纯数字邮编
+      // 取最后 2-3 个：通常是 省份/直辖市, 国家
+      const tail = parts.slice(-2).join(" · ");
+      if (tail.length >= 3) return tail;
     }
-    return name;
+
+    return "";
   } catch {
     return "";
   }
