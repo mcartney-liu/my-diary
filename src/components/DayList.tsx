@@ -21,6 +21,9 @@ function firstBlockText(d: Diary): string {
 function hasImage(d: Diary): boolean {
   return d.blocks.some((b) => b.kind === "image");
 }
+function hasAudio(d: Diary): boolean {
+  return d.blocks.some((b) => b.kind === "audio");
+}
 
 function daysUntilUnlock(ms: number): number {
   return Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000));
@@ -117,9 +120,10 @@ export default function DayList({ date, diaries }: Props) {
                       <h3 className="font-medium text-paper-ink truncate">
                         {d.title || (mood ? mood.name : "无题")}
                       </h3>
-                      {hasImage(d) && (
-                        <span className="text-xs text-paper-ink3 shrink-0">🖼️</span>
-                      )}
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        {hasImage(d) && <span className="text-xs text-paper-ink3">🖼️</span>}
+                        {hasAudio(d) && <span className="text-xs text-paper-ink3">🎙️</span>}
+                      </div>
                     </div>
                     <p className="text-sm text-paper-ink2 line-clamp-2 leading-relaxed">
                       {firstBlockText(d) || <span className="italic text-paper-ink3">（仅图片/录音）</span>}
