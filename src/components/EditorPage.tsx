@@ -227,7 +227,51 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
     b.kind === "text" ? b.content.trim().length > 0 : !!b.content
   );
 
-  const todayCapsuleUnlock = initialDiary?.capsuleUnlockAt && initialDiary.capsuleUnlockAt > Date.now();
+  const isLocked = !!(initialDiary?.capsuleUnlockAt && initialDiary.capsuleUnlockAt > Date.now());
+
+  // 被 capsule 锁定的日记 → 显示封存页面，不让编辑/查看正文
+  if (isLocked && initialDiary) {
+    const msLeft = initialDiary.capsuleUnlockAt! - Date.now();
+    const daysLeft = Math.ceil(msLeft / (24 * 60 * 60 * 1000));
+    const hoursLeft = Math.ceil((msLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+    return (
+      <div className="min-h-screen bg-[#faf6ef] flex flex-col">
+        <header className="sticky top-0 z-10 bg-[#faf6ef]/95 backdrop-blur border-b border-paper-line">
+          <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center">
+            <button
+              onClick={onCancel}
+              className="p-2 -ml-2 rounded-full hover:bg-paper-surface active:scale-95"
+            >
+              <ArrowLeft size={20} className="text-paper-ink" />
+            </button>
+            <div className="ml-2 text-sm text-paper-ink font-medium">封存中</div>
+          </div>
+        </header>
+        <div className="flex-1 max-w-md w-full mx-auto px-6 py-16 flex flex-col items-center text-center">
+          <div className="text-6xl mb-6">🔒</div>
+          <h1 className="text-xl font-semibold text-amber-800 mb-2">时间胶囊封存中</h1>
+          <p className="text-sm text-amber-700/70 mb-6 leading-relaxed">
+            这篇日记被你锁进了时间胶囊，<br />
+            只有等到解封之日才能看到内容。
+          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl px-8 py-5 mb-6">
+            <div className="text-3xl font-bold text-amber-700">
+              {daysLeft} <span className="text-base font-normal text-amber-600">天</span>
+            </div>
+            <div className="text-xs text-amber-600/70 mt-1">
+              再加 {hoursLeft} 小时 · 解锁于 {new Date(initialDiary.capsuleUnlockAt!).toLocaleDateString("zh-CN")}
+            </div>
+          </div>
+          <button
+            onClick={onCancel}
+            className="px-6 py-2.5 rounded-full bg-amber-100 text-amber-800 text-sm font-medium hover:bg-amber-200 transition active:scale-95"
+          >
+            返回首页
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#faf6ef] flex flex-col">
