@@ -69,11 +69,37 @@ export async function healthCheck() {
   }
 }
 
-// Whisper 语音转文字 — 发送原始 audio blob
+// Whisper 语音转文字
+// 优先走 Vite proxy → 本地 Whisper 服务（localhost:8080）
+// 本地没起 → fallback 到 Cloudflare Worker
 export async function transcribeAudio(blob: Blob): Promise<string> {
+  const body = blob;
+  const headers = { "Content-Type": "application/octet-stream" };
+
+  // 1) 本地 Whisper 服务（Vite proxy 会把 /api/transcribe 转到 localhost:8080）
+  try {
+    const res = await fetch("/api/transcribe", {
+      method: "POST",
+      body,
+      headers,
+    });
+    if (res.ok) {
+      const data = (await res.json()) as { text?: string };
+      if (data.text && data.text.trim()) {
+        console.info("[mydiary] transcribeAudio: 本地 Whisper 成功");
+        return data.text.trim();
+      }
+    }
+    console.info("[mydiary] transcribeAudio: 本地服务不可用（%s），尝试云端", res.status);
+  } catch (e) {
+    console.info("[mydiary] transcribeAudio: 本地没起，尝试云端");
+  }
+
+  // 2) Fallback: Cloudflare Worker
   const res = await fetch(`${API_BASE}/api/transcribe`, {
     method: "POST",
-    body: blob,
+    body,
+    headers,
   });
   if (!res.ok) {
     const err = await res.text().catch(() => res.statusText);
