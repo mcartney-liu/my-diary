@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2 } from "lucide-react";
+import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
@@ -742,7 +742,9 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
              {/* 可编辑转写文字（Web Speech 实时转写结果，用户可改） */}
              {pendingRec.speechText !== undefined || editableTranscript ? (
                <div>
-                 <div className="text-xs text-paper-accent font-medium mb-1.5">📝 语音转文字（可编辑）</div>
+                 <div className="text-xs text-paper-accent font-medium mb-1.5 flex items-center gap-1.5">
+                    <FileText size={13} /> 语音转文字（可编辑）
+                  </div>
                  <textarea
                    value={editableTranscript}
                    onChange={(e) => setEditableTranscript(e.target.value)}
@@ -758,35 +760,35 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
              )}
 
              <div className="space-y-2 pt-1">
-              {editableTranscript.trim() && (
-                <button
-                  onClick={confirmSaveTextOnly}
-                  className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition"
-                >
-                  📝 仅保留文字
-                </button>
-              )}
-              <button
-                onClick={confirmSaveAudioAndText}
-                className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition"
-              >
-                ✅ 保留音频 + 文字
-              </button>
-              <button
-                onClick={confirmSaveAudioOnly}
-                className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition"
-              >
-                🎵 仅保留音频
-              </button>
-              {!speechSupported && (
-                <button
-                  onClick={confirmRerunAI}
-                  disabled={transcribing}
-                  className="w-full py-2.5 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm hover:bg-paper-line/50 active:scale-95 transition disabled:opacity-50"
-                >
-                  🤖 {transcribing ? "AI 识别中..." : "AI 重新转写"}
-                </button>
-              )}
+               {editableTranscript.trim() && (
+                 <button
+                   onClick={confirmSaveTextOnly}
+                   className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition flex items-center justify-center gap-2"
+                 >
+                   <FileText size={16} /> 仅保留文字
+                 </button>
+               )}
+               <button
+                 onClick={confirmSaveAudioAndText}
+                 className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition flex items-center justify-center gap-2"
+               >
+                 <FileAudio size={16} /> 保留音频 + 文字
+               </button>
+               <button
+                 onClick={confirmSaveAudioOnly}
+                 className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition flex items-center justify-center gap-2"
+               >
+                 <Music size={16} /> 仅保留音频
+               </button>
+               {!speechSupported && (
+                 <button
+                   onClick={confirmRerunAI}
+                   disabled={transcribing}
+                   className="w-full py-2.5 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm hover:bg-paper-line/50 active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                 >
+                   <Bot size={16} /> {transcribing ? "AI 识别中..." : "AI 重新转写"}
+                 </button>
+               )}
               <button
                 onClick={cancelPending}
                 className="w-full py-2 rounded-xl text-paper-ink2 text-sm hover:bg-paper-surface active:scale-95"
@@ -896,7 +898,7 @@ function RecordingButton({
       }`}
     >
       <Mic size={16} />
-      {recording ? "停止录音" : "按住或点按录音"}
+      {recording ? "停止录音" : "点按录音"}
     </button>
   );
 }
