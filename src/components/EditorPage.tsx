@@ -1,16 +1,17 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2 } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
-import { MOOD_TAGS, moodById, today } from "../data";
+import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
 import { transcribeAudio } from "../api";
+import { fetchWeather, fetchLocation } from "../weather";
 import TextBlock from "./TextBlock";
 import ImageBlock from "./ImageBlock";
 import AudioBlock from "./AudioBlock";
 
 interface Props {
   initialDiary?: Diary;
-  onSave: (d: Diary) => void;
+  onSave: (d: Diary) => Promise<void>;
   onDelete: (d: Diary) => void;
   onCancel: () => void;
 }
@@ -36,6 +37,13 @@ function fmtDuration(ms: number): string {
   return r ? `${m}分${r}秒` : `${m}分`;
 }
 
+function promptForDate(dateStr: string): string {
+  // 用日期哈希固定同一天的 prompt，每天换
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const seed = (y * 1000 + m * 50 + d) % PROMPTS.length;
+  return PROMPTS[seed];
+}
+
 export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }: Props) {
   const [title, setTitle] = useState(initialDiary?.title ?? "");
   const [date] = useState(initialDiary?.date ?? today());
@@ -44,14 +52,44 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
     initialDiary?.blocks?.length ? initialDiary.blocks : [{ id: uid("b"), kind: "text" as const, content: "" }]
   );
   const [showMood, setShowMood] = useState(false);
-  const imageInputRef = useRef<HTMLInputElement>(null);
-  const audioInputRef = useRef<HTMLInputElement>(null);
+  const [weather, setWeather] = useState(initialDiary?.weather ?? null);
+  const [location, setLocation] = useState(initialDiary?.location ?? null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [capsuleDays, setCapsuleDays] = useState<number | null>(null);
+  const [showCapsuleMenu, setShowCapsuleMenu] = useState(false);
+  const [saveToast, setSaveToast] = useState(false);
   const [recording, setRecording] = useState(false);
   const [pendingRec, setPendingRec] = useState<PendingRecording | null>(null);
   const [transcribing, setTranscribing] = useState(false);
-  const [saveToast, setSaveToast] = useState(false);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+  const prompt = promptForDate(date);
+
+  // 自动抓天气 + 位置（仅新建日记时）
+  useEffect(() => {
+    if (initialDiary) return; // 编辑模式不自动抓
+    let cancelled = false;
+    (async () => {
+      setWeatherLoading(true);
+      try {
+        const loc = await fetchLocation();
+        if (cancelled) return;
+        if (loc) {
+          setLocation({ name: loc.name, lat: loc.lat, lon: loc.lon });
+          const w = await fetchWeather(loc.lat, loc.lon);
+          if (!cancelled && w) setWeather(w);
+        } else {
+          const w = await fetchWeather(); // 默认北京
+          if (!cancelled && w) setWeather(w);
+        }
+      } catch { /* ignore */ }
+      setWeatherLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [initialDiary]);
 
   const updateBlock = (id: string, patch: Partial<DiaryBlock>) => {
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
@@ -72,7 +110,6 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
     reader.onload = () => addBlock("image", reader.result as string);
     reader.readAsDataURL(file);
   };
-
   const handleAudioPick = async (file: File) => {
     const reader = new FileReader();
     reader.onload = () => addBlock("audio", reader.result as string);
@@ -82,12 +119,7 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // iOS Safari 只支持 mp4，Android/桌面支持 webm → 自动选
-      const mimeCandidates = [
-        "audio/mp4",          // iOS Safari
-        "audio/webm;codecs=opus",
-        "audio/webm",
-      ];
+      const mimeCandidates = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"];
       const mime = mimeCandidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "audio/webm";
       const mr = new MediaRecorder(stream, { mimeType: mime });
       recordedChunksRef.current = [];
@@ -97,7 +129,6 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
         const durationMs = Date.now() - startTime;
         const reader = new FileReader();
         reader.onload = () => {
-          // 录完了 → 不自动转，弹选择框
           setPendingRec({ blob, dataUrl: reader.result as string, durationMs });
           stream.getTracks().forEach((t) => t.stop());
         };
@@ -117,14 +148,11 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
     setRecording(false);
   };
 
-  // 用户选择：仅存音频
   const confirmAudioOnly = () => {
     if (!pendingRec) return;
     addBlock("audio", pendingRec.dataUrl, pendingRec.durationMs);
     setPendingRec(null);
   };
-
-  // 用户选择：音频 + AI 转文字
   const confirmAudioAndTranscribe = async () => {
     if (!pendingRec) return;
     const rec = pendingRec;
@@ -133,9 +161,7 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
     setTranscribing(true);
     try {
       const text = await transcribeAudio(rec.blob);
-      if (text.trim()) {
-        addBlock("text", text.trim());
-      }
+      if (text.trim()) addBlock("text", text.trim());
     } catch (err) {
       console.warn("转文字失败:", err);
       alert("AI 转写失败，仅保存了音频。请确认 Worker 已部署且 Whisper 可用。");
@@ -152,17 +178,24 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
     });
     const finalBlocks: DiaryBlock[] = cleaned.length ? cleaned : [{ id: uid("b"), kind: "text" as const, content: "" }];
 
+    const capsuleUnlockAt = capsuleDays
+      ? now + capsuleDays * 24 * 60 * 60 * 1000
+      : initialDiary?.capsuleUnlockAt;
+
     const diary: Diary = {
       id: initialDiary?.id ?? uid("d"),
       title: title.trim(),
       date,
       moodId,
       blocks: finalBlocks,
+      weather: weather ?? undefined,
+      location: location ?? undefined,
+      promptId: capsuleDays ? `capsule-${capsuleDays}d` : undefined,
+      capsuleUnlockAt,
       createdAt: initialDiary?.createdAt ?? now,
       updatedAt: now,
     };
     setSaveToast(true);
-    // 同步保存，立即触发 App 的 setDiaries → CalendarPage 重渲染
     await onSave(diary);
   };
 
@@ -174,6 +207,8 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
   const hasContent = title.trim() || blocks.some((b) =>
     b.kind === "text" ? b.content.trim().length > 0 : !!b.content
   );
+
+  const todayCapsuleUnlock = initialDiary?.capsuleUnlockAt && initialDiary.capsuleUnlockAt > Date.now();
 
   return (
     <div className="min-h-screen bg-[#faf6ef] flex flex-col">
@@ -214,8 +249,8 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
         </div>
       )}
 
-      {/* 标题 */}
       <div className="max-w-2xl w-full mx-auto px-4 pt-1">
+        {/* 标题 */}
         <input
           type="text"
           value={title}
@@ -223,14 +258,25 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
           placeholder="标题..."
           className="w-full text-2xl font-bold text-paper-ink placeholder:text-paper-ink2/50 bg-transparent outline-none py-2"
         />
-        {/* 只读日期 + 心情 */}
-        <div className="flex items-center gap-3 pt-1">
-          <span className="text-sm text-paper-ink2">
-            {dateStr(date)}
-          </span>
+
+        {/* 只读日期 + 心情 + 天气胶囊 */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <span className="text-sm text-paper-ink2">{dateStr(date)}</span>
+
+          {/* 天气/位置 chip */}
+          {weatherLoading && <span className="text-xs text-paper-ink2 animate-pulse">📍 定位中...</span>}
+          {weather && (
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-paper-surface border border-paper-line">
+              <span>{weather.icon}</span>
+              <span className="text-paper-ink">{weather.temp}°</span>
+              {location?.name && <span className="text-paper-ink2">· {location.name}</span>}
+            </span>
+          )}
+
+          {/* 心情按钮 */}
           <button
             onClick={() => setShowMood((s) => !s)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm"
           >
             {moodId ? (
               <>{moodById(moodId)!.icon} {moodById(moodId)!.name}</>
@@ -238,8 +284,63 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
               <><Smile size={14} /> 选择心情</>
             )}
           </button>
+
+          {/* 时间胶囊 */}
+          <div className="relative">
+            <button
+              onClick={() => setShowCapsuleMenu((s) => !s)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition ${
+                capsuleDays || todayCapsuleUnlock
+                  ? "bg-amber-100 border-amber-300 text-amber-800"
+                  : "border-paper-line bg-paper-surface text-paper-ink2 hover:bg-paper-line/50"
+              }`}
+            >
+              🔒 {todayCapsuleUnlock
+                ? `解锁中 ${Math.ceil((initialDiary!.capsuleUnlockAt! - Date.now()) / 86400000)}天`
+                : capsuleDays ? `${capsuleDays}天后解锁` : "时间胶囊"}
+            </button>
+            {showCapsuleMenu && (
+              <div
+                className="absolute top-full mt-1 right-0 z-30 bg-paper-card rounded-xl shadow-xl border border-paper-line p-2 w-44 animate-[fade-in_0.15s]"
+                onClick={() => setShowCapsuleMenu(false)}
+              >
+                <div className="text-[10px] text-paper-ink2 px-2 py-1">保存后锁定，到期才能看</div>
+                {[7, 30, 90, 365].map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setCapsuleDays(capsuleDays === d ? null : d)}
+                    className={`w-full text-left px-2 py-1.5 rounded-lg text-sm transition ${
+                      capsuleDays === d ? "bg-amber-100 text-amber-800" : "hover:bg-paper-surface text-paper-ink"
+                    }`}
+                  >
+                    🔒 {d === 7 ? "一周" : d === 30 ? "一个月" : d === 90 ? "三个月" : "一年"}后解锁
+                  </button>
+                ))}
+                {capsuleDays && (
+                  <button
+                    onClick={() => setCapsuleDays(null)}
+                    className="w-full text-left px-2 py-1.5 rounded-lg text-sm text-paper-ink2 hover:bg-paper-surface"
+                  >
+                    取消胶囊
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
+        {/* 每日 Prompt 卡片（新建日记时显示） */}
+        {!initialDiary && blocks.every((b) => b.kind === "text" && !b.content.trim()) && (
+          <div className="mt-3 p-3 rounded-xl border border-dashed border-paper-accent/40 bg-paper-accent/5">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-sm">💡</span>
+              <span className="text-xs text-paper-accent font-medium">今日写作提示</span>
+            </div>
+            <div className="text-sm text-paper-ink">{prompt}</div>
+          </div>
+        )}
+
+        {/* 心情选择 */}
         {showMood && (
           <div className="pt-2 pb-3 flex gap-2 flex-wrap">
             {MOOD_TAGS.map((m) => (
@@ -280,9 +381,7 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
             {b.kind === "audio" && (
               <AudioBlock block={b} onRemove={() => removeBlock(b.id)} />
             )}
-            {idx === blocks.length - 1 && (
-              <div className="h-6" />
-            )}
+            {idx === blocks.length - 1 && <div className="h-6" />}
           </div>
           ))}
         </div>
@@ -323,7 +422,7 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
         </div>
       )}
 
-      {/* 转写 loading 遮罩 */}
+      {/* 转写 loading */}
       {transcribing && (
         <div className="fixed inset-0 z-40 bg-black/30 flex items-center justify-center animate-[fade-in_0.2s] pointer-events-none">
           <div className="bg-paper-card rounded-2xl shadow-2xl px-6 py-5 flex items-center gap-3">

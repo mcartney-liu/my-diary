@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
-import { monthCells, moodById } from "../data";
-import MoodStats from "./MoodStats";
+import { monthCells, moodById, fmtDate } from "../data";
+import StreakBadge from "./StreakBadge";
+import SearchBar from "./SearchBar";
+import OnThisDay from "./OnThisDay";
+import MoodHeatmap from "./MoodHeatmap";
 import DayList from "./DayList";
 
 interface Props {
@@ -15,11 +18,8 @@ export default function CalendarPage({ diaries }: Props) {
   const nav = useNavigate();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth()); // 0-indexed
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    const d = now;
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  });
+  const [month, setMonth] = useState(now.getMonth());
+  const [selectedDate, setSelectedDate] = useState<string>(() => fmtDate(now));
 
   const cells = useMemo(() => monthCells(year, month), [year, month]);
 
@@ -27,6 +27,8 @@ export default function CalendarPage({ diaries }: Props) {
   const byDate = useMemo(() => {
     const m = new Map<string, Diary[]>();
     for (const d of diaries) {
+      // 时间胶囊未解锁的不显示
+      if (d.capsuleUnlockAt && d.capsuleUnlockAt > Date.now()) continue;
       const arr = m.get(d.date) ?? [];
       arr.push(d);
       m.set(d.date, arr);
@@ -38,6 +40,7 @@ export default function CalendarPage({ diaries }: Props) {
   const moodByDate = useMemo(() => {
     const m = new Map<string, { moodId: string; count: number }>();
     for (const d of diaries) {
+      if (d.capsuleUnlockAt && d.capsuleUnlockAt > Date.now()) continue;
       const prev = m.get(d.date);
       if (prev) {
         m.set(d.date, { moodId: d.moodId ?? prev.moodId, count: prev.count + 1 });
@@ -57,10 +60,10 @@ export default function CalendarPage({ diaries }: Props) {
     else setMonth((m) => m + 1);
   };
 
-  const todayStr = now.toISOString().slice(0, 10);
+  const todayStr = fmtDate(now);
 
   return (
-    <div className="min-h-screen pb-24">
+    <div className="min-h-screen pb-28">
       {/* 顶部导航 */}
       <header className="sticky top-0 z-20 backdrop-blur-sm bg-[#faf6ef]/85 border-b border-paper-line/60">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -76,7 +79,13 @@ export default function CalendarPage({ diaries }: Props) {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 pt-6 space-y-6">
+      <main className="max-w-3xl mx-auto px-4 pt-4 space-y-4">
+        {/* 搜索栏 */}
+        <SearchBar diaries={diaries} />
+
+        {/* 打卡徽章 */}
+        <StreakBadge diaries={diaries} />
+
         {/* 月历卡片 */}
         <section className="card p-4 md:p-6 animate-fade-up">
           {/* 月份切换 */}
@@ -100,12 +109,15 @@ export default function CalendarPage({ diaries }: Props) {
           {/* 42 格 */}
           <div className="grid grid-cols-7 gap-1 md:gap-2">
             {cells.map((d, i) => {
-              const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+              const ds = fmtDate(d);
               const inMonth = d.getMonth() === month;
               const isToday = ds === todayStr;
               const isSelected = ds === selectedDate;
               const moodInfo = moodByDate.get(ds);
               const mood = moodInfo?.moodId ? moodById(moodInfo.moodId) : null;
+              const capsuleLocked = byDate.get(ds)?.some(
+                (x) => x.capsuleUnlockAt && x.capsuleUnlockAt > Date.now()
+              );
 
               return (
                 <button
@@ -127,6 +139,9 @@ export default function CalendarPage({ diaries }: Props) {
                       {mood.icon}
                     </span>
                   )}
+                  {capsuleLocked && !mood && (
+                    <span className="text-[10px] mt-0.5">🔒</span>
+                  )}
                   {moodInfo && moodInfo.count > 1 && (
                     <span className={[
                       "absolute bottom-0.5 right-1 text-[10px] leading-none rounded-full px-1 py-0.5",
@@ -141,11 +156,16 @@ export default function CalendarPage({ diaries }: Props) {
           </div>
         </section>
 
-        {/* 心情统计 + 当日日记 */}
-        <section className="space-y-6 animate-fade-up" style={{ animationDelay: "80ms" }}>
-          <MoodStats diaries={diaries} year={year} month={month} />
+        {/* On This Day */}
+        <OnThisDay diaries={diaries} />
+
+        {/* 当日日记 */}
+        <section className="animate-fade-up" style={{ animationDelay: "100ms" }}>
           <DayList date={selectedDate} diaries={byDate.get(selectedDate) ?? []} />
         </section>
+
+        {/* 年度热力图 */}
+        <MoodHeatmap diaries={diaries} />
       </main>
     </div>
   );

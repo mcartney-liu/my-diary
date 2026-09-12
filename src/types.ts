@@ -1,4 +1,4 @@
-﻿export type MoodId = "happy" | "calm" | "sad" | "angry" | "anxious";
+export type MoodId = "happy" | "calm" | "sad" | "angry" | "anxious";
 
 export interface MoodTag {
   id: MoodId;
@@ -16,12 +16,28 @@ export interface DiaryBlock {
   durationMs?: number;       // 仅 audio
 }
 
+export interface WeatherInfo {
+  temp: number;       // Celsius
+  description: string; // "晴朗" / "小雨"
+  icon: string;        // emoji ☀️🌧️
+}
+
+export interface LocationInfo {
+  name: string;        // "北京" / 逆地理编码结果
+  lat?: number;
+  lon?: number;
+}
+
 export interface Diary {
   id: string;
   title: string;
   date: string;              // YYYY-MM-DD
   moodId: MoodId | null;
   blocks: DiaryBlock[];
+  weather?: WeatherInfo;     // 自动记录
+  location?: LocationInfo;   // 自动记录
+  promptId?: string;         // 用了哪个每日 Prompt
+  capsuleUnlockAt?: number;  // 时间胶囊：设定后日记锁定，直到此时间戳解锁
   createdAt: number;
   updatedAt: number;
 }
