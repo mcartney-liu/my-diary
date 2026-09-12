@@ -60,9 +60,9 @@ export default function CalendarPage({ diaries }: Props) {
   const todayStr = now.toISOString().slice(0, 10);
 
   return (
-    <div className="min-h-screen paper-bg pb-24">
+    <div className="min-h-screen pb-24">
       {/* 顶部导航 */}
-      <header className="sticky top-0 z-20 backdrop-blur-sm bg-paper-bg/80 border-b border-paper-line/60">
+      <header className="sticky top-0 z-20 backdrop-blur-sm bg-[#faf6ef]/85 border-b border-paper-line/60">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-paper-ink text-paper-bg flex items-center justify-center text-lg">
@@ -116,9 +116,9 @@ export default function CalendarPage({ diaries }: Props) {
                     "text-sm md:text-base transition-all duration-150",
                     !inMonth ? "text-paper-ink3/40" : "text-paper-ink",
                     isSelected
-                      ? "bg-paper-ink text-paper-bg shadow-cardHover scale-[1.03]"
+                      ? "bg-paper-accent/20 ring-2 ring-paper-accent"
                       : "hover:bg-paper-surface active:bg-paper-line/60",
-                    isToday && !isSelected ? "ring-2 ring-paper-accent ring-offset-2 ring-offset-paper-card" : "",
+                    isToday && !isSelected ? "ring-2 ring-paper-accent/60" : "",
                   ].join(" ")}
                 >
                   <span className="font-medium">{d.getDate()}</span>

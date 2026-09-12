@@ -25,7 +25,7 @@ export default {
         },
       },
       fontFamily: {
-        hand: ['"Ma Shan Zheng"', '"KaiTi"', '"STKaiti"', "serif"],
+        hand: ['"Ma Shan Zheng"', '"Kalam"', '"KaiTi"', '"STKaiti"', '"楷体"', "system-ui", "sans-serif"],
       },
       boxShadow: {
         card: "0 2px 12px -2px rgba(45,31,20,0.08), 0 1px 3px rgba(45,31,20,0.04)",

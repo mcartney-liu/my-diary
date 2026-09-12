@@ -1,4 +1,18 @@
-@import url('https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&family=Kalam:wght@400;600&display=swap');
+/* === 本地字体（永远秒开，不受网络影响） === */
+@font-face {
+  font-family: "Ma Shan Zheng";
+  src: url("/fonts/MaShanZheng.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Kalam";
+  src: url("/fonts/Kalam.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 
 @tailwind base;
 @tailwind components;
@@ -7,35 +21,27 @@
 html, body, #root { height: 100%; }
 body {
   margin: 0;
-  font-family: "Kalam", "Ma Shan Zheng", "KaiTi", "STKaiti", system-ui, sans-serif;
+  font-family: "Ma Shan Zheng", "Kalam", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif;
   background-color: #faf6ef;
   color: #3d2f1f;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* 复古信纸背景 — 横线 + 左侧红竖线 */
-.paper-bg {
-  position: relative;
-  background-color: #faf6ef;
-  background-image:
-    linear-gradient(to right, transparent 56px, rgba(229,115,115,0.35) 56px, rgba(229,115,115,0.35) 57px, transparent 57px),
-    repeating-linear-gradient(
-      to bottom,
-      transparent 0px,
-      transparent 47px,
-      rgba(224, 216, 196, 0.7) 47px,
-      rgba(224, 216, 196, 0.7) 48px
-    );
-  background-position: 0 64px;
-  background-size: 100% 48px;
+/* 强制所有表单元素继承字体（修复 iOS Safari textarea/input 默认系统字体覆盖） */
+input, textarea, select, button {
+  font-family: inherit;
+  -webkit-appearance: none;
+}
+/* placeholder 也要用手写体 */
+input::placeholder, textarea::placeholder {
+  font-family: inherit;
 }
 
-/* 编辑器信纸 — 横线与文字 leading-8 (32px) 精确对齐 */
+/* 编辑器信纸 — 只有横线（没有红色竖线） */
 .paper-editor {
   position: relative;
   background-color: #faf6ef;
   background-image:
-    linear-gradient(to right, transparent 56px, rgba(229,115,115,0.45) 56px, rgba(229,115,115,0.45) 57px, transparent 57px),
     repeating-linear-gradient(
       to bottom,
       transparent 0px,

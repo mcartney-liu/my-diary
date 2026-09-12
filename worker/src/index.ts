@@ -3,6 +3,7 @@
 
 interface Env {
   DB: D1Database;
+  AI: Ai;
 }
 
 interface DiaryRow {
@@ -242,6 +243,23 @@ async function handleSync(req: Request, db: D1Database): Promise<Response> {
   });
 }
 
+// POST /api/transcribe — 接收音频 blob，用 Whisper 转文字
+async function handleTranscribe(req: Request, ai: Ai): Promise<Response> {
+  if (req.method !== "POST") return jsonResponse({ error: "method not allowed" }, 405);
+
+  try {
+    const buffer = await req.arrayBuffer();
+    const audioArray = Array.from(new Uint8Array(buffer));
+
+    const result = await ai.run("@cf/openai/whisper", { audio: audioArray });
+    return jsonResponse({ text: result.text ?? "" });
+  } catch (e) {
+    const err = e as Error;
+    console.error("transcribe error:", err);
+    return jsonResponse({ error: err.message }, 500);
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     // CORS preflight
@@ -260,6 +278,11 @@ export default {
     const path = url.pathname;
 
     try {
+      // POST /api/transcribe — Whisper 语音转文字
+      if (path === "/api/transcribe") {
+        return handleTranscribe(request, env.AI);
+      }
+
       // GET /api/health — 健康检查
       if (path === "/api/health") {
         return jsonResponse({ ok: true, time: Date.now() });

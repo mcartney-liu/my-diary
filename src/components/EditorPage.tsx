@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
-import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile } from "lucide-react";
+import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2 } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today } from "../data";
+import { transcribeAudio } from "../api";
 import TextBlock from "./TextBlock";
 import ImageBlock from "./ImageBlock";
 import AudioBlock from "./AudioBlock";
@@ -14,11 +15,25 @@ interface Props {
   onCancel: () => void;
 }
 
+interface PendingRecording {
+  blob: Blob;
+  dataUrl: string;
+  durationMs: number;
+}
+
 function dateStr(date: string): string {
   const [y, m, d] = date.split("-").map(Number);
   const cn = ["日", "一", "二", "三", "四", "五", "六"];
   const w = new Date(y, m - 1, d).getDay();
   return `${y} 年 ${m} 月 ${d} 日 · 周${cn[w]}`;
+}
+
+function fmtDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}秒`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return r ? `${m}分${r}秒` : `${m}分`;
 }
 
 export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }: Props) {
@@ -32,6 +47,9 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
   const imageInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const [recording, setRecording] = useState(false);
+  const [pendingRec, setPendingRec] = useState<PendingRecording | null>(null);
+  const [transcribing, setTranscribing] = useState(false);
+  const [saveToast, setSaveToast] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
 
@@ -64,15 +82,23 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
+      // iOS Safari 只支持 mp4，Android/桌面支持 webm → 自动选
+      const mimeCandidates = [
+        "audio/mp4",          // iOS Safari
+        "audio/webm;codecs=opus",
+        "audio/webm",
+      ];
+      const mime = mimeCandidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "audio/webm";
+      const mr = new MediaRecorder(stream, { mimeType: mime });
       recordedChunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size) recordedChunksRef.current.push(e.data); };
-      mr.onstop = async () => {
-        const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" });
+      mr.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: mime });
         const durationMs = Date.now() - startTime;
         const reader = new FileReader();
         reader.onload = () => {
-          addBlock("audio", reader.result as string, durationMs);
+          // 录完了 → 不自动转，弹选择框
+          setPendingRec({ blob, dataUrl: reader.result as string, durationMs });
           stream.getTracks().forEach((t) => t.stop());
         };
         reader.readAsDataURL(blob);
@@ -89,6 +115,33 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
     mediaRecorderRef.current?.stop();
     mediaRecorderRef.current = null;
     setRecording(false);
+  };
+
+  // 用户选择：仅存音频
+  const confirmAudioOnly = () => {
+    if (!pendingRec) return;
+    addBlock("audio", pendingRec.dataUrl, pendingRec.durationMs);
+    setPendingRec(null);
+  };
+
+  // 用户选择：音频 + AI 转文字
+  const confirmAudioAndTranscribe = async () => {
+    if (!pendingRec) return;
+    const rec = pendingRec;
+    setPendingRec(null);
+    addBlock("audio", rec.dataUrl, rec.durationMs);
+    setTranscribing(true);
+    try {
+      const text = await transcribeAudio(rec.blob);
+      if (text.trim()) {
+        addBlock("text", text.trim());
+      }
+    } catch (err) {
+      console.warn("转文字失败:", err);
+      alert("AI 转写失败，仅保存了音频。请确认 Worker 已部署且 Whisper 可用。");
+    } finally {
+      setTranscribing(false);
+    }
   };
 
   const handleSave = () => {
@@ -108,7 +161,8 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
       createdAt: initialDiary?.createdAt ?? now,
       updatedAt: now,
     };
-    onSave(diary);
+    setSaveToast(true);
+    setTimeout(() => onSave(diary), 300);
   };
 
   const handleDelete = () => {
@@ -121,9 +175,9 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
   );
 
   return (
-    <div className="min-h-screen bg-paper-bg flex flex-col">
+    <div className="min-h-screen bg-[#faf6ef] flex flex-col">
       {/* 顶栏 */}
-      <header className="sticky top-0 z-10 bg-paper-bg/95 backdrop-blur border-b border-paper-line">
+      <header className="sticky top-0 z-10 bg-[#faf6ef]/95 backdrop-blur border-b border-paper-line">
         <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center justify-between">
           <button
             onClick={() => { if (hasContent && !initialDiary) { alert("请先保存再离开"); return; } onCancel(); }}
@@ -142,13 +196,22 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
             )}
             <button
               onClick={handleSave}
-              className="flex items-center gap-1 bg-paper-ink text-paper-bg rounded-full px-4 py-1.5 text-sm font-medium hover:opacity-90 active:scale-95 transition"
+              className={`flex items-center gap-1 bg-paper-ink text-paper-bg rounded-full px-4 py-1.5 text-sm font-medium transition active:scale-95 ${
+                saveToast ? "opacity-60" : "hover:opacity-90"
+              }`}
             >
-              <Save size={14} /> 保存
+              <Save size={14} /> {saveToast ? "已保存 ✓" : "保存"}
             </button>
           </div>
         </div>
       </header>
+
+      {/* 保存成功 toast */}
+      {saveToast && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-green-500/95 text-white text-sm px-4 py-2 rounded-full shadow-lg animate-[fade-in_0.3s]">
+          ✓ 已保存
+        </div>
+      )}
 
       {/* 标题 */}
       <div className="max-w-2xl w-full mx-auto px-4 pt-1">
@@ -224,8 +287,53 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
         </div>
       </div>
 
+      {/* 录音后选择弹窗 */}
+      {pendingRec && (
+        <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center px-6 animate-[fade-in_0.2s]">
+          <div className="bg-paper-card rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4">
+            <div className="text-center">
+              <div className="text-lg font-medium text-paper-ink">🎙️ 录音完成</div>
+              <div className="text-sm text-paper-ink2 mt-1">时长 {fmtDuration(pendingRec.durationMs)}</div>
+            </div>
+            <div className="rounded-xl bg-paper-surface p-3">
+              <audio src={pendingRec.dataUrl} controls className="w-full" />
+            </div>
+            <div className="space-y-2">
+              <button
+                onClick={confirmAudioAndTranscribe}
+                className="w-full py-3 rounded-xl bg-paper-ink text-paper-bg text-sm font-medium hover:opacity-90 active:scale-95 transition"
+              >
+                ✨ 保存 + AI 转写文字
+              </button>
+              <button
+                onClick={confirmAudioOnly}
+                className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm hover:bg-paper-line/50 active:scale-95 transition"
+              >
+                🎵 仅保存音频
+              </button>
+              <button
+                onClick={() => setPendingRec(null)}
+                className="w-full py-2 rounded-xl text-paper-ink2 text-sm hover:bg-paper-surface active:scale-95"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 转写 loading 遮罩 */}
+      {transcribing && (
+        <div className="fixed inset-0 z-40 bg-black/30 flex items-center justify-center animate-[fade-in_0.2s] pointer-events-none">
+          <div className="bg-paper-card rounded-2xl shadow-2xl px-6 py-5 flex items-center gap-3">
+            <Loader2 size={20} className="text-paper-accent animate-spin" />
+            <span className="text-sm text-paper-ink">AI 正在听你说了什么...</span>
+          </div>
+        </div>
+      )}
+
       {/* 底部添加栏 */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-paper-bg/95 backdrop-blur border-t border-paper-line">
+      <footer className="fixed bottom-0 left-0 right-0 bg-[#faf6ef]/95 backdrop-blur border-t border-paper-line">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-2">
           <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
             onChange={(e) => e.target.files?.[0] && handleImagePick(e.target.files[0])} />
@@ -243,12 +351,15 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
             onMouseDown={recording ? stopRecording : startRecording}
             onTouchStart={(e) => { e.preventDefault(); recording ? stopRecording() : startRecording(); }}
             onTouchEnd={(e) => { e.preventDefault(); if (recording) stopRecording(); }}
+            disabled={transcribing || !!pendingRec}
             className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-sm transition active:scale-95 ${
-              recording ? "bg-red-500 text-white border-red-500 animate-pulse" : "bg-paper-surface border-paper-line text-paper-ink"
+              recording ? "bg-red-500 text-white border-red-500 animate-pulse" :
+              transcribing ? "bg-amber-100 border-amber-300 text-amber-700 cursor-wait" :
+              "bg-paper-surface border-paper-line text-paper-ink disabled:opacity-50"
             }`}
           >
             <Mic size={16} />
-            {recording ? "松开停止录音" : "按住录音"}
+            {recording ? "松开停止录音" : transcribing ? "AI 转写中..." : "按住录音"}
           </button>
         </div>
       </footer>

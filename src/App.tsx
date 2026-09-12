@@ -1,32 +1,64 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
 import type { Diary } from "./types";
 import { loadDiaries, upsertDiary, deleteDiary, seedIfEmpty } from "./storage";
-import { healthCheck } from "./api";
 import CalendarPage from "./components/CalendarPage";
 import EditorPage from "./components/EditorPage";
 
 export default function App() {
   const [diaries, setDiaries] = useState<Diary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [online, setOnline] = useState<boolean | null>(null);
+  const [offlineBanner, setOfflineBanner] = useState(false);
+  const lastUserWriteRef = useRef(0);
+  // 防止后台 sync 覆盖刚保存的数据
+  const skipBackgroundSyncRef = useRef(false);
 
   useEffect(() => {
     async function init() {
       seedIfEmpty();
-      const list = await loadDiaries();
-      setDiaries(list);
+
+      // === 乐观渲染：先 localStorage（0ms），再云端 ===
+      // 先直接读 localStorage（storage.ts 内部用的同一个 key）
+      const raw = localStorage.getItem("mydiary-web:diaries:v1");
+      if (raw) {
+        try {
+          setDiaries(JSON.parse(raw));
+        } catch { /* ignore */ }
+      }
       setLoading(false);
-      setOnline(await healthCheck());
+
+      // === 后台静默 sync（不阻塞首屏） ===
+      fetch(`${import.meta.env.VITE_API_BASE ?? "https://mydiary-api.mcartneyliu.workers.dev"}/api/health`)
+        .then((r) => r.ok)
+        .then(async (online) => {
+          if (!online) return;
+          const fresh = await loadDiaries().catch(() => null);
+          if (!fresh) return;
+          // 只有没被用户操作过，才用云端数据覆盖
+          if (!skipBackgroundSyncRef.current) {
+            setDiaries(fresh);
+          }
+        })
+        .catch(() => { /* 离线 */ });
     }
     init();
   }, []);
 
+  useEffect(() => {
+    if (!offlineBanner) return;
+    const t = window.setTimeout(() => setOfflineBanner(false), 5000);
+    return () => window.clearTimeout(t);
+  }, [offlineBanner]);
+
   const handleUpsert = async (d: Diary) => {
+    lastUserWriteRef.current = Date.now();
+    skipBackgroundSyncRef.current = true; // 告诉后台 sync 别覆盖
     const next = await upsertDiary(diaries, d);
     setDiaries(next);
   };
   const handleDelete = async (id: string) => {
+    lastUserWriteRef.current = Date.now();
+    skipBackgroundSyncRef.current = true;
     const next = await deleteDiary(diaries, id);
     setDiaries(next);
   };
@@ -41,14 +73,10 @@ export default function App() {
 
   return (
     <>
-      {/* 同步状态条 */}
-      {online === false && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-yellow-100 text-yellow-800 text-xs text-center py-1">
-          ⚠️ 当前离线（数据仅保存在本地，联网后自动同步）
+      {offlineBanner && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-yellow-100 text-yellow-800 text-xs text-center py-1 animate-[fade-in_0.3s]">
+          ⚠️ 当前离线，数据仅保存在本地，联网后自动同步
         </div>
-      )}
-      {online === true && (
-        <div className="hidden">{/* 隐藏状态条 */}</div>
       )}
 
       <Routes>

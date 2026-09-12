@@ -11,5 +11,9 @@
       "database_name": "mydiary",
       "database_id": "ad2dc476-7b12-43cb-87e6-116696c14195"
     }
-  ]
+  ],
+
+  "ai": {
+    "binding": "AI"
+  }
 }

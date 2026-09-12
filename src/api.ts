@@ -68,3 +68,17 @@ export async function healthCheck() {
     return false;
   }
 }
+
+// Whisper 语音转文字 — 发送原始 audio blob
+export async function transcribeAudio(blob: Blob): Promise<string> {
+  const res = await fetch(`${API_BASE}/api/transcribe`, {
+    method: "POST",
+    body: blob,
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`${res.status}: ${err}`);
+  }
+  const data = (await res.json()) as { text?: string };
+  return data.text ?? "";
+}
