@@ -24,6 +24,32 @@ function deleteLocal(list: Diary[], id: string): Diary[] {
   return list.filter((x) => x.id !== id);
 }
 
+// 历史 bug 修复：之前每次保存生成新 uid 导致同一篇日记被复制多份
+// 启动时按 (date, title, firstText) 去重，保留 updatedAt 最新的
+function dedupeDiaries(list: Diary[]): Diary[] {
+  // 第一步：按 id 去重（已经是同一 id 的肯定只留一条）
+  const byId = new Map<string, Diary>();
+  for (const d of list) {
+    const existing = byId.get(d.id);
+    if (!existing || d.updatedAt > existing.updatedAt) byId.set(d.id, d);
+  }
+  const unique = Array.from(byId.values());
+
+  // 第二步：同 date + 同 title + 同首段文字 → 视为重复，留最新
+  const fingerprint = (d: Diary) => {
+    const firstText = d.blocks.find((b) => b.kind === "text")?.content.trim() ?? "";
+    return `${d.date}|${(d.title || "").trim()}|${firstText.slice(0, 80)}`;
+  };
+  const seen = new Map<string, Diary>();
+  for (const d of unique) {
+    const fp = fingerprint(d);
+    const prev = seen.get(fp);
+    if (!prev || d.updatedAt > prev.updatedAt) seen.set(fp, d);
+  }
+  const deduped = Array.from(seen.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+  return deduped;
+}
+
 export default function App() {
   const [diaries, setDiaries] = useState<Diary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +64,14 @@ export default function App() {
       const raw = localStorage.getItem("mydiary-web:diaries:v1");
       if (raw) {
         try {
-          setDiaries(JSON.parse(raw));
+          let parsed: Diary[] = JSON.parse(raw);
+          // 清理历史重复数据（之前的 bug 导致同一篇被复制多份）
+          const cleaned = dedupeDiaries(parsed);
+          if (cleaned.length !== parsed.length) {
+            saveLocal(cleaned); // 回写清理结果
+            console.info(`[mydiary] dedupe: ${parsed.length} → ${cleaned.length} 条日记`);
+          }
+          setDiaries(cleaned);
         } catch { /* ignore */ }
       }
       setLoading(false);

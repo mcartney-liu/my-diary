@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Diary } from "../types";
 import { onThisDay, moodById } from "../data";
 import { useNavigate } from "react-router-dom";
@@ -9,18 +10,22 @@ interface Props {
 export default function OnThisDay({ diaries }: Props) {
   const entries = onThisDay(diaries);
   const nav = useNavigate();
+  const [expanded, setExpanded] = useState(false);
   if (entries.length === 0) return null;
 
-  const years = entries.length;
+  const visible = expanded ? entries : entries.slice(0, 3);
+  const hidden = entries.length - 3;
+
   return (
     <div className="card p-4 animate-fade-up" style={{ animationDelay: "120ms" }}>
       <div className="flex items-center gap-2 mb-3">
         <span className="text-lg">🎞️</span>
         <span className="font-medium text-paper-ink">On This Day</span>
         <span className="text-xs text-paper-ink2">· 往年的今天</span>
+        <span className="ml-auto text-xs text-paper-ink2">{entries.length} 年</span>
       </div>
       <div className="space-y-2">
-        {entries.slice(0, 3).map((d) => {
+        {visible.map((d) => {
           const mood = moodById(d.moodId);
           const textBlock = d.blocks.find((b) => b.kind === "text" && b.content.trim());
           const preview = textBlock?.content.slice(0, 50) ?? "(无正文)";
@@ -44,10 +49,21 @@ export default function OnThisDay({ diaries }: Props) {
             </button>
           );
         })}
-        {years > 3 && (
-          <div className="text-center text-xs text-paper-ink2 pt-1">
-            还有 {years - 3} 篇...
-          </div>
+        {hidden > 0 && !expanded && (
+          <button
+            onClick={() => setExpanded(true)}
+            className="w-full text-center text-xs text-paper-accent hover:text-paper-accent/80 pt-1 py-2 rounded-lg hover:bg-paper-surface transition"
+          >
+            还有 {hidden} 篇 · 点击展开 ↓
+          </button>
+        )}
+        {expanded && hidden > 0 && (
+          <button
+            onClick={() => setExpanded(false)}
+            className="w-full text-center text-xs text-paper-ink2 hover:text-paper-ink pt-1 py-2 rounded-lg hover:bg-paper-surface transition"
+          >
+            收起 ↑
+          </button>
         )}
       </div>
     </div>
