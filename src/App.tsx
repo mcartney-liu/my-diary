@@ -25,29 +25,25 @@ function deleteLocal(list: Diary[], id: string): Diary[] {
 }
 
 // 历史 bug 修复：之前每次保存生成新 uid 导致同一篇日记被复制多份
-// 启动时按 (date, title, firstText) 去重，保留 updatedAt 最新的
+// 只按 id 去重（同 id 多份 → 留最新 updatedAt 的那条）
+// 注意：不再按 date/title/text 指纹去重，因为不同日记可能恰好内容相似
 function dedupeDiaries(list: Diary[]): Diary[] {
-  // 第一步：按 id 去重（已经是同一 id 的肯定只留一条）
   const byId = new Map<string, Diary>();
   for (const d of list) {
     const existing = byId.get(d.id);
     if (!existing || d.updatedAt > existing.updatedAt) byId.set(d.id, d);
   }
-  const unique = Array.from(byId.values());
+  const result = Array.from(byId.values()).sort((a, b) => b.updatedAt - a.updatedAt);
 
-  // 第二步：同 date + 同 title + 同首段文字 → 视为重复，留最新
-  const fingerprint = (d: Diary) => {
-    const firstText = d.blocks.find((b) => b.kind === "text")?.content.trim() ?? "";
-    return `${d.date}|${(d.title || "").trim()}|${firstText.slice(0, 80)}`;
-  };
-  const seen = new Map<string, Diary>();
-  for (const d of unique) {
-    const fp = fingerprint(d);
-    const prev = seen.get(fp);
-    if (!prev || d.updatedAt > prev.updatedAt) seen.set(fp, d);
+  // 启动时打印每条日记，方便调试
+  console.info("[mydiary] 共", result.length, "条日记:");
+  for (const d of result) {
+    const firstText = d.blocks.find((b) => b.kind === "text")?.content.trim().slice(0, 40) ?? "";
+    console.info("  id=", d.id, "date=", d.date, "title=", JSON.stringify(d.title), "blocks=", d.blocks.length, "updated=", new Date(d.updatedAt).toLocaleString());
+    if (firstText) console.info("    text:", firstText);
   }
-  const deduped = Array.from(seen.values()).sort((a, b) => b.updatedAt - a.updatedAt);
-  return deduped;
+
+  return result;
 }
 
 export default function App() {
