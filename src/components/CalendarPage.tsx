@@ -27,8 +27,7 @@ export default function CalendarPage({ diaries }: Props) {
   const byDate = useMemo(() => {
     const m = new Map<string, Diary[]>();
     for (const d of diaries) {
-      // 时间胶囊未解锁的不显示
-      if (d.capsuleUnlockAt && d.capsuleUnlockAt > Date.now()) continue;
+      // 不再跳过 capsule 日记 —— 它们需要显示出来（加锁图标）
       const arr = m.get(d.date) ?? [];
       arr.push(d);
       m.set(d.date, arr);
@@ -36,7 +35,7 @@ export default function CalendarPage({ diaries }: Props) {
     return m;
   }, [diaries]);
 
-  // 按 date 索引心情（每天取最后一篇日记的心情）
+  // 仅统计已解锁日记的心情（被 capsule 锁的不影响心情图）
   const moodByDate = useMemo(() => {
     const m = new Map<string, { moodId: string; count: number }>();
     for (const d of diaries) {
@@ -115,9 +114,11 @@ export default function CalendarPage({ diaries }: Props) {
               const isSelected = ds === selectedDate;
               const moodInfo = moodByDate.get(ds);
               const mood = moodInfo?.moodId ? moodById(moodInfo.moodId) : null;
-              const capsuleLocked = byDate.get(ds)?.some(
+              const dayDiaries = byDate.get(ds) ?? [];
+              const capsuleCount = dayDiaries.filter(
                 (x) => x.capsuleUnlockAt && x.capsuleUnlockAt > Date.now()
-              );
+              ).length;
+              const totalCount = dayDiaries.length;
 
               return (
                 <button
@@ -134,20 +135,19 @@ export default function CalendarPage({ diaries }: Props) {
                   ].join(" ")}
                 >
                   <span className="font-medium">{d.getDate()}</span>
-                  {mood && (
+                  {mood ? (
                     <span className="text-[14px] md:text-base leading-none mt-0.5">
                       {mood.icon}
                     </span>
-                  )}
-                  {capsuleLocked && !mood && (
-                    <span className="text-[10px] mt-0.5">🔒</span>
-                  )}
-                  {moodInfo && moodInfo.count > 1 && (
+                  ) : capsuleCount > 0 ? (
+                    <span className="text-[12px] mt-0.5">🔒</span>
+                  ) : null}
+                  {totalCount > 1 && (
                     <span className={[
                       "absolute bottom-0.5 right-1 text-[10px] leading-none rounded-full px-1 py-0.5",
                       isSelected ? "bg-paper-surface text-paper-ink" : "bg-paper-accent/15 text-paper-accent",
                     ].join(" ")}>
-                      ×{moodInfo.count}
+                      ×{totalCount}
                     </span>
                   )}
                 </button>

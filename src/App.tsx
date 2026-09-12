@@ -8,6 +8,7 @@ import EditorPage from "./components/EditorPage";
 
 function saveLocal(list: Diary[]) {
   localStorage.setItem("mydiary-web:diaries:v1", JSON.stringify(list));
+  console.info("[mydiary] 💾 saveLocal →", list.length, "条");
 }
 
 function upsertLocal(list: Diary[], d: Diary): Diary[] {
@@ -96,6 +97,7 @@ export default function App() {
 
   const handleUpsert = (d: Diary) => {
     skipBackgroundSyncRef.current = true;
+    console.info("[mydiary] 📥 handleUpsert", { id: d.id, date: d.date, title: d.title, capsules: d.capsuleUnlockAt });
     // 立即本地更新（乐观），不阻塞 UI
     setDiaries((prev) => {
       const next = upsertLocal(prev, d);

@@ -22,18 +22,26 @@ function hasImage(d: Diary): boolean {
   return d.blocks.some((b) => b.kind === "image");
 }
 
+function daysUntilUnlock(ms: number): number {
+  return Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
 export default function DayList({ date, diaries }: Props) {
   const nav = useNavigate();
   const sorted = [...diaries].sort((a, b) => b.updatedAt - a.updatedAt);
+  const capsuleLockedCount = sorted.filter(
+    (d) => d.capsuleUnlockAt && d.capsuleUnlockAt > Date.now()
+  ).length;
 
   return (
     <section className="card p-4 md:p-6 animate-fade-up">
       <h2 className="text-base md:text-lg font-semibold text-paper-ink mb-3 flex items-center gap-2">
         <span className="text-paper-accent">📖</span>
         {date}
-        <span className="text-xs font-normal text-paper-ink2">· 周 {weekdayCN(date)}</span>
+        <span className="text-xs font-normal text-paper-ink2">· 周{weekdayCN(date)}</span>
         <span className="text-xs font-normal text-paper-ink2 ml-auto">
           {sorted.length} 篇
+          {capsuleLockedCount > 0 && <span className="text-amber-600">（含 {capsuleLockedCount} 🔒）</span>}
         </span>
       </h2>
 
@@ -42,7 +50,7 @@ export default function DayList({ date, diaries }: Props) {
           onClick={() => nav("/editor")}
           className="w-full text-center py-8 rounded-xl border-2 border-dashed border-paper-line text-paper-ink2 hover:border-paper-accent hover:text-paper-accent transition-colors"
         >
-          这一天还没有写日记 ✨
+          这一天还没有写日记 ✍️
           <br />
           <span className="text-xs">点击写第一篇</span>
         </button>
@@ -50,6 +58,40 @@ export default function DayList({ date, diaries }: Props) {
         <ul className="space-y-3">
           {sorted.map((d, idx) => {
             const mood = moodById(d.moodId);
+            const isLocked = !!(d.capsuleUnlockAt && d.capsuleUnlockAt > Date.now());
+
+            // 被 capsule 锁的：灰色+🔒，不能点击
+            if (isLocked) {
+              const daysLeft = daysUntilUnlock(d.capsuleUnlockAt!);
+              return (
+                <li
+                  key={d.id}
+                  className="p-3 md:p-4 rounded-xl bg-amber-50/60 border border-amber-200/60 animate-fade-up"
+                  style={{ animationDelay: `${idx * 60}ms` }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 md:w-9 md:h-9 rounded-lg bg-amber-100 flex items-center justify-center text-lg shrink-0">
+                      🔒
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-medium text-amber-800/70 truncate">
+                          {d.title || "（锁定中）"}
+                        </h3>
+                      </div>
+                      <p className="text-sm text-amber-700/50 italic">
+                        内容已封存，还有 {daysLeft} 天解锁
+                      </p>
+                      <div className="mt-1.5 text-[11px] text-amber-600/60">
+                        解锁时间：{new Date(d.capsuleUnlockAt!).toLocaleDateString("zh-CN")}
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              );
+            }
+
+            // 正常已解锁
             return (
               <li
                 key={d.id}
@@ -58,7 +100,6 @@ export default function DayList({ date, diaries }: Props) {
                 style={{ animationDelay: `${idx * 60}ms` }}
               >
                 <div className="flex items-start gap-3">
-                  {/* 心情小方块 */}
                   {mood ? (
                     <div
                       className="w-8 h-8 md:w-9 md:h-9 rounded-lg flex items-center justify-center text-lg md:text-xl shrink-0 shadow-soft"
