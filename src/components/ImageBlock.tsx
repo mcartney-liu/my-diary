@@ -12,12 +12,12 @@ export default function ImageBlock({ block, onRemove }: Props) {
 
   return (
     <>
-      <div className="group relative mt-2 mb-2">
+      <div className="group relative">
         <div className="rounded-2xl overflow-hidden bg-paper-surface border border-paper-line">
           <img
             src={block.content}
             alt=""
-            className="w-full max-h-[420px] object-cover cursor-pointer"
+            className="w-full max-h-[420px] object-contain cursor-pointer"
             onClick={() => setPreview(true)}
           />
         </div>

@@ -27,7 +27,7 @@ export default function AudioBlock({ block, onRemove }: Props) {
   };
 
   return (
-    <div className="group relative mt-2 mb-2">
+    <div className="group relative">
       <audio
         ref={audioRef}
         src={block.content}

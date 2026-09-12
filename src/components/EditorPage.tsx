@@ -8,6 +8,7 @@ import { fetchWeather, fetchLocation } from "../weather";
 import TextBlock from "./TextBlock";
 import ImageBlock from "./ImageBlock";
 import AudioBlock from "./AudioBlock";
+import GridSnap from "./GridSnap";
 
 interface Props {
   initialDiary?: Diary;
@@ -697,10 +698,10 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
               <TextBlock block={b} onChange={(c) => updateBlock(b.id, { content: c })} onRemove={() => removeBlock(b.id)} />
             )}
             {b.kind === "image" && (
-              <ImageBlock block={b} onRemove={() => removeBlock(b.id)} />
+              <GridSnap minRows={2}><ImageBlock block={b} onRemove={() => removeBlock(b.id)} /></GridSnap>
             )}
             {b.kind === "audio" && (
-              <AudioBlock block={b} onRemove={() => removeBlock(b.id)} />
+              <GridSnap minRows={3}><AudioBlock block={b} onRemove={() => removeBlock(b.id)} /></GridSnap>
             )}
             {idx === blocks.length - 1 && <div className="h-6" />}
           </div>
