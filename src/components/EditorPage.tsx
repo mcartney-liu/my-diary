@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2 } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
@@ -98,6 +98,23 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
     return () => { cancelled = true; };
   }, [initialDiary]);
 
+  // 当切换到不同的日记时（initialDiary 从 undefined → 有值，或 id 变化），
+  // 同步所有 state 到最新的 initialDiary 字段
+  useEffect(() => {
+    if (!initialDiary) return;
+    setTitle(initialDiary.title ?? "");
+    setMoodId(initialDiary.moodId ?? null);
+    setBlocks(
+      initialDiary.blocks?.length
+        ? initialDiary.blocks
+        : [{ id: uid("b"), kind: "text" as const, content: "" }]
+    );
+    setWeather(initialDiary.weather ?? null);
+    setLocation(initialDiary.location ?? null);
+    setTags(initialDiary.tags ?? []);
+    setCapsuleDays(null);
+  }, [initialDiary?.id]);
+
   const updateBlock = (id: string, patch: Partial<DiaryBlock>) => {
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
   };
@@ -190,6 +207,19 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
       ? now + capsuleDays * 24 * 60 * 60 * 1000
       : initialDiary?.capsuleUnlockAt;
 
+    // 扫描正文中的 #xxx hashtag → 自动合并到 tags（去重）
+    const hashtagRegex = /#([\p{L}\p{N}_\-]+)/gu;
+    const bodyText = finalBlocks
+      .filter((b) => b.kind === "text")
+      .map((b) => b.content)
+      .join(" ");
+    const extractedTags = new Set<string>();
+    let m: RegExpExecArray | null;
+    while ((m = hashtagRegex.exec(bodyText)) !== null) {
+      extractedTags.add(m[1]);
+    }
+    const mergedTags = Array.from(new Set([...tags, ...extractedTags]));
+
     // 新建日记第一次保存 → 生成 id 并记住；后续保存复用同一 id
     const id = initialDiary?.id ?? savedIdRef.current ?? uid("d");
     if (!savedIdRef.current) savedIdRef.current = id;
@@ -204,7 +234,7 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
       location: location ?? undefined,
       promptId: capsuleDays ? `capsule-${capsuleDays}d` : undefined,
       capsuleUnlockAt,
-      tags: tags.length > 0 ? tags : undefined,
+      tags: mergedTags.length > 0 ? mergedTags : undefined,
       createdAt: initialDiary?.createdAt ?? now,
       updatedAt: now,
     };
