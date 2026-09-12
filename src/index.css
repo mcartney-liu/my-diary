@@ -21,7 +21,7 @@
 html, body, #root { height: 100%; }
 body {
   margin: 0;
-  font-family: "Ma Shan Zheng", "Kalam", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif;
+  font-family: "Kalam", "Ma Shan Zheng", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif;
   background-color: #faf6ef;
   color: #3d2f1f;
   -webkit-tap-highlight-color: transparent;
