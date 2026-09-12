@@ -5,6 +5,8 @@ import { loadDiaries, seedIfEmpty } from "./storage";
 import { upsertDiary as apiUpsert, deleteDiary as apiDelete } from "./api";
 import CalendarPage from "./components/CalendarPage";
 import EditorPage from "./components/EditorPage";
+import TrashPage from "./components/TrashPage";
+import TagsPage from "./components/TagsPage";
 
 function saveLocal(list: Diary[]) {
   localStorage.setItem("mydiary-web:diaries:v1", JSON.stringify(list));
@@ -21,59 +23,45 @@ function upsertLocal(list: Diary[], d: Diary): Diary[] {
   return [...list, d];
 }
 
-function deleteLocal(list: Diary[], id: string): Diary[] {
-  return list.filter((x) => x.id !== id);
-}
-
 // 历史 bug 修复：之前每次保存生成新 uid 导致同一篇日记被复制多份
 // 只按 id 去重（同 id 多份 → 留最新 updatedAt 的那条）
-// 注意：不再按 date/title/text 指纹去重，因为不同日记可能恰好内容相似
 function dedupeDiaries(list: Diary[]): Diary[] {
   const byId = new Map<string, Diary>();
   for (const d of list) {
     const existing = byId.get(d.id);
     if (!existing || d.updatedAt > existing.updatedAt) byId.set(d.id, d);
   }
-  const result = Array.from(byId.values()).sort((a, b) => b.updatedAt - a.updatedAt);
-
-  // 启动时打印每条日记，方便调试
-  console.info("[mydiary] 共", result.length, "条日记:");
-  for (const d of result) {
-    const firstText = d.blocks.find((b) => b.kind === "text")?.content.trim().slice(0, 40) ?? "";
-    console.info("  id=", d.id, "date=", d.date, "title=", JSON.stringify(d.title), "blocks=", d.blocks.length, "updated=", new Date(d.updatedAt).toLocaleString());
-    if (firstText) console.info("    text:", firstText);
-  }
-
-  return result;
+  return Array.from(byId.values()).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export default function App() {
-  const [diaries, setDiaries] = useState<Diary[]>([]);
+  const [allDiaries, setAllDiaries] = useState<Diary[]>([]);
   const [loading, setLoading] = useState(true);
   const [offlineBanner, setOfflineBanner] = useState(false);
   const skipBackgroundSyncRef = useRef(false);
+
+  // 过滤：正常日记（未软删）和回收站（已软删）
+  const diaries = allDiaries.filter((d) => !d.deletedAt);
+  const deletedDiaries = allDiaries.filter((d) => !!d.deletedAt);
 
   useEffect(() => {
     async function init() {
       seedIfEmpty();
 
-      // 乐观渲染：先 localStorage (0ms)，再云端
       const raw = localStorage.getItem("mydiary-web:diaries:v1");
       if (raw) {
         try {
           let parsed: Diary[] = JSON.parse(raw);
-          // 清理历史重复数据（之前的 bug 导致同一篇被复制多份）
           const cleaned = dedupeDiaries(parsed);
           if (cleaned.length !== parsed.length) {
-            saveLocal(cleaned); // 回写清理结果
-            console.info(`[mydiary] dedupe: ${parsed.length} → ${cleaned.length} 条日记`);
+            saveLocal(cleaned);
           }
-          setDiaries(cleaned);
+          setAllDiaries(cleaned);
         } catch { /* ignore */ }
       }
       setLoading(false);
 
-      // 后台静默 sync（不阻塞首屏）
+      // 后台静默 sync
       fetch(`${import.meta.env.VITE_API_BASE ?? "https://mydiary-api.mcartneyliu.workers.dev"}/api/health`)
         .then((r) => r.ok)
         .then(async (online) => {
@@ -81,7 +69,7 @@ export default function App() {
           const fresh = await loadDiaries().catch(() => null);
           if (!fresh) return;
           if (!skipBackgroundSyncRef.current) {
-            setDiaries(fresh);
+            setAllDiaries(fresh);
           }
         })
         .catch(() => { /* 离线 */ });
@@ -95,22 +83,50 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [offlineBanner]);
 
+  // 保存/新建（同 id 覆盖）
   const handleUpsert = (d: Diary) => {
     skipBackgroundSyncRef.current = true;
-    console.info("[mydiary] 📥 handleUpsert", { id: d.id, date: d.date, title: d.title, capsules: d.capsuleUnlockAt });
-    // 立即本地更新（乐观），不阻塞 UI
-    setDiaries((prev) => {
+    setAllDiaries((prev) => {
       const next = upsertLocal(prev, d);
       saveLocal(next);
       return next;
     });
-    // 云端后台同步
-    apiUpsert(d).catch(() => { /* offline — 下次 sync 会推 */ });
+    apiUpsert(d).catch(() => { /* offline */ });
   };
-  const handleDelete = (id: string) => {
+
+  // 软删（加 deletedAt 时间戳，不立刻从列表消失）
+  const handleSoftDelete = (id: string) => {
     skipBackgroundSyncRef.current = true;
-    setDiaries((prev) => {
-      const next = deleteLocal(prev, id);
+    setAllDiaries((prev) => {
+      const target = prev.find((x) => x.id === id);
+      if (!target) return prev;
+      const softDeleted: Diary = { ...target, deletedAt: Date.now() };
+      const next = upsertLocal(prev, softDeleted);
+      saveLocal(next);
+      return next;
+    });
+    // 云端真删
+    apiDelete(id).catch(() => { /* offline */ });
+  };
+
+  // 从回收站恢复
+  const handleRestore = (id: string) => {
+    setAllDiaries((prev) => {
+      const target = prev.find((x) => x.id === id);
+      if (!target) return prev;
+      const restored: Diary = { ...target, deletedAt: undefined };
+      const next = upsertLocal(prev, restored);
+      saveLocal(next);
+      // 重新云端 upsert
+      apiUpsert(restored).catch(() => { /* offline */ });
+      return next;
+    });
+  };
+
+  // 永久删除（彻底从本地移除）
+  const handlePermanentDelete = (id: string) => {
+    setAllDiaries((prev) => {
+      const next = prev.filter((x) => x.id !== id);
       saveLocal(next);
       return next;
     });
@@ -135,13 +151,15 @@ export default function App() {
 
       <Routes>
         <Route path="/" element={<CalendarPage diaries={diaries} />} />
+        <Route path="/trash" element={<TrashPage diaries={deletedDiaries} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} />} />
+        <Route path="/tags" element={<TagsPage diaries={diaries} />} />
         <Route
           path="/editor"
-          element={<EditorPageWrapper mode="new" diaries={diaries} onUpsert={handleUpsert} onDelete={handleDelete} />}
+          element={<EditorPageWrapper mode="new" allDiaries={allDiaries} onUpsert={handleUpsert} onSoftDelete={handleSoftDelete} />}
         />
         <Route
           path="/editor/:id"
-          element={<EditorPageWrapper mode="edit" diaries={diaries} onUpsert={handleUpsert} onDelete={handleDelete} />}
+          element={<EditorPageWrapper mode="edit" allDiaries={allDiaries} onUpsert={handleUpsert} onSoftDelete={handleSoftDelete} />}
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -151,13 +169,13 @@ export default function App() {
 
 function EditorPageWrapper(props: {
   mode: "new" | "edit";
-  diaries: Diary[];
+  allDiaries: Diary[];
   onUpsert: (d: Diary) => Promise<void> | void;
-  onDelete: (id: string) => Promise<void> | void;
+  onSoftDelete: (id: string) => Promise<void> | void;
 }) {
   const { id } = useParams();
   const nav = useNavigate();
-  const existing = id ? props.diaries.find((d) => d.id === id) : undefined;
+  const existing = id ? props.allDiaries.find((d) => d.id === id && !d.deletedAt) : undefined;
 
   if (props.mode === "edit" && !existing) {
     return <Navigate to="/editor" replace />;
@@ -167,7 +185,7 @@ function EditorPageWrapper(props: {
     <EditorPage
       initialDiary={existing}
       onSave={(d) => { props.onUpsert(d); }}
-      onDelete={(d) => { props.onDelete(d.id); nav("/", { replace: true }); }}
+      onSoftDelete={(d) => { props.onSoftDelete(d.id); nav("/", { replace: true }); }}
       onCancel={() => nav("/", { replace: true })}
     />
   );

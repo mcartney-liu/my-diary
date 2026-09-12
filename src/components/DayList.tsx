@@ -124,8 +124,19 @@ export default function DayList({ date, diaries }: Props) {
                     <p className="text-sm text-paper-ink2 line-clamp-2 leading-relaxed">
                       {firstBlockText(d) || <span className="italic text-paper-ink3">（仅图片/录音）</span>}
                     </p>
-                    <div className="mt-1.5 text-[11px] text-paper-ink3">
-                      更新于 {new Date(d.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                    <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] text-paper-ink3">
+                        更新于 {new Date(d.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      {d.tags && d.tags.length > 0 && (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {d.tags.map((t) => (
+                            <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                              #{t}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

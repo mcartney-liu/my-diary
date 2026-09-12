@@ -12,7 +12,7 @@ import AudioBlock from "./AudioBlock";
 interface Props {
   initialDiary?: Diary;
   onSave: (d: Diary) => Promise<void>;
-  onDelete: (d: Diary) => void;
+  onSoftDelete: (d: Diary) => void;
   onCancel: () => void;
 }
 
@@ -44,7 +44,7 @@ function promptForDate(dateStr: string): string {
   return PROMPTS[seed];
 }
 
-export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }: Props) {
+export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCancel }: Props) {
   const [title, setTitle] = useState(initialDiary?.title ?? "");
   const [date] = useState(initialDiary?.date ?? today());
   const [moodId, setMoodId] = useState<MoodId | null>(initialDiary?.moodId ?? null);
@@ -63,6 +63,9 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
   const [recording, setRecording] = useState(false);
   const [pendingRec, setPendingRec] = useState<PendingRecording | null>(null);
   const [transcribing, setTranscribing] = useState(false);
+  const [tags, setTags] = useState<string[]>(initialDiary?.tags ?? []);
+  const [showTagInput, setShowTagInput] = useState(false);
+  const [tagInput, setTagInput] = useState("");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
@@ -201,6 +204,7 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
       location: location ?? undefined,
       promptId: capsuleDays ? `capsule-${capsuleDays}d` : undefined,
       capsuleUnlockAt,
+      tags: tags.length > 0 ? tags : undefined,
       createdAt: initialDiary?.createdAt ?? now,
       updatedAt: now,
     };
@@ -220,7 +224,7 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
 
   const handleDelete = () => {
     if (!initialDiary) { onCancel(); return; }
-    if (confirm("确定要删除这篇日记吗？")) onDelete(initialDiary);
+    if (confirm("删除后会进入回收站，30 天内可恢复。确定要删除吗？")) onSoftDelete(initialDiary);
   };
 
   const hasContent = title.trim() || blocks.some((b) =>
@@ -392,6 +396,59 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
                     取消胶囊
                   </button>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* 标签按钮 */}
+          <div className="relative">
+            <button
+              onClick={() => setShowTagInput((s) => !s)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition ${
+                tags.length > 0
+                  ? "bg-emerald-50 border-emerald-300 text-emerald-800"
+                  : "border-paper-line bg-paper-surface text-paper-ink2 hover:bg-paper-line/50"
+              }`}
+            >
+              🏷️ {tags.length > 0 ? `${tags.length} 个标签` : "标签"}
+            </button>
+            {showTagInput && (
+              <div
+                className="absolute top-full mt-1 right-0 z-30 bg-paper-card rounded-xl shadow-xl border border-paper-line p-3 w-56 animate-[fade-in_0.15s]"
+                onClick={() => setShowTagInput(false)}
+              >
+                <div className="text-[11px] text-paper-ink2 px-1 mb-1.5">
+                  输入后回车添加 · 正文里写 #xxx 也会自动识别
+                </div>
+                <div className="flex flex-wrap gap-1.5 mb-2 min-h-[24px]">
+                  {tags.map((t) => (
+                    <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      #{t}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setTags((prev) => prev.filter((x) => x !== t)); }}
+                        className="hover:text-red-600 font-bold"
+                      >×</button>
+                    </span>
+                  ))}
+                  {tags.length === 0 && <span className="text-xs text-paper-ink3 italic">还没有标签</span>}
+                </div>
+                <input
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && tagInput.trim()) {
+                      const clean = tagInput.trim().replace(/^#+/, "");
+                      setTags((prev) => prev.includes(clean) ? prev : [...prev, clean]);
+                      setTagInput("");
+                    } else if (e.key === "Backspace" && !tagInput && tags.length > 0) {
+                      setTags((prev) => prev.slice(0, -1));
+                    }
+                  }}
+                  placeholder="输入标签名..."
+                  className="w-full px-2 py-1.5 text-xs rounded-lg border border-paper-line bg-paper-surface outline-none focus:border-paper-accent"
+                  onClick={(e) => e.stopPropagation()}
+                />
               </div>
             )}
           </div>
