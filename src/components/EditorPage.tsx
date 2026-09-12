@@ -677,10 +677,27 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
             {idx === blocks.length - 1 && <div className="h-6" />}
           </div>
           ))}
-        </div>
-      </div>
 
-      {/* 录音后选择弹窗 */}
+           {/* Web Speech API 实时转写区（正文区，跟着内容滚动） */}
+           {recording && speechSupported && (
+             <div className="px-4 md:px-6 mt-2">
+               <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200">
+                 <div className="text-xs text-red-400 font-medium mb-2 flex items-center gap-1.5">
+                   <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                   正在录音… 实时转写中
+                 </div>
+                 <div className="text-red-900 leading-relaxed text-sm min-h-[24px]">
+                   {speechFinalRef.current.split(/(?<=[。！？，])/).filter(Boolean).join(" ") || ""}
+                   {speechInterim && <span className="text-red-400 italic">{speechInterim}</span>}
+                   {!speechFinalRef.current && !speechInterim && <span className="text-red-300 italic">开始说话…</span>}
+                 </div>
+               </div>
+             </div>
+           )}
+         </div>
+       </div>
+
+       {/* 录音后选择弹窗 */}
       {pendingRec && (
         <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center px-6 animate-[fade-in_0.2s]">
           <div className="bg-paper-card rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4">
@@ -737,40 +754,81 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
             <FileText size={16} /> 文字
           </button>
           <button onClick={() => imageInputRef.current?.click()} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink hover:bg-paper-line/50 active:scale-95">
-            <ImagePlus size={16} /> 图片
-          </button>
+             <ImagePlus size={16} /> 图片
+           </button>
 
-          {/* Web Speech API 实时转写显示（PM-OS 同款打字机效果） */}
-          {recording && speechSupported && (
-            <div className="col-span-full px-3 py-2 mb-2 rounded-lg bg-red-50 border border-red-200 text-sm">
-              <div className="text-xs text-red-400 font-medium mb-1 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-                实时转写中… 说话就会自动变成文字
-              </div>
-              <div className="text-red-900 leading-relaxed">
-                {speechFinalRef.current.split(/(?<=[。！？，])/).filter(Boolean).join(" ")}
-                {speechInterim && <span className="text-red-400 italic">{speechInterim}</span>}
-                {!speechFinalRef.current && !speechInterim && <span className="text-red-300 italic">开始说话…</span>}
-              </div>
-            </div>
-          )}
+           {/* 录音按钮：点一下切换录音状态，长按也支持 */}
+           <RecordingButton
+             recording={recording}
+             disabled={transcribing || !!pendingRec}
+             onToggle={() => recording ? stopRecording() : startRecording()}
+           />
+         </div>
+       </footer>
+     </div>
+   );
+ }
 
-          <button
-            onMouseDown={recording ? stopRecording : startRecording}
-            onTouchStart={(e) => { e.preventDefault(); recording ? stopRecording() : startRecording(); }}
-            onTouchEnd={(e) => { e.preventDefault(); if (recording) stopRecording(); }}
-            disabled={transcribing || !!pendingRec}
-            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-sm transition active:scale-95 ${
-              recording ? "bg-red-500 text-white border-red-500 animate-pulse" :
-              transcribing ? "bg-amber-100 border-amber-300 text-amber-700 cursor-wait" :
-              "bg-paper-surface border-paper-line text-paper-ink disabled:opacity-50"
-            }`}
-          >
-            <Mic size={16} />
-            {recording ? "松开停止录音" : transcribing ? "AI 转写中..." : speechSupported ? "🎙️ 按住说话（实时转文字）" : "按住录音"}
-          </button>
-        </div>
-      </footer>
-    </div>
+// 录音按钮组件 — 支持点击切换 + 长按停止
+function RecordingButton({
+  recording,
+  disabled,
+  onToggle,
+}: {
+  recording: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  const pressTimerRef = useRef<number | null>(null);
+  const longPressedRef = useRef(false);
+
+  const handleDown = () => {
+    longPressedRef.current = false;
+    pressTimerRef.current = window.setTimeout(() => {
+      longPressedRef.current = true;
+      // 长按模式下：如果正在录音，不做额外处理（onUp 会停）
+    }, 300);
+  };
+
+  const handleUp = () => {
+    if (pressTimerRef.current) {
+      window.clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+    if (longPressedRef.current) {
+      // 长按模式：松开时停止录音（如果正在录）
+      if (recording) onToggle();
+      longPressedRef.current = false;
+      return;
+    }
+    // 点击模式：切换录音状态
+    onToggle();
+  };
+
+  return (
+    <button
+      onMouseDown={handleDown}
+      onMouseUp={handleUp}
+      onMouseLeave={() => {
+        if (pressTimerRef.current) window.clearTimeout(pressTimerRef.current);
+        // 鼠标移出：如果正在长按录音，也停止
+        if (recording && longPressedRef.current) onToggle();
+      }}
+      onTouchStart={(e) => { e.preventDefault(); handleDown(); }}
+      onTouchEnd={(e) => { e.preventDefault(); handleUp(); }}
+      onTouchCancel={() => {
+        if (pressTimerRef.current) window.clearTimeout(pressTimerRef.current);
+        if (recording) onToggle();
+      }}
+      disabled={disabled}
+      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-sm transition active:scale-95 select-none ${
+        recording ? "bg-red-500 text-white border-red-500 animate-pulse" :
+        disabled ? "bg-paper-surface border-paper-line text-paper-ink/40 cursor-not-allowed" :
+        "bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50"
+      }`}
+    >
+      <Mic size={16} />
+      {recording ? "停止录音" : "按住或点按录音"}
+    </button>
   );
 }
