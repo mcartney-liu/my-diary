@@ -75,6 +75,19 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
   const toastTimerRef = useRef<number | null>(null);
   const prompt = promptForDate(date);
 
+  // 标签弹框 outside-click 关闭
+  const tagPopoverRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showTagInput) return;
+    const handler = (e: MouseEvent) => {
+      if (tagPopoverRef.current && !tagPopoverRef.current.contains(e.target as Node)) {
+        setShowTagInput(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showTagInput]);
+
   // 自动抓天气 + 位置（仅新建日记时）
   useEffect(() => {
     if (initialDiary) return; // 编辑模式不自动抓
@@ -444,41 +457,50 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
             </button>
             {showTagInput && (
               <div
+                ref={tagPopoverRef}
                 className="absolute top-full mt-1 right-0 z-30 bg-paper-card rounded-xl shadow-xl border border-paper-line p-3 w-56 animate-[fade-in_0.15s]"
-                onClick={() => setShowTagInput(false)}
+                onClick={(e) => e.stopPropagation()}
               >
-                <div className="text-[11px] text-paper-ink2 px-1 mb-1.5">
-                  输入后回车添加 · 正文里写 #xxx 也会自动识别
+                <div className="text-[11px] text-paper-ink2 px-1 mb-1.5 flex items-center justify-between">
+                  <span>回车添加 · 正文写 #xxx 自动识别</span>
+                  <button
+                    onClick={() => setShowTagInput(false)}
+                    className="hover:text-paper-ink text-paper-ink3"
+                    aria-label="关闭"
+                  >✕</button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-2 min-h-[24px]">
                   {tags.map((t) => (
                     <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-800 border border-emerald-200">
                       #{t}
                       <button
-                        onClick={(e) => { e.stopPropagation(); setTags((prev) => prev.filter((x) => x !== t)); }}
+                        onClick={() => setTags((prev) => prev.filter((x) => x !== t))}
                         className="hover:text-red-600 font-bold"
                       >×</button>
                     </span>
                   ))}
                   {tags.length === 0 && <span className="text-xs text-paper-ink3 italic">还没有标签</span>}
                 </div>
-                <input
-                  type="text"
-                  value={tagInput}
-                  onChange={(e) => setTagInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && tagInput.trim()) {
-                      const clean = tagInput.trim().replace(/^#+/, "");
-                      setTags((prev) => prev.includes(clean) ? prev : [...prev, clean]);
-                      setTagInput("");
-                    } else if (e.key === "Backspace" && !tagInput && tags.length > 0) {
-                      setTags((prev) => prev.slice(0, -1));
-                    }
-                  }}
-                  placeholder="输入标签名..."
-                  className="w-full px-2 py-1.5 text-xs rounded-lg border border-paper-line bg-paper-surface outline-none focus:border-paper-accent"
-                  onClick={(e) => e.stopPropagation()}
-                />
+                <div className="flex items-center rounded-lg border border-paper-line bg-paper-surface focus-within:border-paper-accent">
+                  <span className="pl-2 text-emerald-600 text-xs font-medium select-none">#</span>
+                  <input
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && tagInput.trim()) {
+                        const clean = tagInput.trim().replace(/^#+/, "");
+                        setTags((prev) => prev.includes(clean) ? prev : [...prev, clean]);
+                        setTagInput("");
+                      } else if (e.key === "Backspace" && !tagInput && tags.length > 0) {
+                        setTags((prev) => prev.slice(0, -1));
+                      }
+                    }}
+                    placeholder="标签名，回车添加"
+                    className="flex-1 px-1 py-1.5 text-xs bg-transparent outline-none"
+                    autoFocus
+                  />
+                </div>
               </div>
             )}
           </div>
