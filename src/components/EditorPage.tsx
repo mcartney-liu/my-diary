@@ -783,10 +783,12 @@ function RecordingButton({
   const longPressedRef = useRef(false);
 
   const handleDown = () => {
+    if (disabled) return;
     longPressedRef.current = false;
+    // 300ms 后判定为"长按"→ 自动开始录音
     pressTimerRef.current = window.setTimeout(() => {
       longPressedRef.current = true;
-      // 长按模式下：如果正在录音，不做额外处理（onUp 会停）
+      if (!recording) onToggle(); // 长按 = 开始录
     }, 300);
   };
 
@@ -796,12 +798,12 @@ function RecordingButton({
       pressTimerRef.current = null;
     }
     if (longPressedRef.current) {
-      // 长按模式：松开时停止录音（如果正在录）
+      // 长按模式：松开 = 停止录音
       if (recording) onToggle();
       longPressedRef.current = false;
       return;
     }
-    // 点击模式：切换录音状态
+    // 点击模式：<300ms 点一下 = 切换（开/关）
     onToggle();
   };
 
@@ -811,14 +813,14 @@ function RecordingButton({
       onMouseUp={handleUp}
       onMouseLeave={() => {
         if (pressTimerRef.current) window.clearTimeout(pressTimerRef.current);
-        // 鼠标移出：如果正在长按录音，也停止
         if (recording && longPressedRef.current) onToggle();
       }}
       onTouchStart={(e) => { e.preventDefault(); handleDown(); }}
       onTouchEnd={(e) => { e.preventDefault(); handleUp(); }}
       onTouchCancel={() => {
         if (pressTimerRef.current) window.clearTimeout(pressTimerRef.current);
-        if (recording) onToggle();
+        if (recording && longPressedRef.current) onToggle();
+        longPressedRef.current = false;
       }}
       disabled={disabled}
       className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-sm transition active:scale-95 select-none ${
