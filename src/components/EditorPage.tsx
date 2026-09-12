@@ -50,9 +50,65 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
   const [title, setTitle] = useState(initialDiary?.title ?? "");
   const [date] = useState(initialDiary?.date ?? today());
   const [moodId, setMoodId] = useState<MoodId | null>(initialDiary?.moodId ?? null);
-  const [blocks, setBlocks] = useState<DiaryBlock[]>(
-    initialDiary?.blocks?.length ? initialDiary.blocks : [{ id: uid("b"), kind: "text" as const, content: "" }]
-  );
+  const [blocks, setBlocksRaw] = useState<DiaryBlock[]>(() => {
+    const raw = initialDiary?.blocks?.length
+      ? initialDiary.blocks
+      : [{ id: uid("b"), kind: "text" as const, content: "" }];
+    // 初始值也走 normalize，避免历史数据里有相邻 text block
+    const out: DiaryBlock[] = [];
+    for (const b of raw) {
+      if (b.kind === "text" && out.length && out[out.length - 1].kind === "text") {
+        const last = out[out.length - 1];
+        const sep = last.content && b.content ? "\n" : "";
+        out[out.length - 1] = { ...last, content: (last.content + sep + b.content).trim() };
+      } else {
+        out.push({ ...b });
+      }
+    }
+    while (out.length > 1 && out[out.length - 1].kind === "text" && !out[out.length - 1].content.trim()) out.pop();
+    if (out[out.length - 1].kind !== "text") out.push({ id: uid("t"), kind: "text" as const, content: "" });
+    return out;
+  });
+
+  // normalizeBlocks — 清理 blocks 数组，保证：
+  // 1. 没有相邻的 text block（合并成一个，用 \n 分隔）
+  // 2. 没有空 text block（除了最后一个可以是空的让用户继续写）
+  // 3. 数组最后一定有一个 text block（如果全是 media 或空数组就补一个）
+  const normalizeBlocks = (arr: DiaryBlock[]): DiaryBlock[] => {
+    if (!arr.length) return [{ id: uid("b"), kind: "text", content: "" }];
+    const out: DiaryBlock[] = [];
+    for (const b of arr) {
+      if (b.kind === "text") {
+        if (out.length && out[out.length - 1].kind === "text") {
+          // 合并到上一个 text block（如果有内容就加 \n）
+          const last = out[out.length - 1];
+          const sep = last.content && b.content ? "\n" : "";
+          out[out.length - 1] = { ...last, content: (last.content + sep + b.content).trim() };
+        } else {
+          out.push({ ...b });
+        }
+      } else {
+        out.push({ ...b });
+      }
+    }
+    // 去掉末尾的空 text block（保留至少一个）
+    while (out.length > 1 && out[out.length - 1].kind === "text" && !out[out.length - 1].content.trim()) {
+      out.pop();
+    }
+    // 确保最后一个是 text block
+    if (out[out.length - 1].kind !== "text") {
+      out.push({ id: uid("t"), kind: "text", content: "" });
+    }
+    return out;
+  };
+
+  // wrapper: 所有 setBlocks 调用都走这个，自动 normalize
+  const setBlocks = (updater: DiaryBlock[] | ((prev: DiaryBlock[]) => DiaryBlock[])) => {
+    setBlocksRaw((prev) => {
+      const next = typeof updater === "function" ? (updater as (p: DiaryBlock[]) => DiaryBlock[])(prev) : updater;
+      return normalizeBlocks(next);
+    });
+  };
   const [showMood, setShowMood] = useState(false);
   const [weather, setWeather] = useState(initialDiary?.weather ?? null);
   const [location, setLocation] = useState(initialDiary?.location ?? null);
