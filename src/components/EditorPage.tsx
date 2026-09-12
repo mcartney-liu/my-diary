@@ -58,6 +58,8 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
   const [capsuleDays, setCapsuleDays] = useState<number | null>(null);
   const [showCapsuleMenu, setShowCapsuleMenu] = useState(false);
   const [saveToast, setSaveToast] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [recording, setRecording] = useState(false);
   const [pendingRec, setPendingRec] = useState<PendingRecording | null>(null);
   const [transcribing, setTranscribing] = useState(false);
@@ -195,6 +197,8 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
       createdAt: initialDiary?.createdAt ?? now,
       updatedAt: now,
     };
+    setSaving(true);
+    savingRef.current = true;
     setSaveToast(true);
     await onSave(diary);
   };
@@ -216,7 +220,7 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
       <header className="sticky top-0 z-10 bg-[#faf6ef]/95 backdrop-blur border-b border-paper-line">
         <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center justify-between">
           <button
-            onClick={() => { if (hasContent && !initialDiary) { alert("请先保存再离开"); return; } onCancel(); }}
+            onClick={() => { if (hasContent && !initialDiary && !savingRef.current) { alert("请先保存再离开"); return; } onCancel(); }}
             className="p-2 -ml-2 rounded-full hover:bg-paper-surface active:scale-95"
           >
             <ArrowLeft size={20} className="text-paper-ink" />
@@ -232,11 +236,12 @@ export default function EditorPage({ initialDiary, onSave, onDelete, onCancel }:
             )}
             <button
               onClick={handleSave}
+              disabled={saving || saveToast}
               className={`flex items-center gap-1 bg-paper-ink text-paper-bg rounded-full px-4 py-1.5 text-sm font-medium transition active:scale-95 ${
-                saveToast ? "opacity-60" : "hover:opacity-90"
+                (saving || saveToast) ? "opacity-60 cursor-not-allowed" : "hover:opacity-90"
               }`}
             >
-              <Save size={14} /> {saveToast ? "已保存 ✓" : "保存"}
+              <Save size={14} /> {saveToast ? "已保存 ✓" : saving ? "保存中..." : "保存"}
             </button>
           </div>
         </div>

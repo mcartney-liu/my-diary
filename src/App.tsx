@@ -106,7 +106,7 @@ function EditorPageWrapper(props: {
   return (
     <EditorPage
       initialDiary={existing}
-      onSave={async (d) => { await props.onUpsert(d); nav("/", { replace: true }); }}
+      onSave={async (d) => { props.onUpsert(d); nav("/", { replace: true }); }}
       onDelete={async (d) => { await props.onDelete(d.id); nav("/", { replace: true }); }}
       onCancel={() => nav("/", { replace: true })}
     />
