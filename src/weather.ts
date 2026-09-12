@@ -45,7 +45,7 @@ function openMeteoDesc(code: number): string {
   return "晴";
 }
 
-/** 获取粗略位置（浏览器 Geolocation → 只拿城市名） */
+/** 获取浏览器定位 → 反向地理编码成人类可读地名 */
 export async function fetchLocation(): Promise<{ lat: number; lon: number; name: string } | null> {
   try {
     const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -53,10 +53,29 @@ export async function fetchLocation(): Promise<{ lat: number; lon: number; name:
     });
     const lat = pos.coords.latitude;
     const lon = pos.coords.longitude;
-    // 用 Open-Meteo 逆地理编码（也免费）
-    const r = await fetch(`https://api.open-meteo.com/v1/geocoding?latitude=${lat}&longitude=${lon}&format=json&language=zh`);
+
+    // Nominatim (OpenStreetMap) 免费反向地理编码
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=zh&zoom=14`,
+      { headers: { "Accept": "application/json" } }
+    );
     const json = await r.json();
-    const name = json.results?.[0]?.name ?? "当前位置";
+    const addr = json.address ?? {};
+
+    // 拼一个简洁好看的名字：优先 city/state/country，fallback 到 display_name
+    const parts = [
+      addr.city ?? addr.town ?? addr.county ?? addr.state_district ?? "",
+      addr.state ?? addr.province ?? addr.region ?? "",
+      addr.country ?? "",
+    ].filter((x) => x && x.trim());
+
+    let name = parts.join(" · ");
+    if (!name && json.display_name) {
+      // display_name 太长，取前两个逗号
+      name = json.display_name.split(",").slice(0, 2).join("").trim();
+    }
+    if (!name) name = "当前位置";
+
     return { lat, lon, name };
   } catch {
     return null;
