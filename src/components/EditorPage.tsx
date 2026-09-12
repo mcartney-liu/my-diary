@@ -20,6 +20,7 @@ interface PendingRecording {
   blob: Blob;
   dataUrl: string;
   durationMs: number;
+  speechText?: string; // Web Speech API 实时转写结果（可编辑后落字）
 }
 
 function dateStr(date: string): string {
@@ -96,11 +97,14 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
   const speechStreamRef = useRef<MediaStream | null>(null);
   const recordingStartRef = useRef(0);
   const speechFinalRef = useRef<string>("");
+  const pendingSpeechTextRef = useRef<string>(""); // stopRecording 存的转写文字，等 MediaRecorder onstop 合并
   const [speechInterim, setSpeechInterim] = useState("");
   const [speechSupported] = useState<boolean>(() =>
     typeof window !== "undefined" &&
     ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)
   );
+  // 弹窗里可编辑的转写文字（初始值来自 pendingSpeechTextRef）
+  const [editableTranscript, setEditableTranscript] = useState("");
 
   // 标签弹框 outside-click 关闭
   const tagPopoverRef = useRef<HTMLDivElement>(null);
@@ -254,8 +258,19 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
       mr.onstop = () => {
         const blob = new Blob(recordedChunksRef.current, { type: mime });
         const durationMs = Date.now() - recordingStartRef.current;
+        const speechText = pendingSpeechTextRef.current;
+        pendingSpeechTextRef.current = ""; // 用完清
         const reader = new FileReader();
-        reader.onload = () => setPendingRec({ blob, dataUrl: reader.result as string, durationMs });
+        reader.onload = () => {
+          const rec: PendingRecording = { blob, dataUrl: reader.result as string, durationMs };
+          if (speechText) {
+            rec.speechText = speechText;
+            setEditableTranscript(speechText); // 初始化弹窗可编辑文字
+          } else {
+            setEditableTranscript("");
+          }
+          setPendingRec(rec);
+        };
         reader.readAsDataURL(blob);
       };
       mr.start();
@@ -269,14 +284,12 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
   };
 
   const stopRecording = () => {
-    const finalText = speechFinalRef.current.trim();
-    const interimText = speechInterim.trim();
-    const allText = (finalText + " " + interimText).trim();
+    const speechText = (speechFinalRef.current.trim() + " " + speechInterim.trim()).trim();
 
     // 停 Web Speech
     try { speechRecRef.current?.stop(); } catch {}
     speechRecRef.current = null;
-    // 停 MediaRecorder
+    // 停 MediaRecorder（它的 onstop 回调会 setPendingRec）
     try { mediaRecorderRef.current?.stop(); } catch {}
     mediaRecorderRef.current = null;
     // 停麦克风
@@ -285,32 +298,42 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
     setRecording(false);
     setSpeechInterim("");
 
-    // 有实时转写文字 → 直接贴成文字块（PM-OS 风格，零延迟零后端）
-    if (allText) addBlock("text", allText);
-    // 录音文件（pendingRec）等 MediaRecorder 的 onstop 回调来处理
-    // 用户可以选择「仅保存音频」或如果有后端再「AI 转写」
+    // 不自动落字！把 speechText 塞进一个临时 ref，等 MediaRecorder onstop 合并进 pendingRec
+    // 这样弹窗里可以同时看到音频播放器 + 可编辑的转写文字
+    pendingSpeechTextRef.current = speechText;
   };
 
-  const confirmAudioOnly = () => {
+  // 弹窗里的按钮动作：用 Web Speech 实时转写的文字（已可编辑）
+  const confirmSaveAudioAndText = () => {
+    if (!pendingRec) return;
+    const rec = pendingRec;
+    const text = editableTranscript.trim();
+    setPendingRec(null);
+    addBlock("audio", rec.dataUrl, rec.durationMs);
+    if (text) addBlock("text", text);
+  };
+  const confirmSaveAudioOnly = () => {
     if (!pendingRec) return;
     addBlock("audio", pendingRec.dataUrl, pendingRec.durationMs);
     setPendingRec(null);
   };
-  const confirmAudioAndTranscribe = async () => {
+  const confirmRerunAI = async () => {
     if (!pendingRec) return;
     const rec = pendingRec;
-    setPendingRec(null);
-    addBlock("audio", rec.dataUrl, rec.durationMs);
     setTranscribing(true);
     try {
       const text = await transcribeAudio(rec.blob);
-      if (text.trim()) addBlock("text", text.trim());
+      if (text.trim()) setEditableTranscript(text.trim());
     } catch (err) {
-      console.warn("转文字失败:", err);
-      alert("AI 转写失败，仅保存了音频。请确认 Worker 已部署且 Whisper 可用。");
+      console.warn("AI 转写失败:", err);
+      alert("AI 转写失败");
     } finally {
       setTranscribing(false);
     }
+  };
+  const cancelPending = () => {
+    setPendingRec(null);
+    setEditableTranscript("");
   };
 
   const handleSave = async () => {
@@ -697,40 +720,73 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
          </div>
        </div>
 
-       {/* 录音后选择弹窗 */}
-      {pendingRec && (
-        <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center px-6 animate-[fade-in_0.2s]">
-          <div className="bg-paper-card rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4">
-            <div className="text-center">
-              <div className="text-lg font-medium text-paper-ink">🎙️ 录音完成</div>
-              <div className="text-sm text-paper-ink2 mt-1">时长 {fmtDuration(pendingRec.durationMs)}</div>
-            </div>
-            <div className="rounded-xl bg-paper-surface p-3">
-              <audio src={pendingRec.dataUrl} controls className="w-full" />
-            </div>
-            <div className="space-y-2">
-              <button
-                onClick={confirmAudioAndTranscribe}
-                className="w-full py-3 rounded-xl bg-paper-ink text-paper-bg text-sm font-medium hover:opacity-90 active:scale-95 transition"
-              >
-                ✨ 保存 + AI 转写文字
-              </button>
-              <button
-                onClick={confirmAudioOnly}
-                className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm hover:bg-paper-line/50 active:scale-95 transition"
-              >
-                🎵 仅保存音频
-              </button>
-              <button
-                onClick={() => setPendingRec(null)}
-                className="w-full py-2 rounded-xl text-paper-ink2 text-sm hover:bg-paper-surface active:scale-95"
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+       {/* 录音完成弹窗 — 微信风格：音频 + 可编辑转写 */}
+       {pendingRec && (
+         <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center px-6 animate-[fade-in_0.2s]">
+           <div className="bg-paper-card rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+             <div className="text-center">
+               <div className="text-lg font-medium text-paper-ink">🎙️ 录音完成</div>
+               <div className="text-sm text-paper-ink2 mt-1">时长 {fmtDuration(pendingRec.durationMs)}</div>
+             </div>
+
+             {/* 音频播放器 */}
+             <div className="rounded-xl bg-paper-surface p-3">
+               <audio src={pendingRec.dataUrl} controls className="w-full" />
+             </div>
+
+             {/* 可编辑转写文字（Web Speech 实时转写结果，用户可改） */}
+             {pendingRec.speechText !== undefined || editableTranscript ? (
+               <div>
+                 <div className="text-xs text-paper-accent font-medium mb-1.5">📝 语音转文字（可编辑）</div>
+                 <textarea
+                   value={editableTranscript}
+                   onChange={(e) => setEditableTranscript(e.target.value)}
+                   rows={4}
+                   placeholder="没有识别出文字"
+                   className="w-full px-3 py-2 text-sm bg-paper-surface border border-paper-line rounded-xl outline-none focus:border-paper-accent resize-none text-paper-ink leading-relaxed"
+                 />
+               </div>
+             ) : (
+               <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                 💡 当前浏览器不支持实时语音转写。保存音频后可用「🤖 AI 转写」按钮重新识别。
+               </div>
+             )}
+
+             <div className="space-y-2 pt-1">
+               {/* 主按钮：保存音频 + 添加编辑后的文字 */}
+               <button
+                 onClick={confirmSaveAudioAndText}
+                 className="w-full py-3 rounded-xl bg-paper-ink text-paper-bg text-sm font-medium hover:opacity-90 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
+               >
+                 ✅ 保存音频 + 添加到日记
+               </button>
+               {/* 次按钮：仅保存音频 */}
+               <button
+                 onClick={confirmSaveAudioOnly}
+                 className="w-full py-2.5 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm hover:bg-paper-line/50 active:scale-95 transition"
+               >
+                 🎵 仅保存音频
+               </button>
+               {/* 次按钮：AI 重新转写（后端 fallback） */}
+               {!speechSupported && (
+                 <button
+                   onClick={confirmRerunAI}
+                   disabled={transcribing}
+                   className="w-full py-2.5 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm hover:bg-paper-line/50 active:scale-95 transition disabled:opacity-50"
+                 >
+                   🤖 {transcribing ? "AI 识别中..." : "AI 重新转写"}
+                 </button>
+               )}
+               <button
+                 onClick={cancelPending}
+                 className="w-full py-2 rounded-xl text-paper-ink2 text-sm hover:bg-paper-surface active:scale-95"
+               >
+                 取消
+               </button>
+             </div>
+           </div>
+         </div>
+       )}
 
       {/* 转写 loading */}
       {transcribing && (
