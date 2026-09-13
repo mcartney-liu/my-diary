@@ -17,7 +17,7 @@ function weekdayCN(dateStr: string): string {
 
 function firstBlockText(d: Diary): string {
   const t = d.blocks.find((b) => b.kind === "text")?.content ?? "";
-  return t.length > 60 ? t.slice(0, 60) + "…" : t;
+  return t.trim().length > 0 ? (t.length > 60 ? t.slice(0, 60) + "…" : t) : "";
 }
 
 function hasImage(d: Diary): boolean {
@@ -161,7 +161,14 @@ export default function DayList({ date, diaries, onSoftDelete }: Props) {
                       </div>
                     </div>
                     <p className="text-sm text-paper-ink2 line-clamp-2 leading-relaxed">
-                      {firstBlockText(d) || <span className="italic text-paper-ink3">（仅图片/录音）</span>}
+                      {(() => {
+                        const txt = firstBlockText(d);
+                        if (txt) return txt;
+                        if (hasImage(d) && hasAudio(d)) return <span className="italic text-paper-ink3">🖼️🎙️ 有图片和录音</span>;
+                        if (hasImage(d)) return <span className="italic text-paper-ink3">🖼️ 有图片</span>;
+                        if (hasAudio(d)) return <span className="italic text-paper-ink3">🎙️ 有录音</span>;
+                        return <span className="italic text-paper-ink3">未填写正文</span>;
+                      })()}
                     </p>
                     <div className="mt-1.5 flex items-center gap-2 flex-wrap">
                       <span className="text-[11px] text-paper-ink3">
