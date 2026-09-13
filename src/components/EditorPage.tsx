@@ -48,7 +48,7 @@ function promptForDate(dateStr: string): string {
   return PROMPTS[seed];
 }
 
-export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCancel }: Props) {
+export default function EditorPage({ initialDiary, initialTemplateId, onSave, onSoftDelete, onCancel }: Props) {
   const [title, setTitle] = useState(initialDiary?.title ?? "");
   const [date] = useState(initialDiary?.date ?? today());
   const [moodId, setMoodId] = useState<MoodId | null>(initialDiary?.moodId ?? null);
@@ -120,6 +120,8 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
   const [wallpaper, setWallpaper] = useState<string | undefined>(initialDiary?.wallpaper);
   const [showLines, setShowLines] = useState<boolean>(initialDiary?.showLines ?? true);
   const [showWallpaperMenu, setShowWallpaperMenu] = useState(false);
+  const [templateId, setTemplateId] = useState<string | undefined>(initialDiary?.templateId);
+  const [showTemplateMenu, setShowTemplateMenu] = useState(false);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
   const [saveToast, setSaveToast] = useState(false);
   const [saving, setSaving] = useState(false);
