@@ -104,23 +104,18 @@ function TemplateBarChart({ diaries, year }: { diaries: Diary[]; year: number })
       <h3 className="text-sm font-medium text-paper-ink mb-3 flex items-center gap-1.5">
         <span>📋</span> 模板分布
       </h3>
-      <div className="space-y-2">
-        {entries.map((e) => {
-          const pct = total > 0 ? (e.count / total) * 100 : 0;
-          return (
-            <div key={e.id} className="flex items-center gap-2">
-              <span className="text-lg w-6 text-center">{e.icon}</span>
-              <span className="text-xs text-paper-ink2 w-12 shrink-0">{e.name}</span>
-              <div className="flex-1 h-4 bg-paper-line/40 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-500 bg-paper-accent/60"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-              <span className="text-[11px] text-paper-ink3 w-8 text-right">{e.count}篇</span>
-            </div>
-          );
-        })}
+      <div className="flex flex-wrap gap-2">
+        {entries.map((e) => (
+          <span
+            key={e.id}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-paper-surface border border-paper-line text-sm"
+          >
+            <span>{e.icon}</span>
+            <span className="text-paper-ink2">{e.name}</span>
+            <span className="font-semibold text-paper-ink">{e.count}</span>
+            <span className="text-[10px] text-paper-ink3">篇</span>
+          </span>
+        ))}
       </div>
     </div>
   );

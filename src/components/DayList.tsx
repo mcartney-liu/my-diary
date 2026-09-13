@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { moodById } from "../data";
@@ -32,6 +33,7 @@ function daysUntilUnlock(ms: number): number {
 
 export default function DayList({ date, diaries }: Props) {
   const nav = useNavigate();
+  const [showTemplates, setShowTemplates] = useState(false);
   const sorted = [...diaries].sort((a, b) => b.updatedAt - a.updatedAt);
   const capsuleLockedCount = sorted.filter(
     (d) => d.capsuleUnlockAt && d.capsuleUnlockAt > Date.now()
@@ -43,6 +45,7 @@ export default function DayList({ date, diaries }: Props) {
     acc[tid] = (acc[tid] ?? 0) + 1;
     return acc;
   }, {});
+  const hasMultipleTemplates = Object.keys(templateStats).length > 1 && sorted.length > 0;
 
   return (
     <section className="card p-4 md:p-6 animate-fade-up">
@@ -50,14 +53,22 @@ export default function DayList({ date, diaries }: Props) {
         <span className="text-paper-accent">📖</span>
         {date}
         <span className="text-xs font-normal text-paper-ink2">· 周{weekdayCN(date)}</span>
+        {hasMultipleTemplates && (
+          <button
+            onClick={() => setShowTemplates((s) => !s)}
+            className="ml-1 text-xs px-2 py-0.5 rounded-full border border-paper-line text-paper-ink2 hover:text-paper-accent hover:border-paper-accent transition-colors"
+          >
+            📋 模板统计 {showTemplates ? "▾" : "▸"}
+          </button>
+        )}
         <span className="text-xs font-normal text-paper-ink2 ml-auto">
           {sorted.length} 篇
           {capsuleLockedCount > 0 && <span className="text-amber-600">（含 {capsuleLockedCount} 🔒）</span>}
         </span>
       </h2>
 
-      {/* 模板统计标签（只有一种模板时不显示） */}
-      {Object.keys(templateStats).length > 1 && sorted.length > 0 && (
+      {/* 模板统计标签（默认折叠，点按钮才展开） */}
+      {hasMultipleTemplates && showTemplates && (
         <div className="mb-3 flex items-center gap-1.5 flex-wrap">
           {Object.entries(templateStats)
             .sort((a, b) => b[1] - a[1])
