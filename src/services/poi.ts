@@ -1,122 +1,83 @@
 /**
  * POI 服务 — 基于 Overpass API（OpenStreetMap）
  * 免费、无 API Key、全球覆盖
- * 注意：公共实例限制 1 req/sec，加了简易防抖
+ *
+ * ⚠️ 2026-09-14 实测：
+ *   - overpass-api.de → Apache 升级后彻底 406，不可用
+ *   - overpass.kumi.systems → GET 浏览器自动带 UA 可通 ✅
+ *   - 简化 query 缩短 URL，避免被网关 414/400
  */
 
 export type PoiCategory = "attraction" | "food" | "cafe" | "hotel";
 
 export interface Poi {
-  id: string;              // OSM node id
+  id: string;
   name: string;
   category: PoiCategory;
-  categoryLabel: string;  // 中文 "景点" / "美食" / "咖啡" / "酒店"
+  categoryLabel: string;
   lat: number;
   lon: number;
-  // 可选
   address?: string;
   phone?: string;
   website?: string;
-  tags?: string[];         // 补充标签，比如 ["四川菜", "火锅"]
+  tags?: string[];
 }
 
-const CATEGORY_CONFIG: Record<
-  PoiCategory,
-  { label: string; overpass: string; radius: number }
-> = {
+/** 用 regex filter 合并同类标签，大幅缩短 URL */
+const CATEGORY_CONFIG: Record<PoiCategory, { label: string; radius: number; filter: string }> = {
   attraction: {
     label: "景点",
-    radius: 1200,
-    overpass: `
-      node["tourism"="attraction"];
-      node["tourism"="museum"];
-      node["tourism"="park"];
-      node["tourism"="zoo"];
-      node["tourism"="gallery"];
-    `,
+    radius: 1500,
+    filter: '["tourism"~"attraction|museum|park|zoo|gallery|monument|viewpoint"]',
   },
   food: {
     label: "美食",
-    radius: 500,
-    overpass: `
-      node["amenity"="restaurant"];
-      node["amenity"="fast_food"];
-      node["amenity"="food_court"];
-      node["amenity"="bar"];
-      node["amenity"="pub"];
-    `,
+    radius: 800,
+    filter: '["amenity"~"restaurant|fast_food|food_court|bar|pub"]',
   },
   cafe: {
     label: "咖啡",
-    radius: 500,
-    overpass: `
-      node["amenity"="cafe"];
-      node["amenity"="bakery"];
-      node["amenity"="ice_cream"];
-    `,
+    radius: 800,
+    filter: '["amenity"~"cafe|bakery|ice_cream"]',
   },
   hotel: {
     label: "酒店",
-    radius: 1500,
-    overpass: `
-      node["tourism"="hotel"];
-      node["tourism"="hostel"];
-      node["tourism"="guesthouse"];
-      node["tourism"="apartment"];
-    `,
+    radius: 2000,
+    filter: '["tourism"~"hotel|hostel|guesthouse|apartment|resort"]',
   },
 };
 
-const OVERPASS_ENDPOINTS = [
-  "https://overpass.kumi.systems/api/interpreter",
-  "https://overpass-api.de/api/interpreter",
-];
+// 只用 kumi.systems（api.de 死了）
+const OVERPASS_URL = "https://overpass.kumi.systems/api/interpreter";
 
-/** 最后一次请求时间 — 简易限流（Overpass 要求 1 req/sec） */
+/** 简易限流：Overpass 公共实例要求 ~1 req/sec */
 let lastRequestAt = 0;
 
-async function throttledFetch(baseUrl: string, query: string): Promise<Response> {
-  const now = Date.now();
-  const wait = Math.max(0, 1100 - (now - lastRequestAt));
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+function throttledWait() {
+  const wait = Math.max(0, 1100 - (Date.now() - lastRequestAt));
   lastRequestAt = Date.now();
-
-  // GET + URL-encoded query — 浏览器能发，Overpass 接受
-  const url = `${baseUrl}?data=${encodeURIComponent(query)}`;
-  return fetch(url, { method: "GET" });
+  return wait > 0 ? new Promise((r) => setTimeout(r, wait)) : Promise.resolve();
 }
 
-/** 构造 Overpass QL — 查指定经纬度附近所有分类 */
+/** 生成精简 Overpass QL — 单次请求所有分类 */
 function buildQuery(lat: number, lon: number): string {
   const parts: string[] = [];
   for (const cfg of Object.values(CATEGORY_CONFIG)) {
-    const nodes = cfg.overpass.trim().split("\n").map((s) => s.trim()).filter(Boolean);
-    for (const n of nodes) {
-      parts.push(`${n}(${cfg.radius},${lat},${lon});`);
-    }
+    parts.push(`node${cfg.filter}(around:${cfg.radius},${lat},${lon});`);
   }
-  return `[out:json][timeout:25];\n(\n${parts.join("\n")}\n);\nout body 30;\n`;
+  return `[out:json][timeout:30];(${parts.join("")});out body 40;`;
 }
 
 function classifyPoi(tags: Record<string, string>): PoiCategory | null {
-  const t = tags.tourism;
-  const a = tags.amenity;
-  if (t === "attraction" || t === "museum" || t === "park" || t === "zoo" || t === "gallery")
-    return "attraction";
-  if (a === "restaurant" || a === "fast_food" || a === "food_court" || a === "bar" || a === "pub")
-    return "food";
-  if (a === "cafe" || a === "bakery" || a === "ice_cream") return "cafe";
-  if (t === "hotel" || t === "hostel" || t === "guesthouse" || t === "apartment") return "hotel";
+  const t = tags.tourism || "";
+  const a = tags.amenity || "";
+  if (/^(attraction|museum|park|zoo|gallery|monument|viewpoint)$/.test(t)) return "attraction";
+  if (/^(restaurant|fast_food|food_court|bar|pub)$/.test(a)) return "food";
+  if (/^(cafe|bakery|ice_cream)$/.test(a)) return "cafe";
+  if (/^(hotel|hostel|guesthouse|apartment|resort)$/.test(t)) return "hotel";
   return null;
 }
 
-/**
- * 查附近 POI
- * @param lat 纬度
- * @param lon 经度
- * @param categories 要查的分类，默认全查
- * @param signal 可选 AbortSignal
- */
 export async function fetchNearbyPois(
   lat: number,
   lon: number,
@@ -124,59 +85,53 @@ export async function fetchNearbyPois(
   signal?: AbortSignal
 ): Promise<Poi[]> {
   const query = buildQuery(lat, lon);
-  console.info("[mydiary] 🗺️ Overpass query:", query.slice(0, 200));
+  await throttledWait();
 
-  let lastErr: unknown;
-  for (const endpoint of OVERPASS_ENDPOINTS) {
-    try {
-      console.info("[mydiary] 🔗 Trying endpoint:", endpoint);
-      const res = await throttledFetch(endpoint, query);
-      console.info("[mydiary] 📡 Response:", res.status, res.headers.get("content-type"));
-      if (!res.ok) {
-        lastErr = new Error(`Overpass ${res.status}`);
-        console.warn("[mydiary] ⚠️ 非 200，跳下一个 endpoint");
-        continue;
-      }
-      const data = await res.json();
-      console.info("[mydiary] 📦 Raw elements:", data.elements?.length ?? 0);
-      const pois: Poi[] = [];
-      for (const el of data.elements) {
-        if (el.type !== "node") continue;
-        const tags = el.tags || {};
-        if (!tags.name) continue;
-        const cat = classifyPoi(tags);
-        if (!cat || !categories.includes(cat)) continue;
-        pois.push({
-          id: String(el.id),
-          name: tags.name,
-          category: cat,
-          categoryLabel: CATEGORY_CONFIG[cat].label,
-          lat: el.lat,
-          lon: el.lon,
-          address:
-            [tags["addr:city"], tags["addr:street"], tags["addr:housenumber"]]
-              .filter(Boolean)
-              .join(" ") || undefined,
-          phone: tags.phone,
-          website: tags.website || tags["contact:website"],
-          tags: [tags.cuisine, tags.amenity].filter(Boolean) as string[],
-        });
-      }
-      // 去重（按 name + category）
-      const seen = new Set<string>();
-      const deduped = pois.filter((p) => {
-        const k = `${p.name}|${p.category}`;
-        if (seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      });
-      return deduped.sort((a, b) => a.category.localeCompare(b.category));
-    } catch (e) {
-      lastErr = e;
-      if (signal?.aborted) throw e;
-    }
+  const url = `${OVERPASS_URL}?data=${encodeURIComponent(query)}`;
+  console.info("[mydiary] 🗺️ POI query size:", query.length, "chars, URL:", url.length, "bytes");
+
+  const res = await fetch(url, { method: "GET", signal });
+  console.info("[mydiary] 📡 Overpass:", res.status, res.headers.get("content-type"));
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Overpass ${res.status}: ${text.slice(0, 200)}`);
   }
-  throw lastErr ?? new Error("Overpass API all endpoints failed");
+
+  const data = await res.json();
+  const pois: Poi[] = [];
+  for (const el of data.elements || []) {
+    if (el.type !== "node") continue;
+    const tags = el.tags || {};
+    if (!tags.name) continue;
+    const cat = classifyPoi(tags);
+    if (!cat || !categories.includes(cat)) continue;
+    pois.push({
+      id: String(el.id),
+      name: tags.name,
+      category: cat,
+      categoryLabel: CATEGORY_CONFIG[cat].label,
+      lat: el.lat,
+      lon: el.lon,
+      address:
+        [tags["addr:city"], tags["addr:street"], tags["addr:housenumber"]]
+          .filter(Boolean)
+          .join(" ") || undefined,
+      phone: tags.phone,
+      website: tags.website || tags["contact:website"],
+      tags: [tags.cuisine, tags.amenity].filter(Boolean) as string[],
+    });
+  }
+  // 去重 + 排序
+  const seen = new Set<string>();
+  return pois
+    .filter((p) => {
+      const k = `${p.name}|${p.category}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .sort((a, b) => a.category.localeCompare(b.category));
 }
 
 export const POI_CATEGORY_CONFIG = CATEGORY_CONFIG;
