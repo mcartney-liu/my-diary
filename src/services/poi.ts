@@ -129,16 +129,21 @@ export async function fetchNearbyPois(
   signal?: AbortSignal
 ): Promise<Poi[]> {
   const query = buildQuery(lat, lon);
+  console.info("[mydiary] 🗺️ Overpass query:", query.slice(0, 200));
 
   let lastErr: unknown;
   for (const endpoint of OVERPASS_ENDPOINTS) {
     try {
+      console.info("[mydiary] 🔗 Trying endpoint:", endpoint);
       const res = await throttledFetch(endpoint, query);
+      console.info("[mydiary] 📡 Response:", res.status, res.headers.get("content-type"));
       if (!res.ok) {
         lastErr = new Error(`Overpass ${res.status}`);
+        console.warn("[mydiary] ⚠️ 非 200，跳下一个 endpoint");
         continue;
       }
       const data = await res.json();
+      console.info("[mydiary] 📦 Raw elements:", data.elements?.length ?? 0);
       const pois: Poi[] = [];
       for (const el of data.elements) {
         if (el.type !== "node") continue;

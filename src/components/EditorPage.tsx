@@ -136,6 +136,19 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [nearbyError, setNearbyError] = useState<string | null>(null);
   const [nearbyAbortRef, setNearbyAbortRef] = useState<AbortController | null>(null);
+
+  // === 手机调试面板 ===
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugLogs, setDebugLogs] = useState<{ t: string; msg: string; level: "info" | "warn" | "error" }[]>([]);
+  const pushLog = (msg: string, level: "info" | "warn" | "error" = "info") => {
+    const t = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+    setDebugLogs((prev) => [...prev.slice(-49), { t, msg, level }]);
+    // 同时写到 console（电脑上 F12 也能看）
+    if (level === "info") console.info("[mydiary]", msg);
+    else if (level === "warn") console.warn("[mydiary]", msg);
+    else console.error("[mydiary]", msg);
+  };
+
   const [capsuleDays, setCapsuleDays] = useState<number | null>(null);
   const [showCapsuleMenu, setShowCapsuleMenu] = useState(false);
   const [wallpaper, setWallpaper] = useState<string | undefined>(initialDiary?.wallpaper);
@@ -253,37 +266,54 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
     let cancelled = false;
     setWeatherLoading(true);
     setLocationLoading(true);
-    try {
-      const loc = await fetchLocation();
-      if (cancelled) return;
-      setLocation({ name: loc.name, lat: loc.lat, lon: loc.lon });
-      setLocationSource(loc.source);
-      setLocationError(loc.gpsError);
-      const w = await fetchWeather(loc.lat, loc.lon);
-      if (!cancelled && w) setWeather(w);
+    pushLog(`🚀 开始定位, template=${templateId}, 编辑=${!!initialDiary}`);
 
-      // 旅行模板 + 有坐标 → 拉附近 POI
-      if (!initialDiary && templateId === "travel") {
-        await loadNearbyPois(loc.lat, loc.lon);
+    // 1) 定位（最关键，必须成功）
+    const loc = await fetchLocation();
+    if (cancelled) return;
+    pushLog(`📍 定位: ${loc.name} (${loc.lat.toFixed(3)}, ${loc.lon.toFixed(3)}) 来源=${loc.source}${loc.gpsError ? ` GPS错=${loc.gpsError}` : ""}`);
+    setLocation({ name: loc.name, lat: loc.lat, lon: loc.lon });
+    setLocationSource(loc.source);
+    setLocationError(loc.gpsError);
+
+    // 2) 天气（单独 try/catch，别让天气挂了影响 POI）
+    try {
+      const w = await fetchWeather(loc.lat, loc.lon);
+      if (!cancelled && w) {
+        pushLog(`☀️ 天气: ${w.temp}° ${w.description}`);
+        setWeather(w);
       }
-    } catch { /* ignore */ }
+    } catch (e) {
+      pushLog(`⚠️ 天气失败（不影响POI）: ${(e as any)?.message ?? e}`, "warn");
+    }
+
+    // 3) POI（旅行模板才拉）
+    if (!initialDiary && templateId === "travel") {
+      pushLog(`🗺️ 开始拉 POI...`);
+      await loadNearbyPois(loc.lat, loc.lon);
+    } else {
+      pushLog(`⏭️ 跳过 POI（不是旅行模板 或 编辑模式）`);
+    }
+
     setWeatherLoading(false);
     setLocationLoading(false);
   }
 
   /** 拉附近 POI（旅行模板专用） */
   async function loadNearbyPois(lat: number, lon: number) {
+    pushLog(`🔍 Overpass 查询中... (${lat.toFixed(3)}, ${lon.toFixed(3)})`);
     setNearbyLoading(true);
     setNearbyError(null);
-    // 取消之前的请求
     nearbyAbortRef?.abort();
     const ctrl = new AbortController();
     setNearbyAbortRef(ctrl);
     try {
       const pois = await fetchNearbyPois(lat, lon, ["attraction", "food", "cafe", "hotel"], ctrl.signal);
+      pushLog(`✅ POI 返回 ${pois.length} 个: ${pois.map(p => p.name).slice(0,5).join(", ")}`);
       setNearbyPois(pois);
     } catch (e: any) {
       if (e?.name === "AbortError") return;
+      pushLog(`❌ POI 失败: ${e?.message ?? e}`, "error");
       setNearbyError(e?.message ?? "附近 POI 获取失败");
       setNearbyPois([]);
     }
@@ -1650,6 +1680,52 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
           }}
           onCancel={() => setConfirmSwitchTpl(false)}
         />
+
+        {/* 🛠️ 调试面板 — 手机上看定位/POI 状态 */}
+        {debugOpen && (
+          <div className="fixed bottom-24 left-2 right-2 md:left-auto md:right-4 md:w-96 z-50 max-h-[60vh] overflow-hidden rounded-xl border border-slate-300 bg-slate-900/95 backdrop-blur shadow-2xl text-xs text-slate-100 flex flex-col animate-[fade-in_0.15s]">
+            {/* 头部 */}
+            <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
+              <span className="font-semibold text-slate-200">🛠️ 调试</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setDebugLogs([])}
+                  className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px]"
+                >清空</button>
+                <button
+                  onClick={() => setDebugOpen(false)}
+                  className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px]"
+                >关闭</button>
+              </div>
+            </div>
+            {/* 状态 */}
+            <div className="px-3 py-2 border-b border-slate-700 space-y-1 text-[11px]">
+              <div>📍 位置: <span className="text-emerald-300">{location?.name ?? "未获取"}</span></div>
+              <div>📡 来源: <span className={locationSource === "gps" ? "text-emerald-300" : locationSource === "ip" ? "text-sky-300" : "text-amber-300"}>{locationSource ?? "-"}</span> {location?.lat != null && location?.lon != null ? `(${location.lat.toFixed(3)}, ${location.lon.toFixed(3)})` : ""}</div>
+              <div>🗺️ POI: <span className="text-amber-300">{nearbyLoading ? "加载中..." : `${nearbyPois.length} 个`}</span> {nearbyError && <span className="text-red-400">❌ {nearbyError}</span>}</div>
+              <div>☀️ 天气: <span className="text-sky-300">{weather ? `${weather.temp}° ${weather.description}` : "-"}</span></div>
+              <div>📋 模板: {templateId ?? "-"} | 编辑模式: {!!initialDiary ? "是" : "否"}</div>
+            </div>
+            {/* 日志 */}
+            <div className="flex-1 overflow-y-auto px-3 py-2 font-mono text-[10px] leading-relaxed">
+              {debugLogs.length === 0 ? (
+                <div className="text-slate-500">暂无日志。点「📍 点我定位」按钮开始...</div>
+              ) : (
+                debugLogs.map((l, i) => (
+                  <div key={i} className={`${l.level === "error" ? "text-red-400" : l.level === "warn" ? "text-amber-300" : "text-slate-300"}`}>
+                    <span className="text-slate-500">{l.t}</span> {l.msg}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+        {/* 悬浮按钮（右下角） */}
+        <button
+          onClick={() => setDebugOpen((v) => !v)}
+          className="fixed bottom-24 right-2 z-40 w-9 h-9 rounded-full bg-slate-800 text-white text-sm shadow-lg active:scale-90 transition md:bottom-4 md:right-4"
+          title="调试面板"
+        >🛠️</button>
       </div>
     );
   }
