@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { monthCells, moodById, fmtDate } from "../data";
+import { TEMPLATES } from "../templates";
 import StreakBadge from "./StreakBadge";
 import SearchBar from "./SearchBar";
 import OnThisDay from "./OnThisDay";
@@ -21,6 +22,7 @@ export default function CalendarPage({ diaries }: Props) {
   const [month, setMonth] = useState(now.getMonth());
   const [selectedDate, setSelectedDate] = useState<string>(() => fmtDate(now));
   const [view, setView] = useState<"monthly" | "yearly">("monthly");
+  const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
 
   const cells = useMemo(() => monthCells(year, month), [year, month]);
 
@@ -166,7 +168,11 @@ export default function CalendarPage({ diaries }: Props) {
               return (
                 <button
                   key={i}
-                  onClick={() => setSelectedDate(ds)}
+                  onClick={() => {
+                    setSelectedDate(ds);
+                    if (totalCount > 0) setShowDayDetail(ds);
+                    else setShowDayDetail(null);
+                  }}
                   className={[
                     "relative aspect-square md:aspect-[1/1] rounded-lg md:rounded-xl flex flex-col items-center justify-center",
                     "text-sm md:text-base transition-all duration-150",
@@ -211,6 +217,54 @@ export default function CalendarPage({ diaries }: Props) {
           <MoodHeatmap diaries={diaries} />
         )}
       </main>
+
+      {/* 日期模板统计弹窗 */}
+      {showDayDetail && (() => {
+        const dayDiaries = byDate.get(showDayDetail) ?? [];
+        const tplCount: Record<string, number> = {};
+        for (const d of dayDiaries) {
+          const tid = d.templateId ?? "diary";
+          tplCount[tid] = (tplCount[tid] ?? 0) + 1;
+        }
+        const mood = moodById(dayDiaries[0]?.moodId);
+        return dayDiaries.length > 0 ? (
+          <div
+            className="fixed inset-0 z-50 bg-black/30 flex items-end md:items-center justify-center"
+            onClick={() => setShowDayDetail(null)}
+          >
+            <div
+              className="bg-white rounded-t-2xl md:rounded-2xl p-5 w-full md:w-[340px] md:shadow-xl animate-fade-up"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold text-paper-ink flex items-center gap-2">
+                  {mood && <span className="text-lg">{mood.icon}</span>}
+                  {showDayDetail}
+                  <span className="text-sm text-paper-ink2 font-normal">· {dayDiaries.length} 篇</span>
+                </h4>
+                <button
+                  onClick={() => setShowDayDetail(null)}
+                  className="w-7 h-7 rounded-full bg-paper-surface hover:bg-paper-line/60 text-paper-ink2 flex items-center justify-center"
+                >✕</button>
+              </div>
+              <div className="space-y-2">
+                {Object.entries(tplCount)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([tid, c]) => {
+                    const tpl = TEMPLATES.find((t) => t.id === tid);
+                    return (
+                      <div key={tid} className="flex items-center gap-3 px-2 py-1.5 rounded-lg bg-paper-surface/60">
+                        <span className="text-lg">{tpl?.icon ?? "📖"}</span>
+                        <span className="text-sm text-paper-ink2 flex-1">{tpl?.name ?? "日记"}</span>
+                        <span className="font-semibold text-paper-ink">{c} 篇</span>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          </div>
+        ) : null;
+      })()}
     </div>
   );
 }
