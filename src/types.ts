@@ -37,6 +37,7 @@ export interface Diary {
   weather?: WeatherInfo;     // 自动记录
   location?: LocationInfo;   // 自动记录
   promptId?: string;         // 用了哪个每日 Prompt
+  templateId?: string;       // 用了哪个模板（diary / finance / reading...）
   capsuleUnlockAt?: number;  // 时间胶囊：设定后日记锁定，直到此时间戳解锁
   tags?: string[];           // 标签，比如 ["工作", "旅行", "感恩"]
   deletedAt?: number;        // 软删时间戳，undefined 表示未删除

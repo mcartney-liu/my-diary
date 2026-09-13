@@ -9,6 +9,7 @@ import TextBlock from "./TextBlock";
 import ImageBlock from "./ImageBlock";
 import AudioBlock from "./AudioBlock";
 import { PRESET_PAPERS, matchPreset } from "../presetPapers";
+import { TEMPLATES, templateById, type DiaryTemplate } from "../templates";
 import GridSnap from "./GridSnap";
 
 interface Props {
@@ -181,6 +182,18 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
     return () => document.removeEventListener("mousedown", handler);
   }, [showTagInput]);
 
+  // 新建日记时：如果给了 initialTemplateId → 从模板读初始值
+  useEffect(() => {
+    if (initialDiary) return; // 编辑模式不走这里
+    const tpl = templateById(initialTemplateId);
+    if (!tpl) return;
+    setTemplateId(tpl.id);
+    setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
+    if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
+    if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
+    if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
+  }, [initialDiary, initialTemplateId]);
+
   // 自动抓天气 + 位置（仅新建日记时）
   useEffect(() => {
     if (initialDiary) return; // 编辑模式不自动抓
@@ -221,6 +234,7 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
     setCapsuleDays(null);
     setWallpaper(initialDiary.wallpaper);
     setShowLines(initialDiary.showLines ?? true);
+    setTemplateId(initialDiary.templateId);
   }, [initialDiary?.id]);
 
   const updateBlock = (id: string, patch: Partial<DiaryBlock>) => {
@@ -482,6 +496,7 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
       blocks: finalBlocks,
       weather: weather ?? undefined,
       location: location ?? undefined,
+      templateId,
       promptId: capsuleDays ? `capsule-${capsuleDays}d` : undefined,
       capsuleUnlockAt,
       tags: mergedTags.length > 0 ? mergedTags : undefined,
@@ -954,6 +969,19 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
             >
               <Palette size={16} />
             </button>
+
+            {/* 模板按钮 */}
+            <button
+              onClick={() => setShowTemplateMenu(true)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm transition active:scale-95 ${
+                templateId && templateId !== "diary"
+                  ? "bg-violet-50 border-violet-300 text-violet-800"
+                  : "bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50"
+              }`}
+              title="选择模板"
+            >
+              📋
+            </button>
           </div>
         </footer>
 
@@ -1059,9 +1087,76 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
             </div>
           </div>
         )}
-     </div>
-   );
- }
+
+        {/* 模板选择 Drawer */}
+        {showTemplateMenu && (
+          <div className="fixed inset-0 z-50 flex items-end" onClick={() => setShowTemplateMenu(false)}>
+            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-[fade-in_0.2s]" />
+            <div
+              className="relative w-full max-h-[75vh] bg-paper-card rounded-t-2xl shadow-2xl overflow-hidden flex flex-col animate-[drawer-up_0.28s_ease-out]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex justify-center pt-2 pb-1">
+                <div className="w-10 h-1 rounded-full bg-paper-line" />
+              </div>
+              <div className="flex items-center justify-between px-5 py-2 border-b border-paper-line">
+                <h3 className="font-semibold text-paper-ink">选择模板</h3>
+                <button
+                  onClick={() => setShowTemplateMenu(false)}
+                  className="w-8 h-8 rounded-full hover:bg-paper-surface flex items-center justify-center text-paper-ink2"
+                  aria-label="关闭"
+                >✕</button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                <div className="grid grid-cols-2 gap-3">
+                  {TEMPLATES.map((tpl) => {
+                    const selected = templateId === tpl.id || (!templateId && tpl.id === "diary");
+                    return (
+                      <button
+                        key={tpl.id}
+                        onClick={() => {
+                          const hasContent = blocks.some(
+                            (b) => b.kind === "text" ? b.content.trim().length > 0 : !!b.content
+                          );
+                          if (hasContent) {
+                            if (!confirm("切换模板会替换当前内容，确定吗？")) return;
+                          }
+                          setTemplateId(tpl.id);
+                          setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
+                          if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
+                          else if (tpl.id === "diary") setWallpaper(undefined);
+                          if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
+                          if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
+                          setShowTemplateMenu(false);
+                        }}
+                        className={`p-3 rounded-xl border-2 text-left transition ${
+                          selected
+                            ? "border-violet-400 ring-2 ring-violet-200 bg-violet-50/50"
+                            : "border-paper-line hover:border-paper-ink2 hover:bg-paper-surface"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xl">{tpl.icon}</span>
+                          <span className={`font-medium text-sm ${selected ? "text-violet-900" : "text-paper-ink"}`}>
+                            {tpl.name}
+                          </span>
+                          {selected && <span className="ml-auto w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center">✓</span>}
+                        </div>
+                        <div className="text-[11px] text-paper-ink2 leading-tight">{tpl.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 px-1 text-[11px] text-paper-ink3 italic">
+                  模板 = 初始文案 + 专属信纸 + 默认标签，换模板会替换当前内容
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
 // 录音按钮组件 — 支持点击切换 + 长按停止
 function RecordingButton({

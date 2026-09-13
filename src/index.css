@@ -66,7 +66,7 @@ input::placeholder, textarea::placeholder {
   background-attachment: local;
 }
 
-/* 带壁纸的横线叠加层 */
+/* 带壁纸的横线叠加层 — 用暖色深米色，浅色/深色照片上都看得见 */
 .paper-editor.has-wallpaper::before {
   content: "";
   position: absolute;
@@ -76,8 +76,8 @@ input::placeholder, textarea::placeholder {
     to bottom,
     transparent 0px,
     transparent 31px,
-    rgba(255, 255, 255, 0.35) 31px,
-    rgba(255, 255, 255, 0.35) 32px
+    rgba(160, 145, 110, 0.55) 31px,
+    rgba(160, 145, 110, 0.55) 32px
   );
   z-index: 0;
 }

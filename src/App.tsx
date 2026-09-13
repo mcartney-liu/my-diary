@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef, useState } from "react";
-import { Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { Diary } from "./types";
 import { loadDiaries, seedIfEmpty } from "./storage";
 import { upsertDiary as apiUpsert, deleteDiary as apiDelete } from "./api";
@@ -197,8 +197,10 @@ function EditorPageWrapper(props: {
   onSoftDelete: (id: string) => Promise<void> | void;
 }) {
   const { id } = useParams();
+  const [sp] = useSearchParams();
   const nav = useNavigate();
   const existing = id ? props.allDiaries.find((d) => d.id === id && !d.deletedAt) : undefined;
+  const templateId = sp.get("template") ?? undefined;
 
   if (props.mode === "edit" && !existing) {
     return <Navigate to="/editor" replace />;
@@ -207,6 +209,7 @@ function EditorPageWrapper(props: {
   return (
     <EditorPage
       initialDiary={existing}
+      initialTemplateId={templateId}
       onSave={async (d) => { await props.onUpsert(d); }}
       onSoftDelete={(d) => { props.onSoftDelete(d.id); nav("/", { replace: true }); }}
       onCancel={() => nav("/", { replace: true })}
