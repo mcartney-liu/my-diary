@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Diary, MoodId } from "../types";
 import { MOOD_TAGS, moodById } from "../data";
+import { TEMPLATES } from "../templates";
 
 interface Props {
   diaries: Diary[];
@@ -64,8 +65,6 @@ function MoodBarChart({ diaries, year }: { diaries: Diary[]; year: number }) {
 
 /** GitHub 风格年度写作密度图 */
 function WritingDensity({ diaries, year }: { diaries: Diary[]; year: number }) {
-  const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
-
   // 每一天的写作总字数 + 日记数
   const dayStats = useMemo(() => {
     const map = new Map<string, { count: number; words: number }>();
@@ -82,19 +81,6 @@ function WritingDensity({ diaries, year }: { diaries: Diary[]; year: number }) {
       } else {
         map.set(d.date, { count: 1, words });
       }
-    }
-    return map;
-  }, [diaries, year]);
-
-  // 每一天的模板分布
-  const dayTemplates = useMemo(() => {
-    const map = new Map<string, Record<string, number>>();
-    for (const d of diaries) {
-      if (!d.date.startsWith(`${year}-`)) continue;
-      const tid = d.templateId ?? "diary";
-      const existing = map.get(d.date) ?? {};
-      existing[tid] = (existing[tid] ?? 0) + 1;
-      map.set(d.date, existing);
     }
     return map;
   }, [diaries, year]);
@@ -175,18 +161,13 @@ function WritingDensity({ diaries, year }: { diaries: Diary[]; year: number }) {
                 {week.map((date, di) => {
                   const ds = date?.toISOString().slice(0, 10);
                   const stats = ds ? dayStats.get(ds) : null;
-                  const hasData = !!stats && stats.count > 0;
                   return (
                     <div
                       key={di}
-                      onClick={() => hasData && setShowDayDetail(ds!)}
                       title={date && stats
                         ? `${ds} · ${stats.count} 篇 · ${stats.words} 字`
                         : date ? `${ds} · 未写` : ""}
-                      className={[
-                        "w-[12px] h-[12px] rounded-[2px] transition-transform hover:scale-125",
-                        hasData ? "cursor-pointer" : "cursor-default",
-                      ].join(" ")}
+                      className="w-[12px] h-[12px] rounded-[2px] transition-transform hover:scale-125 cursor-pointer"
                       style={{ backgroundColor: cellColor(date) }}
                     />
                   );
@@ -195,52 +176,9 @@ function WritingDensity({ diaries, year }: { diaries: Diary[]; year: number }) {
             ))}
           </div>
         </div>
+      </div>
 
-        {/* 点击日期弹出模板明细 */}
-        {showDayDetail && (() => {
-          const tplCount = dayTemplates.get(showDayDetail) ?? {};
-          const stats = dayStats.get(showDayDetail);
-          return (
-            <div
-              className="fixed inset-0 z-50 bg-black/30 flex items-end md:items-center justify-center"
-              onClick={() => setShowDayDetail(null)}
-            >
-              <div
-                className="bg-white rounded-t-2xl md:rounded-2xl p-5 w-full md:w-[340px] md:shadow-xl animate-fade-up"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-semibold text-paper-ink">
-                    {showDayDetail}
-                  </h4>
-                  <button
-                    onClick={() => setShowDayDetail(null)}
-                    className="w-7 h-7 rounded-full bg-paper-surface hover:bg-paper-line/60 text-paper-ink2 flex items-center justify-center"
-                  >✕</button>
-                </div>
-                <div className="text-xs text-paper-ink2 mb-3">
-                  {stats?.count ?? 0} 篇 · {stats?.words ?? 0} 字
-                </div>
-                <div className="space-y-2">
-                  {Object.entries(tplCount)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([tid, c]) => {
-                      const tpl = TEMPLATES.find((t) => t.id === tid);
-                      return (
-                        <div key={tid} className="flex items-center gap-3 px-2 py-1.5 rounded-lg bg-paper-surface/60">
-                          <span className="text-lg">{tpl?.icon ?? "📖"}</span>
-                          <span className="text-sm text-paper-ink2 flex-1">{tpl?.name ?? "日记"}</span>
-                          <span className="font-semibold text-paper-ink">{c} 篇</span>
-                        </div>
-                      );
-                    })}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* 图例 */}
+      {/* 图例 */}
       <div className="flex items-center gap-1 mt-3 text-[10px] text-paper-ink3">
         <span>少</span>
         {["#efe8dc", "#a7d8b0", "#6bbf7c", "#3ea057", "#1f7a37"].map((c) => (
@@ -271,11 +209,8 @@ function MonthlyOverview({ diaries, year }: { diaries: Diary[]; year: number }) 
       const prefix = `${year}-${String(m + 1).padStart(2, "0")}`;
       const monthDiaries = diaries.filter((d) => d.date.startsWith(prefix));
 
-      // 心情统计
       const moodCount = new Map<MoodId | null, number>();
-      // 模板统计
       const tplCount: Record<string, number> = {};
-
       for (const d of monthDiaries) {
         const key = d.moodId ?? null;
         moodCount.set(key, (moodCount.get(key) ?? 0) + 1);
@@ -341,7 +276,6 @@ function MonthlyOverview({ diaries, year }: { diaries: Diary[]; year: number }) 
         ))}
       </div>
 
-      {/* 点击月份弹出模板明细 */}
       {clickedMonth && (
         <div
           className="fixed inset-0 z-50 bg-black/30 flex items-end md:items-center justify-center"
