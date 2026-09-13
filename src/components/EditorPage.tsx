@@ -192,6 +192,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
     if (!tpl) return;
     setTemplateId(tpl.id);
     setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
+    if (tpl.defaultTitle) setTitle(tpl.defaultTitle);
     if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
     if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
     if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
@@ -1286,11 +1287,12 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
                             if (!confirm("切换模板会替换当前内容，确定吗？")) return;
                           }
                           setTemplateId(tpl.id);
-                          setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
-                          if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
-                          else if (tpl.id === "diary") setWallpaper(undefined);
-                          if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
-                          if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
+                           setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
+                           if (tpl.defaultTitle) setTitle(tpl.defaultTitle);
+                           if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
+                           else if (tpl.id === "diary") setWallpaper(undefined);
+                           if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
+                           if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
                           setShowTemplateMenu(false);
                         }}
                         className={`p-3 rounded-xl border-2 text-left transition ${

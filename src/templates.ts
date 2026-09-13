@@ -1,4 +1,4 @@
-// 日记模板 — 每种模板是一套预设初始值
+﻿// 日记模板 — 每种模板是一套预设初始值
 // EditorPage 零改动，模板只是"给新建日记一个不同的初始 state"
 
 import type { DiaryBlock } from "./types";
@@ -13,6 +13,7 @@ export interface DiaryTemplate {
   wallpaper?: string;        // 预设信纸（空/undefined=CSS 默认）
   showLines?: boolean;       // 默认 true
   defaultTags?: string[];
+  defaultTitle?: string;
 }
 
 function tb(content: string): DiaryBlock {
@@ -42,9 +43,10 @@ export const TEMPLATES: DiaryTemplate[] = [
     description: "每天最自然的记录",
     defaultBlocks: [tb("")],
     // 不设 wallpaper → CSS 默认米白 + 横线
+    defaultTitle: '📖 今日日记',
   },
   {
-    id: "finance",
+    id: 'finance',
     name: "记账",
     icon: "💰",
     description: "多条流水 + 分类 + 自动计算",
@@ -58,7 +60,8 @@ export const TEMPLATES: DiaryTemplate[] = [
       tb(""),
     ],
     showLines: true,
-    defaultTags: ["记账"],
+    defaultTitle: '💰 今日记账',
+    defaultTags: ['记账'],
   },
   {
     id: "reading",
@@ -78,7 +81,8 @@ export const TEMPLATES: DiaryTemplate[] = [
     ],
     wallpaper: "/papers/sage-journal.jpg",
     showLines: true,
-    defaultTags: ["读书"],
+    defaultTitle: '📚 读书笔记',
+    defaultTags: ['读书'],
   },
   {
     id: "travel",
@@ -88,7 +92,8 @@ export const TEMPLATES: DiaryTemplate[] = [
     defaultBlocks: [tb("✈️ Day 1\n📍 地点：\n🚗 交通：\n🏨 住宿：\n\n📝 今天发生了什么？\n\n🍜 美食：\n📸 照片：")],
     wallpaper: "/papers/sunrise-dream.jpg",
     showLines: true,
-    defaultTags: ["旅行"],
+    defaultTitle: '✈️ 旅行日记',
+    defaultTags: ['旅行'],
   },
   {
     id: "sports",
@@ -96,7 +101,8 @@ export const TEMPLATES: DiaryTemplate[] = [
     icon: "🏃",
     description: "身体在说什么",
     defaultBlocks: [tb("🏃 今日运动\n类型：跑步 / 瑜伽 / 健身\n时长：\n强度：★ / ★★ / ★★★\n\n\n💪 感受：\n身体哪个部位有变化？")],
-    defaultTags: ["运动"],
+    defaultTitle: '🏃 运动记录',
+    defaultTags: ['运动'],
   },
   {
     id: "plan",
@@ -117,7 +123,8 @@ export const TEMPLATES: DiaryTemplate[] = [
       heading("⏰ 时间分配 / 备注", 3),
       tb(""),
     ],
-    defaultTags: ["计划"],
+    defaultTitle: '🎯 今日计划',
+    defaultTags: ['计划'],
   },
   {
     id: "gratitude",
@@ -127,7 +134,8 @@ export const TEMPLATES: DiaryTemplate[] = [
     defaultBlocks: [tb("🙏 今日感恩\n\n1. 今天感谢谁 / 什么？\n2. 为什么？\n3. 这件事让我感受如何？\n\n4. 明天想感谢什么？")],
     wallpaper: "/papers/vintage-rose.jpg",
     showLines: true,
-    defaultTags: ["感恩"],
+    defaultTitle: '🙏 感恩日记',
+    defaultTags: ['感恩'],
   },
   {
     id: "health",
@@ -135,7 +143,8 @@ export const TEMPLATES: DiaryTemplate[] = [
     icon: "💊",
     description: "身体信号 + 心情",
     defaultBlocks: [tb("💊 健康日记\n体重：__ kg\n睡眠：__/__ 小时\n💧 喝水：__ 杯\n运动：\n\n🤒 身体信号：\n心情：1-10")],
-    defaultTags: ["健康"],
+    defaultTitle: '💊 健康日记',
+    defaultTags: ['健康'],
   },
 ];
 
