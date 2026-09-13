@@ -11,13 +11,15 @@ interface Props {
 export default function TextBlock({ block, onChange, onRemove }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  // 自动调整高度
+  // 自动调整高度 — 用 rAF 避免在输入时打断手机焦点
   useEffect(() => {
     const ta = ref.current;
     if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = ta.scrollHeight + "px";
-  }, [block.content]);
+    requestAnimationFrame(() => {
+      ta.style.height = "auto";
+      ta.style.height = ta.scrollHeight + "px";
+    });
+  }, [block.content.length, block.id]);
 
   const empty = block.content.length === 0;
 
@@ -28,9 +30,8 @@ export default function TextBlock({ block, onChange, onRemove }: Props) {
         value={block.content}
         onChange={(e) => onChange(e.target.value)}
         placeholder={empty ? "在此书写..." : ""}
-        rows={empty ? 3 : 1}
         className={`w-full resize-none bg-transparent outline-none text-[17px] leading-8 font-hand text-paper-ink placeholder:text-paper-ink2/50 ${
-          empty ? "min-h-[120px] py-2" : ""
+          empty ? "min-h-[96px] py-1" : ""
         }`}
       />
       {!empty && (
