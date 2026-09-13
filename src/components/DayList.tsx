@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { moodById } from "../data";
+import { templateById } from "../templates";
 
 interface Props {
   date: string;
@@ -36,6 +37,13 @@ export default function DayList({ date, diaries }: Props) {
     (d) => d.capsuleUnlockAt && d.capsuleUnlockAt > Date.now()
   ).length;
 
+  // 模板统计（今日每种模板多少篇）
+  const templateStats = sorted.reduce<Record<string, number>>((acc, d) => {
+    const tid = d.templateId ?? "diary";
+    acc[tid] = (acc[tid] ?? 0) + 1;
+    return acc;
+  }, {});
+
   return (
     <section className="card p-4 md:p-6 animate-fade-up">
       <h2 className="text-base md:text-lg font-semibold text-paper-ink mb-3 flex items-center gap-2">
@@ -47,6 +55,25 @@ export default function DayList({ date, diaries }: Props) {
           {capsuleLockedCount > 0 && <span className="text-amber-600">（含 {capsuleLockedCount} 🔒）</span>}
         </span>
       </h2>
+
+      {/* 模板统计标签（只有一种模板时不显示） */}
+      {Object.keys(templateStats).length > 1 && sorted.length > 0 && (
+        <div className="mb-3 flex items-center gap-1.5 flex-wrap">
+          {Object.entries(templateStats)
+            .sort((a, b) => b[1] - a[1])
+            .map(([tid, count]) => {
+              const tpl = templateById(tid);
+              return (
+                <span
+                  key={tid}
+                  className="text-[11px] px-2 py-0.5 rounded-full bg-paper-surface border border-paper-line text-paper-ink2"
+                >
+                  {tpl?.icon ?? "📖"} {tpl?.name ?? "日记"} × {count}
+                </span>
+              );
+            })}
+        </div>
+      )}
 
       {sorted.length === 0 ? (
         <button
@@ -95,6 +122,7 @@ export default function DayList({ date, diaries }: Props) {
             }
 
             // 正常已解锁
+            const dTpl = d.templateId ? templateById(d.templateId) : undefined;
             return (
               <li
                 key={d.id}
@@ -117,6 +145,11 @@ export default function DayList({ date, diaries }: Props) {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
+                      {dTpl && dTpl.id !== "diary" && (
+                        <span className="text-base leading-none shrink-0" title={dTpl.name}>
+                          {dTpl.icon}
+                        </span>
+                      )}
                       <h3 className="font-medium text-paper-ink truncate">
                         {d.title || (mood ? mood.name : "无题")}
                       </h3>
