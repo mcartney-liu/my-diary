@@ -71,14 +71,31 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
 /** 硬编码 fallback — 双保险 */
 const FALLBACK_NAME = "北京市";
 
+/** IP 定位 fallback（GPS 不可用时用）
+ * 用 ipwho.is — 免费、无 key、CORS 友好
+ */
+async function fetchIpLocation(): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const r = await fetch("https://ipwho.is/");
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j?.success) return null;
+    console.info("[mydiary] IP 定位:", j.city, j.region, j.latitude, j.longitude);
+    return { lat: Number(j.latitude), lon: Number(j.longitude) };
+  } catch (e) {
+    console.warn("[mydiary] IP 定位失败:", e);
+    return null;
+  }
+}
+
 /** 获取位置结果 */
 export interface LocationResult {
   lat: number;
   lon: number;
   name: string;
-  /** true = 真实 GPS；false = 默认坐标 */
-  gpsOk: boolean;
-  /** GPS 失败原因（仅 gpsOk=false 时有值） */
+  /** gps = 真实 GPS；ip = IP 定位；default = 硬编码北京 */
+  source: "gps" | "ip" | "default";
+  /** GPS 失败原因（仅 source=default 时有值） */
   gpsError?: "timeout" | "denied" | "unavailable" | "unknown";
 }
 
@@ -86,21 +103,21 @@ export interface LocationResult {
 export async function fetchLocation(): Promise<LocationResult> {
   let lat = 39.9042;
   let lon = 116.4074;
-  let gpsOk = false;
+  let source: LocationResult["source"] = "default";
   let gpsError: LocationResult["gpsError"] = undefined;
 
   // 1) 先试浏览器 GPS（最精确）
   try {
     const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, {
-        timeout: 15000,        // 15 秒（之前 5 秒在某些设备上不够）
+        timeout: 15000,
         enableHighAccuracy: true,
-        maximumAge: 60000,     // 缓存 1 分钟
+        maximumAge: 60000,
       });
     });
     lat = pos.coords.latitude;
     lon = pos.coords.longitude;
-    gpsOk = true;
+    source = "gps";
     console.info("[mydiary] GPS 成功:", lat.toFixed(4), lon.toFixed(4));
   } catch (e: any) {
     const code = e?.code;
@@ -109,22 +126,27 @@ export async function fetchLocation(): Promise<LocationResult> {
     else if (code === 3) gpsError = "timeout";
     else gpsError = "unknown";
     console.info("[mydiary] GPS 不可用:", gpsError, e?.message ?? "");
+
+    // 2) GPS 失败 → 试 IP 定位
+    const ipLoc = await fetchIpLocation();
+    if (ipLoc) {
+      lat = ipLoc.lat;
+      lon = ipLoc.lon;
+      source = "ip";
+    }
   }
 
-  // 2) reverse geocoding（无论 GPS 是否成功）
+  // 3) reverse geocoding（无论哪种方式拿到的坐标都要转地名）
   let name = await reverseGeocode(lat, lon);
   if (!name) {
     console.warn("[mydiary] reverseGeocode 失败，用硬编码 fallback:", FALLBACK_NAME);
     name = FALLBACK_NAME;
+    if (source === "default") {
+      // 已经是 fallback 了
+    }
   }
 
-  const result: LocationResult = {
-    lat,
-    lon,
-    name: gpsOk ? name : name,  // 不再加"（默认）"后缀 — UI 用图标区分
-    gpsOk,
-    gpsError,
-  };
+  const result: LocationResult = { lat, lon, name, source, gpsError };
   console.info("[mydiary] fetchLocation 最终:", result);
   return result;
 }

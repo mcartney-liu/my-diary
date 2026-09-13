@@ -14,6 +14,15 @@ import { categoriesByDir,  } from "../categories";
 import GridSnap from "./GridSnap";
 import ConfirmDialog from "./ConfirmDialog";
 
+function gpsFailedMessage(err?: LocationResult["gpsError"]): string {
+  switch (err) {
+    case "timeout": return "GPS 超时，IP 定位也失败了。点右侧重试或检查权限";
+    case "denied": return "定位权限被拒绝，在浏览器设置里允许后重试";
+    case "unavailable": return "此设备无 GPS 模块";
+    default: return "定位失败，点右侧重试";
+  }
+}
+
 interface Props {
   initialDiary?: Diary;
   initialTemplateId?: string;
@@ -118,7 +127,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
   const [showMood, setShowMood] = useState(false);
   const [weather, setWeather] = useState(initialDiary?.weather ?? null);
   const [location, setLocation] = useState(initialDiary?.location ?? null);
-  const [locationGpsOk, setLocationGpsOk] = useState<boolean | null>(null);
+  const [locationSource, setLocationSource] = useState<LocationResult["source"] | null>(null);
   const [locationError, setLocationError] = useState<LocationResult["gpsError"]>();
   const [locationLoading, setLocationLoading] = useState(false);
   const [weatherLoading, setWeatherLoading] = useState(false);
@@ -246,7 +255,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
       const loc = await fetchLocation();
       if (cancelled) return;
       setLocation({ name: loc.name, lat: loc.lat, lon: loc.lon });
-      setLocationGpsOk(loc.gpsOk);
+      setLocationSource(loc.source);
       setLocationError(loc.gpsError);
       const w = await fetchWeather(loc.lat, loc.lon);
       if (!cancelled && w) setWeather(w);
@@ -749,29 +758,28 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
               {location?.name && (
                 <span
                   className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs border ${
-                    locationGpsOk === true
+                    locationSource === "gps"
                       ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                      : locationGpsOk === false
+                      : locationSource === "ip"
+                      ? "bg-sky-50 border-sky-200 text-sky-700"
+                      : locationSource === "default"
                       ? "bg-amber-50 border-amber-200 text-amber-700"
                       : "bg-paper-surface border-paper-line text-paper-ink"
                   }`}
                   title={
-                    locationGpsOk === true
-                      ? "GPS 定位成功"
-                      : locationGpsOk === false
-                      ? locationError === "timeout"
-                        ? "GPS 超时，点右侧重试"
-                        : locationError === "denied"
-                        ? "定位权限被拒绝，点右侧重试"
-                        : locationError === "unavailable"
-                        ? "GPS 不可用"
-                        : "GPS 不可用"
+                    locationSource === "gps"
+                      ? "GPS 精确定位"
+                      : locationSource === "ip"
+                      ? "IP 定位（粗略）"
+                      : locationSource === "default"
+                      ? gpsFailedMessage(locationError)
                       : ""
                   }
                 >
                   <MapPin size={11} className="shrink-0" />
                   <span>{location.name}</span>
-                  {locationGpsOk === false && <span className="opacity-60 text-[10px]">(?)</span>}
+                  {locationSource === "ip" && <span className="opacity-60 text-[10px]">IP</span>}
+                  {locationSource === "default" && <span className="opacity-60 text-[10px]">(?)</span>}
                 </span>
               )}
               {/* 手动重新定位按钮（仅新建日记且编辑/创建模式） */}
