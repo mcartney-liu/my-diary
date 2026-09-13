@@ -8,6 +8,7 @@ import { fetchWeather, fetchLocation } from "../weather";
 import TextBlock from "./TextBlock";
 import ImageBlock from "./ImageBlock";
 import AudioBlock from "./AudioBlock";
+import { PRESET_PAPERS, matchPreset } from "../presetPapers";
 import GridSnap from "./GridSnap";
 
 interface Props {
@@ -681,76 +682,6 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
             )}
           </div>
 
-          {/* 壁纸设置 */}
-          <div className="relative">
-            <button
-              onClick={() => setShowWallpaperMenu((s) => !s)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition ${
-                wallpaper
-                  ? "bg-sky-50 border-sky-300 text-sky-800"
-                  : "border-paper-line bg-paper-surface text-paper-ink2 hover:bg-paper-line/50"
-              }`}
-            >
-              <Palette size={14} /> {wallpaper ? "已设壁纸" : "壁纸"}
-            </button>
-            {showWallpaperMenu && (
-              <div
-                className="absolute top-full mt-1 right-0 z-30 bg-paper-card rounded-xl shadow-xl border border-paper-line p-3 w-52 animate-[fade-in_0.15s]"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <input
-                  ref={wallpaperInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) handleWallpaperPick(f);
-                    e.target.value = "";
-                  }}
-                />
-                <div className="text-[11px] text-paper-ink2 px-1 mb-2">信纸背景 · 横线独立控制</div>
-
-                <button
-                  onClick={() => wallpaperInputRef.current?.click()}
-                  className="w-full text-left px-2 py-2 rounded-lg text-sm hover:bg-paper-surface flex items-center gap-2"
-                >
-                  📷 从相册选图
-                </button>
-                {wallpaper && (
-                  <button
-                    onClick={() => setWallpaper(undefined)}
-                    className="w-full text-left px-2 py-2 rounded-lg text-sm hover:bg-paper-surface flex items-center gap-2 text-paper-ink2"
-                  >
-                    🗑 移除壁纸
-                  </button>
-                )}
-
-                <div className="border-t border-paper-line my-2" />
-
-                {/* 横线开关 */}
-                <label className="flex items-center justify-between px-2 py-1.5 cursor-pointer select-none">
-                  <span className="text-sm text-paper-ink">显示横线</span>
-                  <span
-                    onClick={() => setShowLines((v) => !v)}
-                    className={`relative inline-block w-8 h-4 rounded-full transition ${showLines ? "bg-amber-400" : "bg-gray-300"}`}
-                  >
-                    <span
-                      className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-all ${showLines ? "left-4" : "left-0.5"}`}
-                    />
-                  </span>
-                </label>
-
-                {wallpaper && (
-                  <>
-                    <div className="border-t border-paper-line my-2" />
-                    <div className="text-[10px] text-paper-ink3 text-center">壁纸会被压缩存储 · 建议选上面留白的图</div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* 标签按钮 */}
           <div className="relative">
             <button
@@ -994,6 +925,8 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
             onChange={(e) => e.target.files?.[0] && handleImagePick(e.target.files[0])} />
           <input ref={audioInputRef} type="file" accept="audio/*" className="hidden"
             onChange={(e) => e.target.files?.[0] && handleAudioPick(e.target.files[0])} />
+          <input ref={wallpaperInputRef} type="file" accept="image/*" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleWallpaperPick(f); e.target.value = ""; }} />
 
           <button onClick={() => addBlock("text")} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink hover:bg-paper-line/50 active:scale-95">
             <FileText size={16} /> 文字
@@ -1003,13 +936,129 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
            </button>
 
            {/* 录音按钮：点一下切换录音状态，长按也支持 */}
-           <RecordingButton
-             recording={recording}
-             disabled={transcribing || !!pendingRec}
-             onToggle={() => recording ? stopRecording() : startRecording()}
-           />
-         </div>
-       </footer>
+            <RecordingButton
+              recording={recording}
+              disabled={transcribing || !!pendingRec}
+              onToggle={() => recording ? stopRecording() : startRecording()}
+            />
+
+            {/* 信纸/壁纸按钮 */}
+            <button
+              onClick={() => setShowWallpaperMenu(true)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm transition active:scale-95 ${
+                wallpaper || !showLines
+                  ? "bg-sky-50 border-sky-300 text-sky-800"
+                  : "bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50"
+              }`}
+              title="信纸 / 壁纸"
+            >
+              <Palette size={16} />
+            </button>
+          </div>
+        </footer>
+
+        {/* 信纸选择 Drawer — 半屏底部弹出 */}
+        {showWallpaperMenu && (
+          <div className="fixed inset-0 z-50 flex items-end" onClick={() => setShowWallpaperMenu(false)}>
+            {/* 遮罩 */}
+            <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-[fade-in_0.2s]" />
+
+            {/* 面板主体 */}
+            <div
+              className="relative w-full max-h-[75vh] bg-paper-card rounded-t-2xl shadow-2xl overflow-hidden flex flex-col animate-[drawer-up_0.28s_ease-out]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* 拖拽把手 */}
+              <div className="flex justify-center pt-2 pb-1">
+                <div className="w-10 h-1 rounded-full bg-paper-line" />
+              </div>
+
+              {/* 标题 */}
+              <div className="flex items-center justify-between px-5 py-2 border-b border-paper-line">
+                <h3 className="font-semibold text-paper-ink">选择信纸</h3>
+                <button
+                  onClick={() => setShowWallpaperMenu(false)}
+                  className="w-8 h-8 rounded-full hover:bg-paper-surface flex items-center justify-center text-paper-ink2"
+                  aria-label="关闭"
+                >✕</button>
+              </div>
+
+              {/* 内容区 — 可滚动 */}
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                {/* 预设信纸网格 */}
+                <div>
+                  <div className="text-xs text-paper-ink2 mb-3">预设信纸</div>
+                  <div className="grid grid-cols-4 gap-3">
+                    {PRESET_PAPERS.map((p) => {
+                      const current = matchPreset(wallpaper);
+                      const selected = current?.id === p.id || (!wallpaper && p.id === "default");
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => {
+                            // default 预设 → 清空 wallpaper 让 CSS 接管
+                            setWallpaper(p.id === "default" ? undefined : p.full);
+                            // 纯纹理/方格纸 → 关掉横线更干净
+                            if (p.isPattern) setShowLines(false);
+                          }}
+                          className={`group relative aspect-[3/4] rounded-lg border-2 overflow-hidden transition ${
+                            selected ? "border-sky-400 ring-2 ring-sky-200" : "border-paper-line hover:border-paper-ink2"
+                          }`}
+                          title={p.name}
+                        >
+                          <img src={p.thumbnail} alt={p.name} className="w-full h-full object-cover" />
+                          {selected && (
+                            <div className="absolute inset-0 flex items-start justify-end p-1 pointer-events-none">
+                              <span className="w-5 h-5 rounded-full bg-sky-500 text-white text-xs flex items-center justify-center shadow">✓</span>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 自定义图片 */}
+                <div>
+                  <div className="text-xs text-paper-ink2 mb-3">自定义</div>
+                  <button
+                    onClick={() => wallpaperInputRef.current?.click()}
+                    className="w-full flex items-center gap-3 p-3 rounded-xl border border-dashed border-paper-line hover:border-paper-ink2 hover:bg-paper-surface transition text-paper-ink"
+                  >
+                    <div className="w-10 h-10 rounded-lg bg-paper-surface border border-paper-line flex items-center justify-center text-lg">📷</div>
+                    <div className="text-left">
+                      <div className="text-sm font-medium">从相册选一张图片</div>
+                      <div className="text-xs text-paper-ink2">选上面留白的图，方便写字</div>
+                    </div>
+                  </button>
+                  {wallpaper && matchPreset(wallpaper) === null && (
+                    <button
+                      onClick={() => setWallpaper(undefined)}
+                      className="mt-2 w-full text-center text-xs text-paper-ink3 hover:text-red-500 py-1"
+                    >🗑 移除自定义壁纸，恢复默认</button>
+                  )}
+                </div>
+
+                {/* 横线开关 */}
+                <div className="flex items-center justify-between p-3 rounded-xl bg-paper-surface border border-paper-line">
+                  <div>
+                    <div className="text-sm text-paper-ink font-medium">显示横线</div>
+                    <div className="text-xs text-paper-ink2">横线独立于信纸，可单独关闭</div>
+                  </div>
+                  <button
+                    onClick={() => setShowLines((v) => !v)}
+                    className={`relative inline-block w-10 h-5 rounded-full transition-colors ${showLines ? "bg-amber-400" : "bg-gray-300"}`}
+                    aria-label="切换横线"
+                  >
+                    <span
+                      className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showLines ? "translate-x-5" : "translate-x-0.5"}`}
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
      </div>
    );
  }
