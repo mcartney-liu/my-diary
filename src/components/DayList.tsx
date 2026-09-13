@@ -6,6 +6,7 @@ import { templateById } from "../templates";
 interface Props {
   date: string;
   diaries: Diary[];
+  onSoftDelete?: (id: string) => void;
 }
 
 function weekdayCN(dateStr: string): string {
@@ -30,7 +31,7 @@ function daysUntilUnlock(ms: number): number {
   return Math.ceil((ms - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
-export default function DayList({ date, diaries }: Props) {
+export default function DayList({ date, diaries, onSoftDelete }: Props) {
   const nav = useNavigate();
   const sorted = [...diaries].sort((a, b) => b.updatedAt - a.updatedAt);
   const capsuleLockedCount = sorted.filter(
@@ -177,6 +178,18 @@ export default function DayList({ date, diaries }: Props) {
                       )}
                     </div>
                   </div>
+                  {onSoftDelete && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm("删除后进入回收站，30 天内可恢复。确定？")) onSoftDelete(d.id);
+                      }}
+                      className="shrink-0 p-1.5 rounded-full hover:bg-red-50 active:scale-90 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="删除"
+                    >
+                      🗑️
+                    </button>
+                  )}
                 </div>
               </li>
             );

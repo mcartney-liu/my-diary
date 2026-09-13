@@ -173,7 +173,7 @@ export default function App() {
       )}
 
       <Routes>
-        <Route path="/" element={<CalendarPage diaries={diaries} />} />
+        <Route path="/" element={<CalendarPage diaries={diaries} onSoftDelete={handleSoftDelete} />} />
         <Route path="/trash" element={<TrashPage diaries={deletedDiaries} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} />} />
         <Route path="/tags" element={<TagsPage diaries={diaries} />} />
         <Route

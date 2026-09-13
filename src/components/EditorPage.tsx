@@ -647,8 +647,11 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
         <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center justify-between">
           <button
             onClick={() => {
-              // 有内容 + 从未保存过（新建模式）才弹警告；编辑模式或已保存过直接放行
-              if (hasContent && !initialDiary && !savedIdRef.current) { alert("请先保存再离开"); return; }
+              // 新建 + 有内容 + 从没保存过 → 提示放弃；其他情况直接放行
+              if (!initialDiary && hasContent && !savedIdRef.current) {
+                const ok = confirm("内容还没保存，确定放弃吗？\n\n点「确定」= 放弃并返回\n点「取消」= 留下来继续写");
+                if (!ok) return;
+              }
               onCancel();
             }}
             className="p-2 -ml-2 rounded-full hover:bg-paper-surface active:scale-95"

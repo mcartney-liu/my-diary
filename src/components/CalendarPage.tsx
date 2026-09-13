@@ -11,11 +11,12 @@ import DayList from "./DayList";
 
 interface Props {
   diaries: Diary[];
+  onSoftDelete?: (id: string) => void;
 }
 
 const WEEK_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 
-export default function CalendarPage({ diaries }: Props) {
+export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const nav = useNavigate();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -210,7 +211,7 @@ export default function CalendarPage({ diaries }: Props) {
 
         {/* 当日日记 */}
         <section className="animate-fade-up" style={{ animationDelay: "100ms" }}>
-          <DayList date={selectedDate} diaries={byDate.get(selectedDate) ?? []} />
+          <DayList date={selectedDate} diaries={byDate.get(selectedDate) ?? []} onSoftDelete={onSoftDelete} />
         </section>
           </>
         ) : (
