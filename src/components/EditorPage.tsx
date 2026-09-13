@@ -9,8 +9,8 @@ import TextBlock from "./TextBlock";
 import ImageBlock from "./ImageBlock";
 import AudioBlock from "./AudioBlock";
 import { PRESET_PAPERS, matchPreset } from "../presetPapers";
-import { TEMPLATES, templateById, type DiaryTemplate } from "../templates";
-import { FINANCE_CATEGORIES, categoryByKey, categoriesByDir, type FinanceCategory } from "../categories";
+import { TEMPLATES, templateById } from "../templates";
+import { categoriesByDir,  } from "../categories";
 import GridSnap from "./GridSnap";
 import ConfirmDialog from "./ConfirmDialog";
 
@@ -1462,7 +1462,6 @@ function FinanceItemRow({
   onRemove: () => void;
 }) {
   const dir = block.direction ?? "expense";
-  const cat = categoryByKey(block.category, dir);
   const catList = categoriesByDir(dir);
 
   const dirText = dir === "income" ? "收入" : "支出";

@@ -141,8 +141,24 @@ export default function App() {
       const restored: Diary = { ...target, deletedAt: undefined };
       const next = upsertLocal(prev, restored);
       saveLocal(next);
-      // 重新云端 upsert
-      apiUpsert(restored).catch(() => { /* offline */ });
+      apiUpsert(restored).catch(() => {});
+      return next;
+    });
+  };
+
+  // 批量恢复
+  const handleBatchRestore = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setAllDiaries((prev) => {
+      let next = prev;
+      for (const id of ids) {
+        const target = prev.find((x) => x.id === id);
+        if (!target) continue;
+        const restored: Diary = { ...target, deletedAt: undefined };
+        next = upsertLocal(next, restored);
+        apiUpsert(restored).catch(() => {});
+      }
+      saveLocal(next);
       return next;
     });
   };
@@ -154,7 +170,20 @@ export default function App() {
       saveLocal(next);
       return next;
     });
-    apiDelete(id).catch(() => { /* offline */ });
+    apiDelete(id).catch(() => {});
+  };
+
+  // 批量永久删除
+  const handleBatchPermanentDelete = (ids: string[]) => {
+    if (ids.length === 0) return;
+    setAllDiaries((prev) => {
+      const next = prev.filter((x) => !ids.includes(x.id));
+      saveLocal(next);
+      return next;
+    });
+    for (const id of ids) {
+      apiDelete(id).catch(() => {});
+    }
   };
 
   if (loading) {
@@ -175,7 +204,7 @@ export default function App() {
 
       <Routes>
         <Route path="/" element={<CalendarPage diaries={diaries} onSoftDelete={handleSoftDelete} />} />
-        <Route path="/trash" element={<TrashPage diaries={deletedDiaries} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} />} />
+        <Route path="/trash" element={<TrashPage diaries={deletedDiaries} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onBatchRestore={handleBatchRestore} onBatchPermanentDelete={handleBatchPermanentDelete} />} />
         <Route path="/tags" element={<TagsPage diaries={diaries} />} />
         <Route path="/capsule" element={<CapsulePage diaries={diaries} />} />
         <Route

@@ -133,7 +133,7 @@ export function yearMoodData(diaries: Diary[], year: number): Map<string, string
   return m;
 }
 
-/** 搜索日记（标题 + 正文 + 心情） */
+/** 搜索日记（标题 + 所有 block 文本 + 标签） */
 export function searchDiaries(
   diaries: Diary[],
   keyword: string,
@@ -145,9 +145,21 @@ export function searchDiaries(
       if (moodId && d.moodId !== moodId) return false;
       if (!kw) return true;
       if (d.title.toLowerCase().includes(kw)) return true;
-      return d.blocks.some(
-        (b) => b.kind === "text" && b.content.toLowerCase().includes(kw)
-      );
+      if (d.tags?.some((t) => t.toLowerCase().includes(kw))) return true;
+      return d.blocks.some((b) => {
+        switch (b.kind) {
+          case "text":
+          case "heading":
+          case "checkbox":
+            return b.content.toLowerCase().includes(kw);
+          case "number":
+            return (b.label ?? "").toLowerCase().includes(kw);
+          case "finance_item":
+            return (b.content + " " + (b.category ?? "")).toLowerCase().includes(kw);
+          default:
+            return false;
+        }
+      });
     })
     .sort((a, b) => b.date.localeCompare(a.date));
 }
