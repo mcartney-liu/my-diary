@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { monthCells, moodById, fmtDate } from "../data";
+import { templateById } from "../templates";
 import StreakBadge from "./StreakBadge";
 import SearchBar from "./SearchBar";
 import OnThisDay from "./OnThisDay";
@@ -162,6 +163,11 @@ export default function CalendarPage({ diaries }: Props) {
                 (x) => x.capsuleUnlockAt && x.capsuleUnlockAt > Date.now()
               ).length;
               const totalCount = dayDiaries.length;
+              // 取第一个日记的模板图标（如果不是默认日记模板）
+              const firstTemplate = dayDiaries[0]?.templateId
+                ? templateById(dayDiaries[0].templateId)
+                : undefined;
+              const showTemplateIcon = firstTemplate && firstTemplate.id !== "diary";
 
               return (
                 <button
@@ -181,6 +187,10 @@ export default function CalendarPage({ diaries }: Props) {
                   {mood ? (
                     <span className="text-[14px] md:text-base leading-none mt-0.5">
                       {mood.icon}
+                    </span>
+                  ) : showTemplateIcon ? (
+                    <span className="text-[14px] md:text-base leading-none mt-0.5">
+                      {firstTemplate!.icon}
                     </span>
                   ) : capsuleCount > 0 ? (
                     <span className="text-[12px] mt-0.5">🔒</span>

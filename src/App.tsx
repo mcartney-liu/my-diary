@@ -213,6 +213,7 @@ function EditorPageWrapper(props: {
       onSave={async (d) => { await props.onUpsert(d); }}
       onSoftDelete={(d) => { props.onSoftDelete(d.id); nav("/", { replace: true }); }}
       onCancel={() => nav("/", { replace: true })}
+      allDiaries={props.allDiaries}
     />
   );
 }

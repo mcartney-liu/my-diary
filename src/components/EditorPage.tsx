@@ -15,9 +15,11 @@ import GridSnap from "./GridSnap";
 
 interface Props {
   initialDiary?: Diary;
+  initialTemplateId?: string;
   onSave: (d: Diary) => Promise<void>;
   onSoftDelete: (d: Diary) => void;
   onCancel: () => void;
+  allDiaries?: Diary[];  // 记账月汇总需要
 }
 
 interface PendingRecording {
@@ -49,7 +51,7 @@ function promptForDate(dateStr: string): string {
   return PROMPTS[seed];
 }
 
-export default function EditorPage({ initialDiary, initialTemplateId, onSave, onSoftDelete, onCancel }: Props) {
+export default function EditorPage({ initialDiary, initialTemplateId, onSave, onSoftDelete, onCancel, allDiaries }: Props) {
   const [title, setTitle] = useState(initialDiary?.title ?? "");
   const [date] = useState(initialDiary?.date ?? today());
   const [moodId, setMoodId] = useState<MoodId | null>(initialDiary?.moodId ?? null);
@@ -262,6 +264,31 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
     }
     return { expense, income, balance: income - expense, count: items.length };
   }, [blocks]);
+
+  // 本月汇总（所有已保存的 finance 模板日记）
+  const monthSummary = useMemo(() => {
+    if (!allDiaries) return null;
+    const now = new Date();
+    const thisYear = now.getFullYear();
+    const thisMonth = now.getMonth();
+    let expense = 0;
+    let income = 0;
+    let diaryCount = 0;
+    for (const d of allDiaries) {
+      if (d.templateId !== "finance") continue;
+      const y = Number(d.date.slice(0, 4));
+      const m = Number(d.date.slice(5, 7)) - 1;
+      if (y !== thisYear || m !== thisMonth) continue;
+      diaryCount++;
+      for (const b of d.blocks) {
+        if (b.kind === "finance_item" && b.value) {
+          if (b.direction === "income") income += b.value;
+          else expense += b.value;
+        }
+      }
+    }
+    return { expense, income, balance: income - expense, diaryCount };
+  }, [allDiaries, templateId]);
 
   const isFinanceTemplate = templateId === "finance";
 
@@ -975,6 +1002,26 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
                   <div className="flex-1" />
                   <span className={`font-bold ${financeSummary.balance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                     {financeSummary.balance >= 0 ? "+" : "−"}¥{Math.abs(financeSummary.balance).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+             </div>
+           )}
+          {/* 本月汇总（如果有历史数据） */}
+          {isFinanceTemplate && monthSummary && monthSummary.diaryCount > 0 && (
+            <div className="px-4 md:px-6 mt-1 mb-1">
+              <div className="rounded-xl border border-paper-line bg-paper-surface/30 p-3">
+                <div className="text-xs text-paper-ink2 mb-1.5 font-medium flex items-center gap-1.5">
+                  📅 本月合计 · {monthSummary.diaryCount} 天
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="text-paper-ink2">支出</span>
+                  <span className="font-semibold text-red-600">¥{monthSummary.expense.toFixed(2)}</span>
+                  <span className="text-paper-ink2">收入</span>
+                  <span className="font-semibold text-emerald-600">¥{monthSummary.income.toFixed(2)}</span>
+                  <div className="flex-1" />
+                  <span className={`font-bold text-base ${monthSummary.balance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {monthSummary.balance >= 0 ? "+" : "−"}¥{Math.abs(monthSummary.balance).toFixed(2)}
                   </span>
                 </div>
               </div>
