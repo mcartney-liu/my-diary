@@ -85,6 +85,13 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
               🏷️
             </button>
             <button
+              onClick={() => nav("/capsule")}
+              title="时间胶囊"
+              className="px-2.5 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-sm hover:bg-amber-100 transition active:scale-95"
+            >
+              🫧
+            </button>
+            <button
               onClick={() => nav("/trash")}
               title="回收站"
               className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95"

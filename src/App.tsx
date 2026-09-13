@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Routes, Route, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { Diary } from "./types";
 import { loadDiaries, seedIfEmpty } from "./storage";
@@ -7,6 +7,7 @@ import CalendarPage from "./components/CalendarPage";
 import EditorPage from "./components/EditorPage";
 import TrashPage from "./components/TrashPage";
 import TagsPage from "./components/TagsPage";
+import CapsulePage from "./components/CapsulePage";
 
 // 后台写入 localStorage（不阻塞主线程）
 let saveQueue = Promise.resolve();
@@ -176,6 +177,7 @@ export default function App() {
         <Route path="/" element={<CalendarPage diaries={diaries} onSoftDelete={handleSoftDelete} />} />
         <Route path="/trash" element={<TrashPage diaries={deletedDiaries} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} />} />
         <Route path="/tags" element={<TagsPage diaries={diaries} />} />
+        <Route path="/capsule" element={<CapsulePage diaries={diaries} />} />
         <Route
           path="/editor"
           element={<EditorPageWrapper mode="new" allDiaries={allDiaries} onUpsert={handleUpsert} onSoftDelete={handleSoftDelete} />}

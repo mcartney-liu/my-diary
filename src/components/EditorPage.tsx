@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette } from "lucide-react";
+import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
@@ -1202,27 +1202,25 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
             {/* 信纸/壁纸按钮 */}
             <button
               onClick={() => setShowWallpaperMenu(true)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm transition active:scale-95 ${
-                wallpaper || !showLines
-                  ? "bg-sky-50 border-sky-300 text-sky-800"
-                  : "bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50"
-              }`}
+              className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink hover:bg-paper-line/50 transition active:scale-95"
               title="信纸 / 壁纸"
             >
               <Palette size={16} />
+              {(wallpaper || !showLines) && (
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500" />
+              )}
             </button>
 
             {/* 模板按钮 */}
             <button
               onClick={() => setShowTemplateMenu(true)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm transition active:scale-95 ${
-                templateId && templateId !== "diary"
-                  ? "bg-violet-50 border-violet-300 text-violet-800"
-                  : "bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50"
-              }`}
+              className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink hover:bg-paper-line/50 transition active:scale-95"
               title="选择模板"
             >
-              📋
+              <LayoutTemplate size={16} />
+              {templateId && templateId !== "diary" && (
+                <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500" />
+              )}
             </button>
           </div>
         </footer>

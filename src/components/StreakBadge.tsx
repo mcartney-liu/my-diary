@@ -10,52 +10,74 @@ export default function StreakBadge({ diaries }: Props) {
   const max = computeMaxStreak(diaries);
   const total = diaries.length;
 
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const hasYesterday = diaries.some(
+    (x) =>
+      x.date ===
+      `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`
+  );
+  const hasToday = diaries.some(
+    (x) =>
+      x.date ===
+      `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`
+  );
+
   return (
-    <div className="card p-4 animate-fade-up">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-2xl shadow-md">
-            🔥
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-paper-ink leading-tight">
-              {streak} <span className="text-sm font-normal text-paper-ink2">天连续</span>
-            </div>
-            <div className="text-xs text-paper-ink2">
-              最长 {max} 天 · 共 {total} 篇日记
-            </div>
-          </div>
+    <div className="card p-5 animate-fade-up">
+      {/* 主区域：大数字 + 标签 */}
+      <div className="flex items-center gap-4">
+        {/* 火焰 icon */}
+        <div className="shrink-0 w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-2xl shadow-sm">
+          🔥
         </div>
-        {streak >= 3 && (
-          <div className="text-xs px-2 py-1 rounded-full bg-orange-100 text-orange-600 font-medium">
-            {streak >= 30 ? "🔥🔥🔥 月度达人" : streak >= 7 ? "🔥🔥 本周坚持" : "🔥 不错哦"}
+
+        {/* 大数字 */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-2">
+            <span className="text-5xl font-bold text-paper-ink leading-none tracking-tight">
+              {streak}
+            </span>
+            <span className="text-base text-paper-ink2 font-medium">天</span>
+          </div>
+          <div className="text-sm text-paper-ink2 mt-1">连续写日记中</div>
+        </div>
+
+        {/* 里程碑 badge */}
+        {streak >= 7 && (
+          <div className="shrink-0 text-xs px-2.5 py-1.5 rounded-full bg-orange-100 text-orange-600 font-medium">
+            {streak >= 30 ? "月度达人" : streak >= 14 ? "两周坚持" : "本周坚持"}
           </div>
         )}
       </div>
-      {/* 近 7 天格子 */}
-      <div className="mt-3 flex gap-1">
-        {Array.from({ length: 7 }).map((_, i) => {
-          const d = new Date();
-          d.setDate(d.getDate() - (6 - i));
-          const has = diaries.some(
-            (x) => x.date === `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-          );
-          const isToday = i === 6;
-          return (
-            <div key={i} className="flex-1 text-center">
-              <div className={`h-6 rounded-md flex items-center justify-center text-xs transition ${
-                has
-                  ? "bg-paper-accent text-white font-medium"
-                  : "bg-paper-line/40 text-paper-ink2/30"
-              } ${isToday ? "ring-2 ring-paper-accent/40" : ""}`}>
-                {has ? "✓" : "·"}
-              </div>
-              <div className="text-[10px] text-paper-ink2 mt-1">
-                {["日", "一", "二", "三", "四", "五", "六"][d.getDay()]}
-              </div>
-            </div>
-          );
-        })}
+
+      {/* 状态行：昨天/今天 */}
+      <div className="mt-4 flex items-center gap-2 text-xs text-paper-ink2">
+        <span className={`px-1.5 py-0.5 rounded ${hasYesterday ? "bg-paper-accent/15 text-paper-accent" : "bg-paper-line/40"}`}>
+          昨天 {hasYesterday ? "✓" : "·"}
+        </span>
+        <span className={`px-1.5 py-0.5 rounded ${hasToday ? "bg-paper-accent/15 text-paper-accent" : "bg-paper-line/40"}`}>
+          今天 {hasToday ? "✓" : "·"}
+        </span>
+        {!hasToday && streak > 0 && (
+          <span className="ml-auto text-amber-600">今天写一篇就不断！</span>
+        )}
+        {streak === 0 && (
+          <span className="ml-auto text-paper-ink2">今天开始，第一天 ✨</span>
+        )}
+      </div>
+
+      {/* 分隔线 */}
+      <div className="mt-4 h-px bg-paper-line/60" />
+
+      {/* 底部辅助信息 */}
+      <div className="mt-3 flex items-center justify-between text-xs text-paper-ink2">
+        <div>
+          最长纪录 <span className="font-medium text-paper-ink">{max}</span> 天
+        </div>
+        <div>
+          共 <span className="font-medium text-paper-ink">{total}</span> 篇日记
+        </div>
       </div>
     </div>
   );

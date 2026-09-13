@@ -113,20 +113,36 @@ function WritingDensity({ diaries, year }: { diaries: Diary[]; year: number }) {
     return grid;
   }, [year]);
 
-  const dowLabels = ["一", "", "三", "", "五", "", "日"];
-  const monthLabelsAt = [0, 4, 8, 12, 16, 20, 24, 28, 32, 36, 40, 44];
+  const dowLabels = ["一", "二", "三", "四", "五", "六", "日"];
+
+  // 动态计算每月第一天在第几周（每年不同）
+  const monthLabelsAt = useMemo(() => {
+    const jan1 = new Date(year, 0, 1);
+    const firstDow = (jan1.getDay() + 6) % 7; // 周一=0
+    const gridStart = new Date(jan1);
+    gridStart.setDate(jan1.getDate() - firstDow);
+
+    const labels: number[] = [];
+    for (let m = 0; m < 12; m++) {
+      const firstOfMonth = new Date(year, m, 1);
+      const diffDays = Math.floor((firstOfMonth.getTime() - gridStart.getTime()) / (1000 * 60 * 60 * 24));
+      labels.push(Math.floor(diffDays / 7));
+    }
+    return labels;
+  }, [year]);
 
   const cellColor = (date: Date | null): string => {
     if (!date) return "transparent";
     const ds = date.toISOString().slice(0, 10);
     const stats = dayStats.get(ds);
-    if (!stats) return "#efe8dc"; // paper-line/40 风格的浅灰
-    const ratio = Math.sqrt(stats.words / maxWords); // sqrt 让差异更柔和
-    // 4 级绿色
-    if (ratio < 0.25) return "#a7d8b0";
-    if (ratio < 0.5) return "#6bbf7c";
-    if (ratio < 0.75) return "#3ea057";
-    return "#1f7a37";
+    if (!stats) return "#efe8dc";
+    const ratio = Math.sqrt(stats.words / maxWords);
+    // 5 级绿色（加了最浅的一档）
+    if (ratio < 0.15) return "#c8e6ce";
+    if (ratio < 0.35) return "#8dc799";
+    if (ratio < 0.6) return "#4eaa62";
+    if (ratio < 0.85) return "#2d8a44";
+    return "#1a6a2e";
   };
 
   return (
@@ -141,10 +157,10 @@ function WritingDensity({ diaries, year }: { diaries: Diary[]; year: number }) {
             {MONTHS.map((label, i) => (
               <div
                 key={label}
-                className="text-[10px] text-paper-ink3"
-                style={{ width: "14px", marginLeft: i === 0 ? 0 : (monthLabelsAt[i] - monthLabelsAt[i - 1] - 1) * 14 }}
+                className="text-[10px] text-paper-ink3 tabular-nums"
+                style={{ width: "14px", marginLeft: i === 0 ? monthLabelsAt[0] * 14 : (monthLabelsAt[i] - monthLabelsAt[i - 1] - 1) * 14 }}
               >
-                {label[0]}
+                {i + 1}
               </div>
             ))}
           </div>
@@ -178,15 +194,18 @@ function WritingDensity({ diaries, year }: { diaries: Diary[]; year: number }) {
         </div>
       </div>
 
-      {/* 图例 */}
-      <div className="flex items-center gap-1 mt-3 text-[10px] text-paper-ink3">
+      {/* 图例 - 渐变色带 */}
+      <div className="mt-3 flex items-center gap-2 text-[10px] text-paper-ink3">
         <span>少</span>
-        {["#efe8dc", "#a7d8b0", "#6bbf7c", "#3ea057", "#1f7a37"].map((c) => (
-          <span key={c} className="w-3 h-3 rounded-[2px]" style={{ backgroundColor: c }} />
-        ))}
+        <div
+          className="h-3 flex-1 rounded-[2px] min-w-[140px]"
+          style={{
+            background: "linear-gradient(to right, #efe8dc, #c8e6ce, #8dc799, #4eaa62, #2d8a44, #1a6a2e)",
+          }}
+        />
         <span>多</span>
-        <span className="ml-auto">
-          最多的一天 {Array.from(dayStats.values()).reduce((a, b) => Math.max(a, b.words), 0)} 字
+        <span className="ml-auto text-[9px]">
+          峰值 {Array.from(dayStats.values()).reduce((a, b) => Math.max(a, b.words), 0)} 字/天
         </span>
       </div>
     </div>
