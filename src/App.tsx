@@ -200,7 +200,7 @@ function EditorPageWrapper(props: {
   const [sp] = useSearchParams();
   const nav = useNavigate();
   const existing = id ? props.allDiaries.find((d) => d.id === id && !d.deletedAt) : undefined;
-  const templateId = sp.get("template") ?? undefined;
+  const templateId = sp.get("template") ?? "diary";
 
   if (props.mode === "edit" && !existing) {
     return <Navigate to="/editor" replace />;
