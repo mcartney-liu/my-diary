@@ -68,27 +68,22 @@ const CATEGORY_CONFIG: Record<
 };
 
 const OVERPASS_ENDPOINTS = [
-  "https://overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
 ];
 
 /** 最后一次请求时间 — 简易限流（Overpass 要求 1 req/sec） */
 let lastRequestAt = 0;
 
-async function throttledFetch(url: string, body: string): Promise<Response> {
+async function throttledFetch(baseUrl: string, query: string): Promise<Response> {
   const now = Date.now();
   const wait = Math.max(0, 1100 - (now - lastRequestAt));
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   lastRequestAt = Date.now();
 
-  return fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain",
-      "User-Agent": "MyDiary-Travel/1.0",
-    },
-    body,
-  });
+  // GET + URL-encoded query — 浏览器能发，Overpass 接受
+  const url = `${baseUrl}?data=${encodeURIComponent(query)}`;
+  return fetch(url, { method: "GET" });
 }
 
 /** 构造 Overpass QL — 查指定经纬度附近所有分类 */
