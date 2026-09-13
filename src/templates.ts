@@ -30,6 +30,9 @@ function divider(): DiaryBlock {
 function check(content: string, checked = false): DiaryBlock {
   return { id: uid("b"), kind: "checkbox", content, checked };
 }
+function fi(direction: "expense" | "income", category: string, value = 0, content = ""): DiaryBlock {
+  return { id: uid("f"), kind: "finance_item", content, direction, category, value };
+}
 
 export const TEMPLATES: DiaryTemplate[] = [
   {
@@ -44,11 +47,12 @@ export const TEMPLATES: DiaryTemplate[] = [
     id: "finance",
     name: "记账",
     icon: "💰",
-    description: "今日收支一眼清",
+    description: "多条流水 + 分类 + 自动计算",
     defaultBlocks: [
-      heading("💰 今日收支", 2),
-      numField("支出", "¥"),
-      numField("收入", "¥"),
+      heading("💰 今日流水", 2),
+      fi("expense", "food", 38, "午餐"),
+      fi("expense", "transport", 15, "打车"),
+      fi("income", "salary", 0, "工资"),
       divider(),
       heading("备注", 3),
       tb(""),

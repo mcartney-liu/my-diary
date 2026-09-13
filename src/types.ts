@@ -7,19 +7,22 @@ export interface MoodTag {
   color: string; // hex e.g. "#ffcf5c"
 }
 
-export type BlockKind = "text" | "image" | "audio" | "heading" | "number" | "divider" | "checkbox";
+export type BlockKind = "text" | "image" | "audio" | "heading" | "number" | "divider" | "checkbox" | "finance_item";
 
 export interface DiaryBlock {
   id: string;
   kind: BlockKind;
-  content: string;           // text: 文本 / image: dataURL / audio: dataURL / heading: 标题 / checkbox: 标签
+  content: string;           // text: 文本 / image: dataURL / audio: dataURL / heading: 标题 / checkbox: 标签 / finance_item: 备注
   durationMs?: number;       // 仅 audio
   // === 扩展 kind 的可选字段 ===
   level?: 1 | 2 | 3;         // heading: 标题级别，默认 2
   label?: string;            // number: "支出" / "收入" 等
-  value?: number;            // number: 数值 / checkbox: 用 checked 代替
+  value?: number;            // number: 数值
   unit?: string;             // number: 单位 "¥" / "元" / "页"
   checked?: boolean;         // checkbox: 是否勾选
+  // === finance_item 专属 ===
+  direction?: "expense" | "income"; // 支出 / 收入
+  category?: string;         // 分类 key，如 "food" / "transport"
 }
 
 export interface WeatherInfo {

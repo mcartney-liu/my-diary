@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
@@ -10,6 +10,7 @@ import ImageBlock from "./ImageBlock";
 import AudioBlock from "./AudioBlock";
 import { PRESET_PAPERS, matchPreset } from "../presetPapers";
 import { TEMPLATES, templateById, type DiaryTemplate } from "../templates";
+import { FINANCE_CATEGORIES, categoryByKey, categoriesByDir, type FinanceCategory } from "../categories";
 import GridSnap from "./GridSnap";
 
 interface Props {
@@ -248,6 +249,39 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
       return next.length ? next : [{ id: uid("b"), kind: "text" as const, content: "" }];
     });
   };
+
+  // === 记账自动计算 ===
+  const financeSummary = useMemo(() => {
+    const items = blocks.filter((b) => b.kind === "finance_item" && b.value);
+    let expense = 0;
+    let income = 0;
+    for (const it of items) {
+      if (it.direction === "income") income += it.value!;
+      else expense += it.value!;
+    }
+    return { expense, income, balance: income - expense, count: items.length };
+  }, [blocks]);
+
+  const isFinanceTemplate = templateId === "finance";
+
+  const addFinanceItem = (direction: "expense" | "income" = "expense") => {
+    const defaultCat = direction === "income" ? "salary" : "food";
+    const newBlock: DiaryBlock = {
+      id: uid("f"),
+      kind: "finance_item",
+      content: "",       // 备注
+      value: 0,
+      direction,
+      category: defaultCat,
+    };
+    setBlocks((prev) => {
+      // 找到最后一个 finance_item，在它后面插入新的
+      const lastFinanceIdx = [...prev].reverse().findIndex((b) => b.kind === "finance_item");
+      if (lastFinanceIdx === -1) return [...prev, newBlock];
+      const insertAt = prev.length - 1 - lastFinanceIdx + 1;
+      return [...prev.slice(0, insertAt), newBlock, ...prev.slice(insertAt)];
+    });
+  };
   const addBlock = (kind: DiaryBlock["kind"], content = "", durationMs?: number, autoText = true) => {
     const block: DiaryBlock = { id: uid(kind[0]), kind, content, durationMs };
     setBlocks((prev) => {
@@ -465,7 +499,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
     const now = Date.now();
     const cleaned = blocks.filter((b) => {
       if (b.kind === "text") return b.content.trim().length > 0;
-      if (b.kind === "divider" || b.kind === "heading" || b.kind === "number" || b.kind === "checkbox") return true; // 结构型 block 永远保留
+      if (b.kind === "divider" || b.kind === "heading" || b.kind === "number" || b.kind === "checkbox" || b.kind === "finance_item") return true;
       return !!b.content; // image/audio 需要有 dataURL
     });
     const finalBlocks: DiaryBlock[] = cleaned.length ? cleaned : [{ id: uid("b"), kind: "text" as const, content: "" }];
@@ -914,9 +948,53 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
               </div>
             )}
 
+            {/* finance_item — 记账流水 */}
+            {b.kind === "finance_item" && (
+              <FinanceItemRow
+                block={b}
+                onChange={(patch) => updateBlock(b.id, patch)}
+                onRemove={() => removeBlock(b.id)}
+              />
+            )}
+
             {idx === blocks.length - 1 && <div className="h-6" />}
           </div>
           ))}
+
+          {/* === 记账专属：汇总卡片 + 添加按钮（只在记账模板时显示） === */}
+          {isFinanceTemplate && financeSummary.count > 0 && (
+            <div className="px-4 md:px-6 mt-2 mb-1">
+              <div className="rounded-xl border border-paper-line bg-paper-surface/50 p-3">
+                <div className="text-xs text-paper-ink2 mb-2 font-medium">今日汇总</div>
+                <div className="flex items-center gap-4 text-sm">
+                  <span className="text-paper-ink2">支出</span>
+                  <span className="font-semibold text-red-600">¥{financeSummary.expense.toFixed(2)}</span>
+                  <span className="text-paper-ink2">收入</span>
+                  <span className="font-semibold text-emerald-600">¥{financeSummary.income.toFixed(2)}</span>
+                  <div className="flex-1" />
+                  <span className={`font-bold ${financeSummary.balance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {financeSummary.balance >= 0 ? "+" : "−"}¥{Math.abs(financeSummary.balance).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+          {isFinanceTemplate && (
+            <div className="px-4 md:px-6 pb-2 flex gap-2">
+              <button
+                onClick={() => addFinanceItem("expense")}
+                className="flex-1 py-2 rounded-xl border border-dashed border-paper-line hover:border-red-300 hover:bg-red-50 text-sm text-paper-ink2 hover:text-red-600 transition active:scale-[0.98]"
+              >
+                + 添加支出
+              </button>
+              <button
+                onClick={() => addFinanceItem("income")}
+                className="flex-1 py-2 rounded-xl border border-dashed border-paper-line hover:border-emerald-300 hover:bg-emerald-50 text-sm text-paper-ink2 hover:text-emerald-600 transition active:scale-[0.98]"
+              >
+                + 添加收入
+              </button>
+            </div>
+          )}
 
            {/* Web Speech API 实时转写区（正文区，跟着内容滚动） */}
            {recording && speechSupported && (
@@ -1243,6 +1321,84 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
       </div>
     );
   }
+
+// 记账流水条目组件 — 支持切换方向 / 选分类 / 填金额 / 写备注
+function FinanceItemRow({
+  block,
+  onChange,
+  onRemove,
+}: {
+  block: DiaryBlock;
+  onChange: (patch: Partial<DiaryBlock>) => void;
+  onRemove: () => void;
+}) {
+  const dir = block.direction ?? "expense";
+  const cat = categoryByKey(block.category, dir);
+  const catList = categoriesByDir(dir);
+
+  const dirText = dir === "income" ? "收入" : "支出";
+  const amountColor = dir === "income" ? "text-emerald-600" : "text-red-600";
+
+  return (
+    <div className={`group flex items-center gap-2 py-1.5 border-b border-paper-line/40 last:border-b-0 rounded-lg hover:bg-paper-surface/50 px-1 transition`}>
+      {/* 方向切换（支出/收入） */}
+      <button
+        onClick={() => onChange({ direction: dir === "income" ? "expense" : "income" } as Partial<DiaryBlock>)}
+        className={`shrink-0 w-12 h-7 rounded-full text-xs font-semibold flex items-center justify-center transition ${
+          dir === "income"
+            ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+            : "bg-red-100 text-red-700 hover:bg-red-200"
+        }`}
+        title={`切换为${dir === "income" ? "支出" : "收入"}`}
+      >
+        {dirText}
+      </button>
+
+      {/* 分类下拉 */}
+      <select
+        value={block.category ?? ""}
+        onChange={(e) => onChange({ category: e.target.value } as Partial<DiaryBlock>)}
+        className="shrink-0 bg-paper-surface border border-paper-line rounded-lg px-2 py-1 text-sm outline-none focus:border-paper-accent cursor-pointer"
+      >
+        {catList.map((c) => (
+          <option key={c.key} value={c.key}>
+            {c.icon} {c.name}
+          </option>
+        ))}
+      </select>
+
+      {/* 金额 */}
+      <div className="flex items-center gap-1 shrink-0">
+        <span className={`text-lg font-bold ${amountColor}`}>{dir === "income" ? "+" : "−"}</span>
+        <span className={`text-sm font-medium ${amountColor}`}>¥</span>
+        <input
+          type="number"
+          inputMode="decimal"
+          value={block.value ?? ""}
+          onChange={(e) => onChange({ value: e.target.value ? Number(e.target.value) : 0 } as Partial<DiaryBlock>)}
+          placeholder="0"
+          className="w-16 bg-transparent outline-none text-lg font-bold text-paper-ink text-right min-w-0"
+        />
+      </div>
+
+      {/* 备注（可选） */}
+      <input
+        type="text"
+        value={block.content}
+        onChange={(e) => onChange({ content: e.target.value })}
+        placeholder="备注..."
+        className="flex-1 bg-transparent outline-none text-xs text-paper-ink2 placeholder:text-paper-ink3 min-w-0"
+      />
+
+      {/* 删除按钮 */}
+      <button
+        onClick={onRemove}
+        className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition shrink-0"
+        title="删除"
+      >×</button>
+    </div>
+  );
+}
 
 // 录音按钮组件 — 支持点击切换 + 长按停止
 function RecordingButton({
