@@ -18,6 +18,18 @@ export interface DiaryTemplate {
 function tb(content: string): DiaryBlock {
   return { id: uid("b"), kind: "text", content };
 }
+function heading(content: string, level: 1 | 2 | 3 = 2): DiaryBlock {
+  return { id: uid("b"), kind: "heading", content, level };
+}
+function numField(label: string, unit?: string, value?: number): DiaryBlock {
+  return { id: uid("b"), kind: "number", content: "", label, unit, value };
+}
+function divider(): DiaryBlock {
+  return { id: uid("b"), kind: "divider", content: "" };
+}
+function check(content: string, checked = false): DiaryBlock {
+  return { id: uid("b"), kind: "checkbox", content, checked };
+}
 
 export const TEMPLATES: DiaryTemplate[] = [
   {
@@ -33,7 +45,14 @@ export const TEMPLATES: DiaryTemplate[] = [
     name: "记账",
     icon: "💰",
     description: "今日收支一眼清",
-    defaultBlocks: [tb("💰 今日收支\n\n支出：\n收入：\n备注：")],
+    defaultBlocks: [
+      heading("💰 今日收支", 2),
+      numField("支出", "¥"),
+      numField("收入", "¥"),
+      divider(),
+      heading("备注", 3),
+      tb(""),
+    ],
     showLines: true,
     defaultTags: ["记账"],
   },
@@ -42,7 +61,17 @@ export const TEMPLATES: DiaryTemplate[] = [
     name: "读书",
     icon: "📚",
     description: "摘抄 + 感悟",
-    defaultBlocks: [tb("📚 《书名》\n作者：\n进度：__/__ 页\n\n\n🌟 摘抄：\n\n💡 感悟：")],
+    defaultBlocks: [
+      heading("📚 《书名》", 2),
+      heading("作者：", 3),
+      numField("进度", "页"),
+      divider(),
+      heading("🌟 摘抄", 3),
+      tb(""),
+      divider(),
+      heading("💡 感悟", 3),
+      tb(""),
+    ],
     wallpaper: "/papers/sage-journal.jpg",
     showLines: true,
     defaultTags: ["读书"],
@@ -70,7 +99,20 @@ export const TEMPLATES: DiaryTemplate[] = [
     name: "每日计划",
     icon: "🎯",
     description: "三问今天做什么",
-    defaultBlocks: [tb("🎯 今日目标\n\n✅ 必做 3 件：\n1.\n2.\n3.\n\n📌 可选：\n\n⏰ 时间分配：")],
+    defaultBlocks: [
+      heading("🎯 今日目标", 2),
+      heading("✅ 必做 3 件", 3),
+      check(""),
+      check(""),
+      check(""),
+      divider(),
+      heading("📌 可选", 3),
+      check(""),
+      check(""),
+      divider(),
+      heading("⏰ 时间分配 / 备注", 3),
+      tb(""),
+    ],
     defaultTags: ["计划"],
   },
   {

@@ -465,7 +465,8 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
     const now = Date.now();
     const cleaned = blocks.filter((b) => {
       if (b.kind === "text") return b.content.trim().length > 0;
-      return !!b.content;
+      if (b.kind === "divider" || b.kind === "heading" || b.kind === "number" || b.kind === "checkbox") return true; // 结构型 block 永远保留
+      return !!b.content; // image/audio 需要有 dataURL
     });
     const finalBlocks: DiaryBlock[] = cleaned.length ? cleaned : [{ id: uid("b"), kind: "text" as const, content: "" }];
 
@@ -827,6 +828,92 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
             {b.kind === "audio" && (
               <GridSnap minRows={3}><AudioBlock block={b} onRemove={() => removeBlock(b.id)} /></GridSnap>
             )}
+
+            {/* heading — 小标题，加粗 */}
+            {b.kind === "heading" && (
+              <div className="py-1.5 group flex items-center gap-2">
+                <input
+                  type="text"
+                  value={b.content}
+                  onChange={(e) => updateBlock(b.id, { content: e.target.value })}
+                  placeholder="标题..."
+                  className={`flex-1 bg-transparent outline-none font-bold placeholder:text-paper-ink3 ${
+                    (b.level ?? 2) === 1 ? "text-2xl" : (b.level ?? 2) === 3 ? "text-base" : "text-lg"
+                  } text-paper-ink`}
+                />
+                <button
+                  onClick={() => removeBlock(b.id)}
+                  className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
+                  title="删除"
+                >×</button>
+              </div>
+            )}
+
+            {/* number — 数字输入（记账用） */}
+            {b.kind === "number" && (
+              <div className="py-1 group flex items-center gap-3">
+                <span className="text-sm text-paper-ink2 w-16 shrink-0">{b.label ?? "金额"}</span>
+                {b.unit && <span className="text-lg text-paper-ink font-semibold">{b.unit}</span>}
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={b.value ?? ""}
+                  onChange={(e) => updateBlock(b.id, { value: e.target.value ? Number(e.target.value) : undefined })}
+                  placeholder="0"
+                  className="flex-1 bg-transparent outline-none text-lg text-paper-ink font-semibold min-w-0"
+                />
+                <button
+                  onClick={() => removeBlock(b.id)}
+                  className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
+                  title="删除"
+                >×</button>
+              </div>
+            )}
+
+            {/* divider — 虚线分隔 */}
+            {b.kind === "divider" && (
+              <div className="py-2 flex items-center gap-3 group">
+                <div className="flex-1 h-px border-t border-dashed border-paper-line" />
+                <button
+                  onClick={() => removeBlock(b.id)}
+                  className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
+                  title="删除"
+                >×</button>
+                <div className="flex-1 h-px border-t border-dashed border-paper-line" />
+              </div>
+            )}
+
+            {/* checkbox — 可勾选的待办 */}
+            {b.kind === "checkbox" && (
+              <div className="py-1 group flex items-center gap-2">
+                <button
+                  onClick={() => updateBlock(b.id, { checked: !b.checked })}
+                  className={`w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition ${
+                    b.checked
+                      ? "bg-paper-accent border-paper-accent text-white"
+                      : "border-paper-line hover:border-paper-accent"
+                  }`}
+                  title={b.checked ? "取消勾选" : "勾选"}
+                >
+                  {b.checked && <span className="text-xs leading-none">✓</span>}
+                </button>
+                <input
+                  type="text"
+                  value={b.content}
+                  onChange={(e) => updateBlock(b.id, { content: e.target.value })}
+                  placeholder="待办事项..."
+                  className={`flex-1 bg-transparent outline-none text-sm placeholder:text-paper-ink3 min-w-0 ${
+                    b.checked ? "text-paper-ink3 line-through" : "text-paper-ink"
+                  }`}
+                />
+                <button
+                  onClick={() => removeBlock(b.id)}
+                  className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
+                  title="删除"
+                >×</button>
+              </div>
+            )}
+
             {idx === blocks.length - 1 && <div className="h-6" />}
           </div>
           ))}

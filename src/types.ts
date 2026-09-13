@@ -7,13 +7,19 @@ export interface MoodTag {
   color: string; // hex e.g. "#ffcf5c"
 }
 
-export type BlockKind = "text" | "image" | "audio";
+export type BlockKind = "text" | "image" | "audio" | "heading" | "number" | "divider" | "checkbox";
 
 export interface DiaryBlock {
   id: string;
   kind: BlockKind;
-  content: string;           // text: 文本 / image: dataURL / audio: dataURL
+  content: string;           // text: 文本 / image: dataURL / audio: dataURL / heading: 标题 / checkbox: 标签
   durationMs?: number;       // 仅 audio
+  // === 扩展 kind 的可选字段 ===
+  level?: 1 | 2 | 3;         // heading: 标题级别，默认 2
+  label?: string;            // number: "支出" / "收入" 等
+  value?: number;            // number: 数值 / checkbox: 用 checked 代替
+  unit?: string;             // number: 单位 "¥" / "元" / "页"
+  checked?: boolean;         // checkbox: 是否勾选
 }
 
 export interface WeatherInfo {
