@@ -195,6 +195,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
     setTemplateId(tpl.id);
     setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
     if (tpl.defaultTitle) setTitle(tpl.defaultTitle);
+    if (tpl.defaultMoodId) setMoodId(tpl.defaultMoodId);
     if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
     if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
     if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
@@ -1336,6 +1337,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
                           setTemplateId(tpl.id);
                            setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
                            if (tpl.defaultTitle) setTitle(tpl.defaultTitle);
+                           if (tpl.defaultMoodId) setMoodId(tpl.defaultMoodId);
                            if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
                            else if (tpl.id === "diary") setWallpaper(undefined);
                            if (tpl.showLines !== undefined) setShowLines(tpl.showLines);

@@ -123,7 +123,7 @@ export default function DayList({ date, diaries }: Props) {
             }
 
             // 正常已解锁
-            const dTpl = d.templateId ? templateById(d.templateId) : undefined;
+            const dTpl = templateById(d.templateId ?? "diary");
             return (
               <li
                 key={d.id}

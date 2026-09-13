@@ -1,7 +1,7 @@
 ﻿// 日记模板 — 每种模板是一套预设初始值
 // EditorPage 零改动，模板只是"给新建日记一个不同的初始 state"
 
-import type { DiaryBlock } from "./types";
+import type { DiaryBlock, MoodId } from "./types";
 import { uid } from "./types";
 
 export interface DiaryTemplate {
@@ -14,6 +14,7 @@ export interface DiaryTemplate {
   showLines?: boolean;       // 默认 false（无横线纯纸）
   defaultTags?: string[];
   defaultTitle?: string;
+  defaultMoodId?: MoodId;
 }
 
 function tb(content: string): DiaryBlock {
@@ -43,6 +44,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     description: "每天最自然的记录",
     defaultBlocks: [tb("")],
     defaultTitle: "📖 今日日记",
+    defaultMoodId: "calm",
     showLines: false,
   },
   {
@@ -61,6 +63,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     ],
     showLines: false,
     defaultTitle: "💰 今日记账",
+    defaultMoodId: "calm",
     defaultTags: ["记账"],
   },
   {
@@ -83,6 +86,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     wallpaper: "/papers/sage-journal.jpg",
     showLines: false,
     defaultTitle: "📚 读书笔记",
+    defaultMoodId: "calm",
     defaultTags: ["读书"],
   },
   {
@@ -107,6 +111,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     wallpaper: "/papers/sunrise-dream.jpg",
     showLines: false,
     defaultTitle: "✈️ 旅行日记",
+    defaultMoodId: "happy",
     defaultTags: ["旅行"],
   },
   {
@@ -128,6 +133,7 @@ export const TEMPLATES: DiaryTemplate[] = [
       tb("（可选）"),
     ],
     defaultTitle: "🏃 运动记录",
+    defaultMoodId: "happy",
     showLines: false,
     defaultTags: ["运动"],
   },
@@ -151,6 +157,7 @@ export const TEMPLATES: DiaryTemplate[] = [
       tb(""),
     ],
     defaultTitle: "🎯 今日计划",
+    defaultMoodId: "calm",
     showLines: false,
     defaultTags: ["计划"],
   },
@@ -174,6 +181,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     wallpaper: "/papers/vintage-rose.jpg",
     showLines: false,
     defaultTitle: "🙏 感恩日记",
+    defaultMoodId: "happy",
     defaultTags: ["感恩"],
   },
   {
@@ -193,6 +201,7 @@ export const TEMPLATES: DiaryTemplate[] = [
       numField("心情", "分"),
     ],
     defaultTitle: "💊 健康日记",
+    defaultMoodId: "calm",
     showLines: false,
     defaultTags: ["健康"],
   },
