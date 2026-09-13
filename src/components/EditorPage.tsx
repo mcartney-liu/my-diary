@@ -937,7 +937,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
 
       {/* 底部添加栏 */}
       <footer className="fixed bottom-0 left-0 right-0 bg-[#faf6ef]/95 backdrop-blur border-t border-paper-line">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-2">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-center gap-3">
           <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
             onChange={(e) => e.target.files?.[0] && handleImagePick(e.target.files[0])} />
           <input ref={audioInputRef} type="file" accept="audio/*" className="hidden"
@@ -945,9 +945,6 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
           <input ref={wallpaperInputRef} type="file" accept="image/*" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleWallpaperPick(f); e.target.value = ""; }} />
 
-          <button onClick={() => addBlock("text")} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink hover:bg-paper-line/50 active:scale-95">
-            <FileText size={16} /> 文字
-          </button>
           <button onClick={() => imageInputRef.current?.click()} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink hover:bg-paper-line/50 active:scale-95">
              <ImagePlus size={16} /> 图片
            </button>
