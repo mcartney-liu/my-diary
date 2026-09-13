@@ -244,12 +244,9 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
     if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
   }, [initialDiary, initialTemplateId]);
 
-  // 自动抓天气 + 位置（仅新建日记时）
-  useEffect(() => {
-    if (initialDiary) return; // 编辑模式不自动抓
-    void refetchAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialDiary]);
+  // 定位 + 天气 + POI：iOS Safari 要求必须由用户手势触发 GPS，
+  // 所以不自动调用，让用户点「📍 点我定位」按钮手动触发。
+  // 非 iOS 设备上 useEffect 也不自动调，保持一致体验。
 
   /** 手动重新获取 GPS + 天气 + POI */
   async function refetchAll() {
@@ -1032,59 +1029,80 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
       {/* 附近 POI（仅旅行模板 + 新建日记） */}
       {templateId === "travel" && !initialDiary && (
         <div className="max-w-2xl w-full mx-auto px-4 mb-3">
-          <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm">🗺️</span>
-                <span className="text-xs font-medium text-amber-800">附近有什么</span>
-                {location?.name && (
-                  <span className="text-[11px] text-amber-600 opacity-70">· {location.name}</span>
+          {!location?.lat ? (
+            // === 还没定位 → 显示大按钮 ===
+            <button
+              onClick={() => refetchAll()}
+              disabled={locationLoading || weatherLoading}
+              className="w-full rounded-xl border border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50 p-4 text-left hover:shadow-md active:scale-[0.99] transition disabled:opacity-50"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-xl">
+                  📍
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-amber-900">点我定位，看看附近有什么</div>
+                  <div className="text-[11px] text-amber-700/70 mt-0.5">
+                    获取 GPS 精确位置 + 天气 + 周边景点美食推荐
+                  </div>
+                </div>
+                {(locationLoading || weatherLoading) && (
+                  <Loader2 size={16} className="animate-spin text-amber-600" />
                 )}
               </div>
-              <button
-                onClick={() => location?.lat && location?.lon && loadNearbyPois(location.lat, location.lon)}
-                disabled={nearbyLoading || !location?.lat}
-                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] text-amber-700 hover:bg-amber-100 disabled:opacity-40 active:scale-95"
-              >
-                <RefreshCw size={11} className={nearbyLoading ? "animate-spin" : ""} />
-                刷新
-              </button>
-            </div>
-
-            {nearbyLoading && (
-              <div className="text-xs text-amber-700/70 flex items-center gap-1.5 py-2">
-                <Loader2 size={12} className="animate-spin" />
-                搜索附近景点、美食、咖啡、酒店...
+            </button>
+          ) : (
+            // === 已定位 → 显示 POI 区域 ===
+            <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm">🗺️</span>
+                  <span className="text-xs font-medium text-amber-800">附近有什么</span>
+                  <span className="text-[11px] text-amber-600 opacity-70">· {location.name}</span>
+                  {locationSource === "ip" && <span className="text-[10px] text-amber-500/80">IP 粗略</span>}
+                </div>
+                <button
+                  onClick={() => location?.lat && location?.lon && loadNearbyPois(location.lat, location.lon)}
+                  disabled={nearbyLoading}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] text-amber-700 hover:bg-amber-100 disabled:opacity-40 active:scale-95"
+                >
+                  <RefreshCw size={11} className={nearbyLoading ? "animate-spin" : ""} />
+                  刷新
+                </button>
               </div>
-            )}
 
-            {!nearbyLoading && nearbyError && (
-              <div className="text-xs text-red-600 py-2">📍 {nearbyError}</div>
-            )}
+              {nearbyLoading && (
+                <div className="text-xs text-amber-700/70 flex items-center gap-1.5 py-2">
+                  <Loader2 size={12} className="animate-spin" />
+                  搜索附近景点、美食、咖啡、酒店...
+                </div>
+              )}
 
-            {!nearbyLoading && !nearbyError && nearbyPois.length === 0 && (
-              <div className="text-xs text-amber-700/60 py-2">附近没搜到 POI，换个位置试试？</div>
-            )}
+              {!nearbyLoading && nearbyError && (
+                <div className="text-xs text-red-600 py-2">📍 {nearbyError}</div>
+              )}
 
-            {!nearbyLoading && nearbyPois.length > 0 && (
-              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory">
-                {nearbyPois.map((poi) => (
-                  <NearbyPoiCard
-                    key={poi.id}
-                    poi={poi}
-                    onAdd={() => insertPoiBlock(poi)}
-                  />
-                ))}
-              </div>
-            )}
+              {!nearbyLoading && !nearbyError && nearbyPois.length === 0 && (
+                <div className="text-xs text-amber-700/60 py-2">附近没搜到 POI，换个位置试试？</div>
+              )}
 
-            {/* 手动搜地点（简易） */}
-            {location?.lat && (
+              {!nearbyLoading && nearbyPois.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory">
+                  {nearbyPois.map((poi) => (
+                    <NearbyPoiCard
+                      key={poi.id}
+                      poi={poi}
+                      onAdd={() => insertPoiBlock(poi)}
+                    />
+                  ))}
+                </div>
+              )}
+
               <div className="mt-2 pt-2 border-t border-amber-200/50 text-[11px] text-amber-600/70 text-center">
                 数据来源 OpenStreetMap · 全球免费 · 精度取决于城市数据
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
