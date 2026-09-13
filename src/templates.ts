@@ -11,7 +11,7 @@ export interface DiaryTemplate {
   description: string;       // 副标题
   defaultBlocks: DiaryBlock[];
   wallpaper?: string;        // 预设信纸（空/undefined=CSS 默认）
-  showLines?: boolean;       // 默认 true
+  showLines?: boolean;       // 默认 false（无横线纯纸）
   defaultTags?: string[];
   defaultTitle?: string;
 }
@@ -44,6 +44,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     defaultBlocks: [tb("")],
     // 不设 wallpaper → CSS 默认米白 + 横线
     defaultTitle: '📖 今日日记',
+    showLines: false,
   },
   {
     id: 'finance',
@@ -59,7 +60,7 @@ export const TEMPLATES: DiaryTemplate[] = [
       heading("备注", 3),
       tb(""),
     ],
-    showLines: true,
+    showLines: false,
     defaultTitle: '💰 今日记账',
     defaultTags: ['记账'],
   },
@@ -80,7 +81,7 @@ export const TEMPLATES: DiaryTemplate[] = [
       tb(""),
     ],
     wallpaper: "/papers/sage-journal.jpg",
-    showLines: true,
+    showLines: false,
     defaultTitle: '📚 读书笔记',
     defaultTags: ['读书'],
   },
@@ -91,7 +92,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     description: "把旅程完整记下来",
     defaultBlocks: [tb("✈️ Day 1\n📍 地点：\n🚗 交通：\n🏨 住宿：\n\n📝 今天发生了什么？\n\n🍜 美食：\n📸 照片：")],
     wallpaper: "/papers/sunrise-dream.jpg",
-    showLines: true,
+    showLines: false,
     defaultTitle: '✈️ 旅行日记',
     defaultTags: ['旅行'],
   },
@@ -102,6 +103,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     description: "身体在说什么",
     defaultBlocks: [tb("🏃 今日运动\n类型：跑步 / 瑜伽 / 健身\n时长：\n强度：★ / ★★ / ★★★\n\n\n💪 感受：\n身体哪个部位有变化？")],
     defaultTitle: '🏃 运动记录',
+    showLines: false,
     defaultTags: ['运动'],
   },
   {
@@ -124,6 +126,7 @@ export const TEMPLATES: DiaryTemplate[] = [
       tb(""),
     ],
     defaultTitle: '🎯 今日计划',
+    showLines: false,
     defaultTags: ['计划'],
   },
   {
@@ -133,7 +136,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     description: "三件感恩的小事",
     defaultBlocks: [tb("🙏 今日感恩\n\n1. 今天感谢谁 / 什么？\n2. 为什么？\n3. 这件事让我感受如何？\n\n4. 明天想感谢什么？")],
     wallpaper: "/papers/vintage-rose.jpg",
-    showLines: true,
+    showLines: false,
     defaultTitle: '🙏 感恩日记',
     defaultTags: ['感恩'],
   },
@@ -144,6 +147,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     description: "身体信号 + 心情",
     defaultBlocks: [tb("💊 健康日记\n体重：__ kg\n睡眠：__/__ 小时\n💧 喝水：__ 杯\n运动：\n\n🤒 身体信号：\n心情：1-10")],
     defaultTitle: '💊 健康日记',
+    showLines: false,
     defaultTags: ['健康'],
   },
 ];
