@@ -27,10 +27,10 @@ export default function TextBlock({ block, onChange, onRemove }: Props) {
         ref={ref}
         value={block.content}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="在此书写..."
-        rows={1}
+        placeholder={empty ? "在此书写..." : ""}
+        rows={empty ? 3 : 1}
         className={`w-full resize-none bg-transparent outline-none text-[17px] leading-8 font-hand text-paper-ink placeholder:text-paper-ink2/50 ${
-          empty ? "min-h-[32px]" : ""
+          empty ? "min-h-[120px] py-2" : ""
         }`}
       />
       {!empty && (
