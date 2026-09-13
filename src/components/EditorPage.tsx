@@ -135,6 +135,24 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
   const [tags, setTags] = useState<string[]>(initialDiary?.tags ?? []);
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagInput, setTagInput] = useState("");
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+
+  // iOS Safari 键盘弹起时用 visualViewport 检测高度变化
+  useEffect(() => {
+    const vv = (window as unknown as { visualViewport?: VisualViewport }).visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardOffset(kb);
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    update();
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
 
   // 添加标签（支持逗号/分号/空格分隔批量）
   const addTag = () => {
@@ -878,7 +896,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
       </div>
 
       {/* 块列表 — 信纸区域 */}
-      <div className="max-w-2xl w-full mx-auto px-4 pb-24">
+      <div className="max-w-2xl w-full mx-auto px-4 pb-24" style={{ paddingBottom: 96 + keyboardOffset }}>
         <div
           className={`paper-editor rounded-card shadow-card min-h-[200px] ${wallpaper ? "has-wallpaper" : ""} ${!showLines ? "no-lines" : ""}`}
           style={wallpaper ? { backgroundImage: `url(${wallpaper})` } : undefined}
@@ -1153,7 +1171,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
       )}
 
       {/* 底部添加栏 */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-[#faf6ef]/95 backdrop-blur border-t border-paper-line">
+      <footer className="fixed bottom-0 left-0 right-0 bg-[#faf6ef]/95 backdrop-blur border-t border-paper-line z-20" style={{ bottom: keyboardOffset }}>
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-center gap-3">
           <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
             onChange={(e) => e.target.files?.[0] && handleImagePick(e.target.files[0])} />
