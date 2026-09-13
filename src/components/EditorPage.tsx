@@ -1051,7 +1051,7 @@ export default function EditorPage({ initialDiary, onSave, onSoftDelete, onCance
                     aria-label="切换横线"
                   >
                     <span
-                      className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showLines ? "translate-x-5" : "translate-x-0.5"}`}
+                      className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-[left] duration-200 ${showLines ? "left-[22px]" : "left-0.5"}`}
                     />
                   </button>
                 </div>
