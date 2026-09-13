@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate } from "lucide-react";
+import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
 import { transcribeAudio } from "../api";
-import { fetchWeather, fetchLocation } from "../weather";
+import { fetchWeather, fetchLocation, type LocationResult } from "../weather";
 import TextBlock from "./TextBlock";
 import ImageBlock from "./ImageBlock";
 import AudioBlock from "./AudioBlock";
@@ -118,6 +118,9 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
   const [showMood, setShowMood] = useState(false);
   const [weather, setWeather] = useState(initialDiary?.weather ?? null);
   const [location, setLocation] = useState(initialDiary?.location ?? null);
+  const [locationGpsOk, setLocationGpsOk] = useState<boolean | null>(null);
+  const [locationError, setLocationError] = useState<LocationResult["gpsError"]>();
+  const [locationLoading, setLocationLoading] = useState(false);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [capsuleDays, setCapsuleDays] = useState<number | null>(null);
   const [showCapsuleMenu, setShowCapsuleMenu] = useState(false);
@@ -230,25 +233,27 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
   // 自动抓天气 + 位置（仅新建日记时）
   useEffect(() => {
     if (initialDiary) return; // 编辑模式不自动抓
-    let cancelled = false;
-    (async () => {
-      setWeatherLoading(true);
-      try {
-        const loc = await fetchLocation();
-        if (cancelled) return;
-        if (loc) {
-          setLocation({ name: loc.name, lat: loc.lat, lon: loc.lon });
-          const w = await fetchWeather(loc.lat, loc.lon);
-          if (!cancelled && w) setWeather(w);
-        } else {
-          const w = await fetchWeather(); // 默认北京
-          if (!cancelled && w) setWeather(w);
-        }
-      } catch { /* ignore */ }
-      setWeatherLoading(false);
-    })();
-    return () => { cancelled = true; };
+    void refetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialDiary]);
+
+  /** 手动重新获取 GPS + 天气 */
+  async function refetchAll() {
+    let cancelled = false;
+    setWeatherLoading(true);
+    setLocationLoading(true);
+    try {
+      const loc = await fetchLocation();
+      if (cancelled) return;
+      setLocation({ name: loc.name, lat: loc.lat, lon: loc.lon });
+      setLocationGpsOk(loc.gpsOk);
+      setLocationError(loc.gpsError);
+      const w = await fetchWeather(loc.lat, loc.lon);
+      if (!cancelled && w) setWeather(w);
+    } catch { /* ignore */ }
+    setWeatherLoading(false);
+    setLocationLoading(false);
+  }
 
   // 当切换到不同的日记时（initialDiary 从 undefined → 有值，或 id 变化），
   // 同步所有 state 到最新的 initialDiary 字段
@@ -728,13 +733,59 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
           <span className="text-sm text-paper-ink2">{dateStr(date)}</span>
 
           {/* 天气/位置 chip */}
-          {weatherLoading && <span className="text-xs text-paper-ink2 animate-pulse">📍 定位中...</span>}
-          {weather && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-paper-surface border border-paper-line">
-              <span>{weather.icon}</span>
-              <span className="text-paper-ink">{weather.temp}°</span>
-              {location?.name && <span className="text-paper-ink2">· {location.name}</span>}
+          {weatherLoading || locationLoading ? (
+            <span className="inline-flex items-center gap-1 text-xs text-paper-ink2 animate-pulse">
+              <Loader2 size={12} className="animate-spin" />
+              定位中...
             </span>
+          ) : (
+            <div className="inline-flex items-center gap-1">
+              {weather && (
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-paper-surface border border-paper-line">
+                  <span>{weather.icon}</span>
+                  <span className="text-paper-ink">{weather.temp}°</span>
+                </span>
+              )}
+              {location?.name && (
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs border ${
+                    locationGpsOk === true
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                      : locationGpsOk === false
+                      ? "bg-amber-50 border-amber-200 text-amber-700"
+                      : "bg-paper-surface border-paper-line text-paper-ink"
+                  }`}
+                  title={
+                    locationGpsOk === true
+                      ? "GPS 定位成功"
+                      : locationGpsOk === false
+                      ? locationError === "timeout"
+                        ? "GPS 超时，点右侧重试"
+                        : locationError === "denied"
+                        ? "定位权限被拒绝，点右侧重试"
+                        : locationError === "unavailable"
+                        ? "GPS 不可用"
+                        : "GPS 不可用"
+                      : ""
+                  }
+                >
+                  <MapPin size={11} className="shrink-0" />
+                  <span>{location.name}</span>
+                  {locationGpsOk === false && <span className="opacity-60 text-[10px]">(?)</span>}
+                </span>
+              )}
+              {/* 手动重新定位按钮（仅新建日记且编辑/创建模式） */}
+              {!initialDiary && (
+                <button
+                  onClick={() => refetchAll()}
+                  disabled={locationLoading || weatherLoading}
+                  title="重新定位"
+                  className="p-1 rounded-full hover:bg-paper-surface active:scale-90 text-paper-ink2 disabled:opacity-40"
+                >
+                  <MapPin size={14} />
+                </button>
+              )}
+            </div>
           )}
 
           {/* 心情按钮 */}

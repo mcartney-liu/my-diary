@@ -71,23 +71,44 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
 /** 硬编码 fallback — 双保险 */
 const FALLBACK_NAME = "北京市";
 
+/** 获取位置结果 */
+export interface LocationResult {
+  lat: number;
+  lon: number;
+  name: string;
+  /** true = 真实 GPS；false = 默认坐标 */
+  gpsOk: boolean;
+  /** GPS 失败原因（仅 gpsOk=false 时有值） */
+  gpsError?: "timeout" | "denied" | "unavailable" | "unknown";
+}
+
 /** 获取位置：永远返回 { lat, lon, name }，调用方不用判空 */
-export async function fetchLocation(): Promise<{ lat: number; lon: number; name: string }> {
+export async function fetchLocation(): Promise<LocationResult> {
   let lat = 39.9042;
   let lon = 116.4074;
   let gpsOk = false;
+  let gpsError: LocationResult["gpsError"] = undefined;
 
   // 1) 先试浏览器 GPS（最精确）
   try {
     const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        timeout: 15000,        // 15 秒（之前 5 秒在某些设备上不够）
+        enableHighAccuracy: true,
+        maximumAge: 60000,     // 缓存 1 分钟
+      });
     });
     lat = pos.coords.latitude;
     lon = pos.coords.longitude;
     gpsOk = true;
     console.info("[mydiary] GPS 成功:", lat.toFixed(4), lon.toFixed(4));
-  } catch (e) {
-    console.info("[mydiary] GPS 不可用（使用默认坐标）:", (e as any)?.message ?? e);
+  } catch (e: any) {
+    const code = e?.code;
+    if (code === 1) gpsError = "denied";
+    else if (code === 2) gpsError = "unavailable";
+    else if (code === 3) gpsError = "timeout";
+    else gpsError = "unknown";
+    console.info("[mydiary] GPS 不可用:", gpsError, e?.message ?? "");
   }
 
   // 2) reverse geocoding（无论 GPS 是否成功）
@@ -97,10 +118,12 @@ export async function fetchLocation(): Promise<{ lat: number; lon: number; name:
     name = FALLBACK_NAME;
   }
 
-  const result = {
+  const result: LocationResult = {
     lat,
     lon,
-    name: gpsOk ? name : `${name}（默认）`,
+    name: gpsOk ? name : name,  // 不再加"（默认）"后缀 — UI 用图标区分
+    gpsOk,
+    gpsError,
   };
   console.info("[mydiary] fetchLocation 最终:", result);
   return result;
