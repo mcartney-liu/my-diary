@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { DiaryBlock } from "../types";
 
@@ -11,6 +11,10 @@ interface Props {
 export default function TextBlock({ block, onChange, onRemove }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // iOS 中文输入法 composition 状态：true = 正在输入拼音候选，不要 setState
+  const composingRef = useRef(false);
+  // 本地缓冲：composition 期间存这里，不触发上层
+  const [localValue, setLocalValue] = useState(block.content);
 
   const resize = () => {
     const ta = ref.current;
@@ -19,7 +23,7 @@ export default function TextBlock({ block, onChange, onRemove }: Props) {
     ta.style.height = ta.scrollHeight + "px";
   };
 
-  // 内容变化时防抖重算 — 绝不打断 iOS 输入
+  // 内容变化时防抖重算高度
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(resize, 300);
@@ -28,11 +32,13 @@ export default function TextBlock({ block, onChange, onRemove }: Props) {
     };
   }, [block.content]);
 
-  // 首次渲染 + 窗口变化时算一次
+  // 外部 content 变化（比如 undo 或其他模块更新）时同步本地
   useEffect(() => {
-    const ta = ref.current;
-    if (!ta) return;
-    // 等 layout 完成
+    if (!composingRef.current) setLocalValue(block.content);
+  }, [block.content]);
+
+  // 首次渲染 + 窗口变化时算一次高度
+  useEffect(() => {
     const raf = requestAnimationFrame(resize);
     const onResize = () => resize();
     window.addEventListener("resize", onResize);
@@ -42,14 +48,37 @@ export default function TextBlock({ block, onChange, onRemove }: Props) {
     };
   }, []);
 
-  const empty = block.content.length === 0;
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const v = e.target.value;
+    setLocalValue(v);
+    // composition 期间只更新本地 state，不往上层传
+    if (!composingRef.current) onChange(v);
+  };
+
+  const handleCompositionStart = () => {
+    composingRef.current = true;
+  };
+
+  const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
+    composingRef.current = false;
+    // composition 结束，用最终值通知上层
+    const v = (e.target as HTMLTextAreaElement).value;
+    setLocalValue(v);
+    onChange(v);
+    // iOS 上 compositionend 触发后需要再 resize 一次
+    setTimeout(resize, 10);
+  };
+
+  const empty = localValue.length === 0;
 
   return (
     <div className="group relative">
       <textarea
         ref={ref}
-        value={block.content}
-        onChange={(e) => onChange(e.target.value)}
+        value={localValue}
+        onChange={handleChange}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
         onBlur={resize}
         placeholder={empty ? "在此书写..." : ""}
         className={`w-full resize-none bg-transparent outline-none text-[17px] leading-8 font-hand text-paper-ink placeholder:text-paper-ink2/50 ${

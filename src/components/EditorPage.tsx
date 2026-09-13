@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
@@ -12,6 +12,7 @@ import { PRESET_PAPERS, matchPreset } from "../presetPapers";
 import { TEMPLATES, templateById, type DiaryTemplate } from "../templates";
 import { FINANCE_CATEGORIES, categoryByKey, categoriesByDir, type FinanceCategory } from "../categories";
 import GridSnap from "./GridSnap";
+import ConfirmDialog from "./ConfirmDialog";
 
 interface Props {
   initialDiary?: Diary;
@@ -153,6 +154,13 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
       vv.removeEventListener("scroll", update);
     };
   }, []);
+
+  // 自定义确认弹窗状态
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmSwitchTpl, setConfirmSwitchTpl] = useState(false);
+  // 暂存切换模板时选中的目标模板
+  const pendingTplRef = useRef<string | undefined>(undefined);
 
   // 添加标签（支持逗号/分号/空格分隔批量）
   const addTag = () => {
@@ -605,7 +613,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
 
   const handleDelete = () => {
     if (!initialDiary) { onCancel(); return; }
-    if (confirm("删除后会进入回收站，30 天内可恢复。确定要删除吗？")) onSoftDelete(initialDiary);
+    setConfirmDelete(true);
   };
 
   const hasContent = title.trim() || blocks.some((b) =>
@@ -667,8 +675,8 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
             onClick={() => {
               // 新建 + 有内容 + 从没保存过 → 提示放弃；其他情况直接放行
               if (!initialDiary && hasContent && !savedIdRef.current) {
-                const ok = confirm("内容还没保存，确定放弃吗？\n\n点「确定」= 放弃并返回\n点「取消」= 留下来继续写");
-                if (!ok) return;
+                setConfirmLeave(true);
+                return;
               }
               onCancel();
             }}
@@ -1353,7 +1361,9 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
                             (b) => b.kind === "text" ? b.content.trim().length > 0 : !!b.content
                           );
                           if (hasContent) {
-                            if (!confirm("切换模板会替换当前内容，确定吗？")) return;
+                            pendingTplRef.current = tpl.id;
+                            setConfirmSwitchTpl(true);
+                            return;
                           }
                           setTemplateId(tpl.id);
                            setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
@@ -1390,6 +1400,55 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
             </div>
           </div>
         )}
+
+        {/* 自定义确认弹窗：放弃未保存内容 */}
+        <ConfirmDialog
+          open={confirmLeave}
+          title="放弃编辑？"
+          message="内容还没保存，确定放弃吗？"
+          confirmText="放弃并返回"
+          cancelText="留下来写"
+          confirmTone="danger"
+          onConfirm={() => { setConfirmLeave(false); onCancel(); }}
+          onCancel={() => setConfirmLeave(false)}
+        />
+
+        {/* 自定义确认弹窗：删除日记 */}
+        <ConfirmDialog
+          open={confirmDelete}
+          title="删除日记？"
+          message="删除后会进入回收站，30 天内可恢复。"
+          confirmText="删除"
+          cancelText="取消"
+          confirmTone="danger"
+          onConfirm={() => { setConfirmDelete(false); if (initialDiary) onSoftDelete(initialDiary); }}
+          onCancel={() => setConfirmDelete(false)}
+        />
+
+        {/* 自定义确认弹窗：切换模板 */}
+        <ConfirmDialog
+          open={confirmSwitchTpl}
+          title="切换模板？"
+          message="切换模板会替换当前内容，确定继续吗？"
+          confirmText="切换"
+          cancelText="取消"
+          onConfirm={() => {
+            setConfirmSwitchTpl(false);
+            const tplId = pendingTplRef.current;
+            if (!tplId) return;
+            const tpl = templateById(tplId);
+            if (!tpl) return;
+            setTemplateId(tpl.id);
+            setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
+            if (tpl.defaultTitle) setTitle(tpl.defaultTitle);
+            if (tpl.defaultMoodId) setMoodId(tpl.defaultMoodId);
+            if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
+            else if (tpl.id === "diary") setWallpaper(undefined);
+            if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
+            if (tpl.defaultTags) setTags(tpl.defaultTags);
+          }}
+          onCancel={() => setConfirmSwitchTpl(false)}
+        />
       </div>
     );
   }
