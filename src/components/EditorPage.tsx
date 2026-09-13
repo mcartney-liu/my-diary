@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin } from "lucide-react";
+import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
 import { transcribeAudio } from "../api";
 import { fetchWeather, fetchLocation, type LocationResult } from "../weather";
+import { fetchNearbyPois, type Poi } from "../services/poi";
 import TextBlock from "./TextBlock";
 import ImageBlock from "./ImageBlock";
 import AudioBlock from "./AudioBlock";
@@ -131,6 +132,10 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
   const [locationError, setLocationError] = useState<LocationResult["gpsError"]>();
   const [locationLoading, setLocationLoading] = useState(false);
   const [weatherLoading, setWeatherLoading] = useState(false);
+  const [nearbyPois, setNearbyPois] = useState<Poi[]>([]);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [nearbyError, setNearbyError] = useState<string | null>(null);
+  const [nearbyAbortRef, setNearbyAbortRef] = useState<AbortController | null>(null);
   const [capsuleDays, setCapsuleDays] = useState<number | null>(null);
   const [showCapsuleMenu, setShowCapsuleMenu] = useState(false);
   const [wallpaper, setWallpaper] = useState<string | undefined>(initialDiary?.wallpaper);
@@ -246,7 +251,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialDiary]);
 
-  /** 手动重新获取 GPS + 天气 */
+  /** 手动重新获取 GPS + 天气 + POI */
   async function refetchAll() {
     let cancelled = false;
     setWeatherLoading(true);
@@ -259,10 +264,41 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
       setLocationError(loc.gpsError);
       const w = await fetchWeather(loc.lat, loc.lon);
       if (!cancelled && w) setWeather(w);
+
+      // 旅行模板 + 有坐标 → 拉附近 POI
+      if (!initialDiary && templateId === "travel") {
+        await loadNearbyPois(loc.lat, loc.lon);
+      }
     } catch { /* ignore */ }
     setWeatherLoading(false);
     setLocationLoading(false);
   }
+
+  /** 拉附近 POI（旅行模板专用） */
+  async function loadNearbyPois(lat: number, lon: number) {
+    setNearbyLoading(true);
+    setNearbyError(null);
+    // 取消之前的请求
+    nearbyAbortRef?.abort();
+    const ctrl = new AbortController();
+    setNearbyAbortRef(ctrl);
+    try {
+      const pois = await fetchNearbyPois(lat, lon, ["attraction", "food", "cafe", "hotel"], ctrl.signal);
+      setNearbyPois(pois);
+    } catch (e: any) {
+      if (e?.name === "AbortError") return;
+      setNearbyError(e?.message ?? "附近 POI 获取失败");
+      setNearbyPois([]);
+    }
+    setNearbyLoading(false);
+  }
+
+  /** 模板从非 travel 切到 travel 时，自动拉 POI（如果已有坐标） */
+  useEffect(() => {
+    if (templateId === "travel" && !initialDiary && location?.lat && location?.lon) {
+      void loadNearbyPois(location.lat, location.lon);
+    }
+  }, [templateId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 当切换到不同的日记时（initialDiary 从 undefined → 有值，或 id 变化），
   // 同步所有 state 到最新的 initialDiary 字段
@@ -361,6 +397,37 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
         return [...prev, block, emptyText];
       }
       return [...prev, block];
+    });
+  };
+
+  /** 一键把附近 POI 加入日记（在末尾插入 heading + text block） */
+  const insertPoiBlock = (poi: Poi) => {
+    const header: DiaryBlock = {
+      id: uid("b"),
+      kind: "heading",
+      content: `${poi.categoryLabel} · ${poi.name}`,
+      level: 3,
+    };
+    const text: DiaryBlock = {
+      id: uid("b"),
+      kind: "text",
+      content: [
+        poi.address ? `📍 ${poi.address}` : null,
+        `🗺️ ${poi.lat.toFixed(4)}, ${poi.lon.toFixed(4)}`,
+        poi.website ? `🔗 ${poi.website}` : null,
+        poi.phone ? `📞 ${poi.phone}` : null,
+        ...(poi.tags?.length ? [`🏷️ ${poi.tags.join(" · ")}`] : []),
+        "",
+        "我的感受：",
+      ].filter(Boolean).join("\n"),
+    };
+    setBlocks((prev) => [...prev, header, text]);
+    // 加标签
+    setTags((prev) => {
+      const set = new Set(prev);
+      set.add("旅行");
+      set.add(poi.categoryLabel);
+      return Array.from(set);
     });
   };
 
@@ -961,6 +1028,65 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
           </div>
         )}
       </div>
+
+      {/* 附近 POI（仅旅行模板 + 新建日记） */}
+      {templateId === "travel" && !initialDiary && (
+        <div className="max-w-2xl w-full mx-auto px-4 mb-3">
+          <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">🗺️</span>
+                <span className="text-xs font-medium text-amber-800">附近有什么</span>
+                {location?.name && (
+                  <span className="text-[11px] text-amber-600 opacity-70">· {location.name}</span>
+                )}
+              </div>
+              <button
+                onClick={() => location?.lat && location?.lon && loadNearbyPois(location.lat, location.lon)}
+                disabled={nearbyLoading || !location?.lat}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] text-amber-700 hover:bg-amber-100 disabled:opacity-40 active:scale-95"
+              >
+                <RefreshCw size={11} className={nearbyLoading ? "animate-spin" : ""} />
+                刷新
+              </button>
+            </div>
+
+            {nearbyLoading && (
+              <div className="text-xs text-amber-700/70 flex items-center gap-1.5 py-2">
+                <Loader2 size={12} className="animate-spin" />
+                搜索附近景点、美食、咖啡、酒店...
+              </div>
+            )}
+
+            {!nearbyLoading && nearbyError && (
+              <div className="text-xs text-red-600 py-2">📍 {nearbyError}</div>
+            )}
+
+            {!nearbyLoading && !nearbyError && nearbyPois.length === 0 && (
+              <div className="text-xs text-amber-700/60 py-2">附近没搜到 POI，换个位置试试？</div>
+            )}
+
+            {!nearbyLoading && nearbyPois.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory">
+                {nearbyPois.map((poi) => (
+                  <NearbyPoiCard
+                    key={poi.id}
+                    poi={poi}
+                    onAdd={() => insertPoiBlock(poi)}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* 手动搜地点（简易） */}
+            {location?.lat && (
+              <div className="mt-2 pt-2 border-t border-amber-200/50 text-[11px] text-amber-600/70 text-center">
+                数据来源 OpenStreetMap · 全球免费 · 精度取决于城市数据
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 块列表 — 信纸区域 */}
       <div className="max-w-2xl w-full mx-auto px-4 pb-24" style={{ paddingBottom: 96 + keyboardOffset }}>
@@ -1650,5 +1776,52 @@ function RecordingButton({
       <Mic size={16} />
       {recording ? "停止录音" : "点按录音"}
     </button>
+  );
+}
+
+
+
+// === 附近 POI 卡片组件（EditorPage 专用） ===
+const POI_ICON: Record<string, string> = {
+  attraction: '🏯',
+  food: '🍜',
+  cafe: '☕',
+  hotel: '🏨',
+};
+
+const POI_CATEGORY_COLOR: Record<string, string> = {
+  attraction: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  food: 'bg-rose-100 text-rose-700 border-rose-200',
+  cafe: 'bg-amber-100 text-amber-700 border-amber-200',
+  hotel: 'bg-sky-100 text-sky-700 border-sky-200',
+};
+
+function NearbyPoiCard({ poi, onAdd }: { poi: Poi; onAdd: () => void }) {
+  return (
+    <div className="shrink-0 w-44 snap-start bg-white rounded-lg border border-amber-100 p-2.5 hover:shadow-md transition">
+      <div className="flex items-start justify-between gap-1 mb-1">
+        <div className="text-base leading-none">{POI_ICON[poi.category] ?? '📍'}</div>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded border ${POI_CATEGORY_COLOR[poi.category] ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+          {poi.categoryLabel}
+        </span>
+      </div>
+      <div className="text-xs font-medium text-gray-800 truncate leading-tight">{poi.name}</div>
+      {poi.address && (
+        <div className="text-[10px] text-gray-500 truncate mt-0.5">{poi.address}</div>
+      )}
+      {poi.tags && poi.tags.length > 0 && (
+        <div className="flex flex-wrap gap-0.5 mt-1">
+          {poi.tags.slice(0, 2).map((t) => (
+            <span key={t} className="text-[9px] px-1 bg-gray-100 text-gray-600 rounded">{t}</span>
+          ))}
+        </div>
+      )}
+      <button
+        onClick={onAdd}
+        className="mt-2 w-full inline-flex items-center justify-center gap-1 py-1 rounded-md text-[11px] bg-amber-100 text-amber-800 hover:bg-amber-200 active:scale-95 transition"
+      >
+        <Plus size={10} /> 加入日记
+      </button>
+    </div>
   );
 }

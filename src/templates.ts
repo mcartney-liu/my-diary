@@ -1,4 +1,4 @@
-﻿// 日记模板 — 每种模板是一套预设初始值
+// 日记模板 — 每种模板是一套预设初始值
 // EditorPage 零改动，模板只是"给新建日记一个不同的初始 state"
 
 import type { DiaryBlock, MoodId } from "./types";
@@ -93,20 +93,25 @@ export const TEMPLATES: DiaryTemplate[] = [
     id: "travel",
     name: "旅行",
     icon: "✈️",
-    description: "Day 计数 + 分栏记录",
+    description: "自动定位 + 附近推荐 + 结构化记录",
     defaultBlocks: [
-      heading("✈️ Day 1", 2),
-      heading("📍 地点", 3),
-      tb(""),
-      heading("🚗 交通", 3),
-      tb(""),
-      heading("🏨 住宿", 3),
-      tb(""),
+      heading("✈️ Day 1 · 今日亮点", 2),
+      numField("心情", "/10"),
       divider(),
-      heading("🍜 美食", 3),
-      tb(""),
+      heading("📍 我在做什么", 3),
+      check("早上做了什么？"),
+      check("下午逛了哪里？"),
+      check("晚上有什么安排？"),
+      divider(),
+      heading("🍜 美食记忆", 3),
+      numField("今天花了", "¥"),
+      tb("今天吃了什么？味道如何？"),
+      divider(),
       heading("📝 今日故事", 3),
       tb(""),
+      divider(),
+      heading("💡 今日小发现", 3),
+      tb("有没有遇到有趣的人、意外的惊喜、想分享的事？"),
     ],
     wallpaper: "/papers/sunrise-dream.jpg",
     showLines: false,
