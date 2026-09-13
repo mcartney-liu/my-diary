@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Diary, MoodId } from "../types";
 import { MOOD_TAGS, moodById } from "../data";
-import { TEMPLATES } from "../templates";
 
 interface Props {
   diaries: Diary[];
@@ -58,64 +57,6 @@ function MoodBarChart({ diaries, year }: { diaries: Diary[]; year: number }) {
       </div>
       <div className="mt-3 text-[11px] text-paper-ink3 text-center">
         {total} 天有心情记录 · {diaries.filter((d) => d.date.startsWith(`${year}-`)).length} 篇日记
-      </div>
-    </div>
-  );
-}
-
-/** 年度模板分布条形图 */
-function TemplateBarChart({ diaries, year }: { diaries: Diary[]; year: number }) {
-  const counts = useMemo(() => {
-    const map = new Map<string, number>();
-    // 初始化所有模板为 0
-    for (const t of TEMPLATES) map.set(t.id, 0);
-    for (const d of diaries) {
-      if (!d.date.startsWith(`${year}-`)) continue;
-      const tid = d.templateId ?? "diary";
-      map.set(tid, (map.get(tid) ?? 0) + 1);
-    }
-    return map;
-  }, [diaries, year]);
-
-  const total = useMemo(() => {
-    let t = 0;
-    for (const v of counts.values()) t += v;
-    return t;
-  }, [counts]);
-
-  // 只显示有数据的模板 + 默认日记
-  const entries = useMemo(() => {
-    const list: { id: string; icon: string; name: string; count: number }[] = [];
-    for (const t of TEMPLATES) {
-      const c = counts.get(t.id) ?? 0;
-      if (c > 0 || t.id === "diary") {
-        list.push({ id: t.id, icon: t.icon, name: t.name, count: c });
-      }
-    }
-    // 按 count 降序
-    list.sort((a, b) => b.count - a.count);
-    return list;
-  }, [counts]);
-
-  if (total === 0) return null;
-
-  return (
-    <div>
-      <h3 className="text-sm font-medium text-paper-ink mb-3 flex items-center gap-1.5">
-        <span>📋</span> 模板分布
-      </h3>
-      <div className="flex flex-wrap gap-2">
-        {entries.map((e) => (
-          <span
-            key={e.id}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-paper-surface border border-paper-line text-sm"
-          >
-            <span>{e.icon}</span>
-            <span className="text-paper-ink2">{e.name}</span>
-            <span className="font-semibold text-paper-ink">{e.count}</span>
-            <span className="text-[10px] text-paper-ink3">篇</span>
-          </span>
-        ))}
       </div>
     </div>
   );
@@ -476,11 +417,6 @@ export default function MoodHeatmap({ diaries }: Props) {
       {/* 心情分布 */}
       <div className="card p-4 md:p-5">
         <MoodBarChart diaries={diaries} year={year} />
-      </div>
-
-      {/* 模板分布 */}
-      <div className="card p-4 md:p-5">
-        <TemplateBarChart diaries={diaries} year={year} />
       </div>
 
       {/* 写作密度 */}
