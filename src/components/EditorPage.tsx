@@ -84,8 +84,9 @@ function promptForDate(dateStr: string): string {
   return PROMPTS[seed];
 }
 
-// 🔑 可拖拽的 block 壳 — 只负责拖拽，内容由 children 提供
-// 整个 block 都能触发拖拽（PointerSensor + 5px distance 区分拖拽和输入）
+// 🔑 可拖拽的 block 壳 — handle 模式
+// setNodeRef 给 block（排序列表锚点），listeners 只给把手（触发点）
+// → block 内容区域正常交互，只有把手能触发拖拽
 function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
   const {
     attributes,
@@ -107,18 +108,26 @@ function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
       className={`relative ${isDragging ? "shadow-lg rounded-lg" : ""}`}
     >
-      {/* 拖拽把手 — 视觉提示，pointer-events:none 不拦截触摸事件
-          整个 block 都能触发拖拽，把手只是告诉用户"可以拖这里" */}
-      <div
-        className="absolute left-0 top-0 bottom-0 w-10 -ml-5 flex items-center justify-center select-none pointer-events-none"
-        aria-hidden="true"
+      {/* 拖拽把手 — 只有这里能触发拖拽
+          -webkit-touch-callout:none 禁止 iOS 长按弹菜单
+          touch-action:none 禁止浏览器默认触摸行为
+          user-select:none 禁止文本选择 */}
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        className="absolute left-0 top-0 bottom-0 w-10 -ml-5 flex items-center justify-center cursor-grab active:cursor-grabbing select-none z-10"
+        style={{
+          WebkitTouchCallout: "none",
+          userSelect: "none",
+          touchAction: "none",
+        }}
+        aria-label="拖动排序"
       >
         <span className={`text-xl leading-none transition-colors ${isDragging ? "text-paper-accent" : "text-paper-ink3/30"}`}>⋮⋮</span>
-      </div>
+      </button>
       {children}
     </div>
   );
