@@ -55,10 +55,17 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
     if (!r.ok) return "";
     const j = await r.json();
 
-    // BigDataCloud 结构清晰：principalSubdivision="北京市", countryName="中华人民共和国"
-    const region = j.principalSubdivision ?? j.city ?? j.locality ?? "";
+    // BigDataCloud 结构：city=城市, locality=区/县, principalSubdivision=省
+    // 优先级：city + locality（有区就带上）> principalSubdivision（兜底）
+    const city = j.city ?? "";
+    const district = j.locality ?? "";
+    const province = j.principalSubdivision ?? "";
     const country = j.countryName ?? "";
-    console.info("[mydiary] reverseGeocode parsed:", { region, country });
+
+    // 组合：优先显示"保定市"或"保定市 · 莲池区"，没市才显示省
+    let region = "";
+    if (city) region = district && district !== city ? `${city} · ${district}` : city;
+    else if (province) region = province;
 
     const parts = [region, country].filter((x) => x && x.trim());
     return parts.join(" · ");
