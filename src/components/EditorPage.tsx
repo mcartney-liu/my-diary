@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
@@ -97,6 +97,9 @@ function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
     isDragging,
   } = useSortable({ id });
 
+  // 手机触摸时临时显示把手（iOS 无 hover，用 touch 模拟）
+  const [showHandle, setShowHandle] = useState(false);
+
   const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -104,18 +107,32 @@ function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
     zIndex: isDragging ? 50 : "auto",
   };
 
+  // 触摸时显示把手 3 秒后自动隐藏
+  const handleTouchStart = useCallback(() => {
+    setShowHandle(true);
+    window.setTimeout(() => setShowHandle(false), 3000);
+  }, []);
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`relative ${isDragging ? "shadow-lg rounded-lg" : ""}`}
+      onTouchStart={handleTouchStart}
+      className={`relative group ${isDragging ? "shadow-lg rounded-lg" : ""}`}
     >
-      {/* 拖拽把手 — 在 block 内部最左边，用浅色背景让用户看得见 */}
+      {/* 拖拽把手 — 默认隐藏
+          桌面: hover/focus 显示
+          手机: onTouchStart 显示 3 秒
+          拖拽中: 始终可见 */}
       <button
         type="button"
         {...attributes}
         {...listeners}
-        className="absolute left-0 top-0 bottom-0 w-7 flex items-center justify-center cursor-grab active:cursor-grabbing select-none z-10 border-r border-paper-line/60 bg-paper-surface/40"
+        className={`absolute -left-2 top-4 w-6 h-8 flex items-center justify-center cursor-grab active:cursor-grabbing select-none z-10
+                    transition-opacity duration-150
+                    ${isDragging || showHandle
+                      ? "opacity-100"
+                      : "opacity-0 group-hover:opacity-100 focus:opacity-100"}`}
         style={{
           WebkitTouchCallout: "none",
           userSelect: "none",
@@ -123,7 +140,7 @@ function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
         }}
         aria-label="拖动排序"
       >
-        <span className={`text-base leading-none transition-colors ${isDragging ? "text-paper-accent" : "text-paper-ink3/50"}`}>⋮⋮</span>
+        <span className={`text-base leading-none ${isDragging ? "text-paper-accent" : "text-paper-ink3/40"}`}>⋮⋮</span>
       </button>
       {children}
     </div>
