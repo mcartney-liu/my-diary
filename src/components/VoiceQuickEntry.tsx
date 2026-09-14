@@ -160,7 +160,7 @@ export default function VoiceQuickEntry() {
   // 底部按钮样式
   const btnBase = "px-3 py-2 rounded-xl border text-sm transition active:scale-95 select-none flex items-center gap-2";
   const btnClass = phase === "recording"
-    ? `${btnBase} bg-red-500 text-white border-red-500 animate-pulse`
+    ? `${btnBase} bg-paper-accent text-white border-paper-accent animate-pulse`
     : (phase === "processing" || phase === "match")
       ? `${btnBase} bg-paper-surface border-paper-line text-paper-ink/40 cursor-not-allowed`
       : `${btnBase} bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50`;
@@ -176,9 +176,9 @@ export default function VoiceQuickEntry() {
       {/* 🔑 AI 润色中全屏遮罩 — 在本页面 loading，完了再跳 */}
       {isAiPolishing && (
         <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-[#faf6ef]/97 backdrop-blur-sm">
-          <div className="w-16 h-16 rounded-full border-4 border-paper-line border-t-purple-500 animate-spin" />
+          <div className="w-16 h-16 rounded-full border-4 border-paper-line border-t-paper-accent animate-spin" />
           <div className="mt-4 text-paper-ink font-medium flex items-center gap-2">
-            <Bot size={18} className="text-purple-500 animate-pulse" />
+            <Bot size={18} className="text-paper-accent animate-pulse" />
             AI 正在整理你的日记...
           </div>
           <div className="mt-1 text-sm text-slate-500">稍等几秒，马上好</div>
@@ -217,19 +217,19 @@ export default function VoiceQuickEntry() {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={startRecording}
-                    className="py-5 rounded-xl bg-red-500 hover:bg-red-600 active:scale-[0.98] text-white font-medium flex flex-col items-center gap-2 shadow-lg transition"
+                    className="py-5 rounded-xl bg-paper-accent hover:opacity-90 active:scale-[0.98] text-white font-medium flex flex-col items-center gap-2 transition"
                   >
                     <Mic size={28} />
                     <div>语音录音</div>
-                    <div className="text-xs text-red-100 font-normal">说话即记录</div>
+                    <div className="text-xs text-white/80 font-normal">说话即记录</div>
                   </button>
                   <button
                     onClick={() => setPhase("input")}
-                    className="py-5 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 hover:opacity-90 active:scale-[0.98] text-white font-medium flex flex-col items-center gap-2 shadow-lg transition"
+                    className="py-5 rounded-xl bg-paper-accent hover:opacity-90 active:scale-[0.98] text-white font-medium flex flex-col items-center gap-2 transition"
                   >
                     <PenLine size={28} />
                     <div>打字输入</div>
-                    <div className="text-xs text-purple-100 font-normal">手动写几句话</div>
+                    <div className="text-xs text-white/80 font-normal">手动写几句话</div>
                   </button>
                 </div>
               </>
@@ -240,8 +240,8 @@ export default function VoiceQuickEntry() {
               <>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center">
-                      <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+                    <div className="w-10 h-10 rounded-full bg-paper-accent/15 flex items-center justify-center">
+                      <span className="w-3 h-3 rounded-full bg-paper-accent animate-pulse" />
                     </div>
                     <div>
                       <div className="font-medium text-paper-ink">正在录音...</div>
@@ -250,12 +250,12 @@ export default function VoiceQuickEntry() {
                   </div>
                   <button onClick={cancel} className="text-paper-ink2 hover:text-paper-ink text-sm">取消</button>
                 </div>
-                <div className="bg-paper-surface rounded-lg p-3 text-sm text-paper-ink min-h-[48px] max-h-32 overflow-y-auto">
+                <div className="bg-paper-surface rounded-xl border border-paper-line p-2.5 text-sm text-paper-ink min-h-[40px] max-h-28 overflow-y-auto">
                   {transcript || <span className="text-paper-ink3/60">正在听你说...</span>}
                 </div>
                 <button
                   onClick={stopRecording}
-                  className="w-full py-4 rounded-xl bg-red-500 hover:bg-red-600 active:scale-[0.98] text-white font-medium flex items-center justify-center gap-3 shadow-lg"
+                  className="w-full py-4 rounded-xl bg-paper-accent hover:opacity-90 active:scale-[0.98] text-white font-medium flex items-center justify-center gap-3"
                 >
                   <div className="w-3 h-3 bg-white rounded-sm" />
                   停止录音 · {fmtTime(elapsed)}
@@ -268,7 +268,7 @@ export default function VoiceQuickEntry() {
               <>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <PenLine size={18} className="text-purple-500" />
+                    <PenLine size={18} className="text-paper-accent" />
                     <div className="font-medium text-paper-ink">文字输入</div>
                   </div>
                   <button onClick={cancel} className="text-paper-ink2 hover:text-paper-ink text-sm">取消</button>
@@ -278,13 +278,13 @@ export default function VoiceQuickEntry() {
                   onChange={(e) => setTypedText(e.target.value)}
                   placeholder="写一句话，比如：今天花了50块买奶茶"
                   rows={4}
-                  className="w-full bg-paper-surface rounded-lg p-3 text-sm text-paper-ink resize-none focus:outline-none focus:ring-2 focus:ring-purple-300 border border-paper-line/50"
+                  className="w-full bg-paper-surface rounded-lg p-3 text-sm text-paper-ink resize-none focus:outline-none focus:ring-2 focus:ring-paper-accent/50 border border-paper-line/50"
                   autoFocus
                 />
                 <button
                   onClick={submitTyped}
                   disabled={!typedText.trim()}
-                  className="w-full py-3 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 disabled:opacity-40 text-white font-medium active:scale-[0.98]"
+                  className="w-full py-3 rounded-xl bg-paper-accent disabled:opacity-40 text-white font-medium active:scale-[0.98]"
                 >
                   ✨ AI 分析这句话
                 </button>
@@ -294,7 +294,7 @@ export default function VoiceQuickEntry() {
             {/* ===== AI 处理中 ===== */}
             {phase === "processing" && (
               <div className="flex items-center gap-3 py-4">
-                <Loader2 size={22} className="animate-spin text-purple-500" />
+                <Loader2 size={22} className="animate-spin text-paper-accent" />
                 <div>
                   <div className="font-medium text-paper-ink">AI 正在分析...</div>
                   <div className="text-xs text-paper-ink2">识别意图 → 匹配模板</div>
@@ -306,7 +306,7 @@ export default function VoiceQuickEntry() {
             {phase === "match" && result && matchedTemplate && (
               <>
                 <div className="flex items-center gap-2">
-                  <Sparkles size={16} className="text-purple-500" />
+                  <Sparkles size={16} className="text-paper-accent" />
                   <div className="font-medium text-paper-ink">AI 推荐模板</div>
                 </div>
                 <div className="flex items-center gap-4">
@@ -314,10 +314,10 @@ export default function VoiceQuickEntry() {
                   <div>
                     <div className="font-semibold text-paper-ink text-lg">{matchedTemplate.name}</div>
                     <div className="text-xs text-paper-ink2">{matchedTemplate.description}</div>
-                    <div className="text-xs text-purple-600 mt-1">🤖 {result.reason}</div>
+                    <div className="text-xs text-paper-accent mt-1">🤖 {result.reason}</div>
                   </div>
                 </div>
-                <div className="bg-paper-surface rounded-lg p-3 text-xs text-paper-ink2 max-h-20 overflow-y-auto">
+                <div className="bg-paper-surface rounded-xl border border-paper-line p-2 text-xs text-paper-ink2 max-h-20 overflow-y-auto">
                   你说: {result.transcript.slice(0, 100)}{result.transcript.length > 100 ? "..." : ""}
                 </div>
                 <div className="flex gap-2 pt-1">
@@ -329,7 +329,7 @@ export default function VoiceQuickEntry() {
                   </button>
                   <button
                     onClick={confirmAndGo}
-                    className="flex-[2] py-2.5 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 text-white text-sm font-medium active:scale-[0.98]"
+                    className="flex-[2] py-2.5 rounded-xl bg-paper-accent text-white text-sm font-medium active:scale-[0.98]"
                   >
                     ✨ 用这个模板，AI 帮我写
                   </button>
