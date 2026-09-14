@@ -157,3 +157,27 @@ export async function fetchLocation(): Promise<LocationResult> {
   console.info("[mydiary] fetchLocation 最终:", result);
   return result;
 }
+
+/** 自动模式定位 — 只走 IP，不碰 GPS（iOS Safari 要求 GPS 必须用户手势触发，
+ *  自动调会被静默拦截）。用户点「📍 点我定位」按钮则调用 fetchLocation() 拿 GPS。 */
+export async function fetchLocationAuto(): Promise<LocationResult> {
+  let lat = 39.9042;
+  let lon = 116.4074;
+  let source: LocationResult["source"] = "default";
+
+  const ipLoc = await fetchIpLocation();
+  if (ipLoc) {
+    lat = ipLoc.lat;
+    lon = ipLoc.lon;
+    source = "ip";
+  }
+
+  let name = await reverseGeocode(lat, lon);
+  if (!name) {
+    name = FALLBACK_NAME;
+  }
+
+  const result: LocationResult = { lat, lon, name, source };
+  console.info("[mydiary] fetchLocationAuto 最终:", result);
+  return result;
+}

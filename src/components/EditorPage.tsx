@@ -4,7 +4,7 @@ import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
 import { transcribeAudio } from "../api";
-import { fetchWeather, fetchLocation, type LocationResult } from "../weather";
+import { fetchWeather, fetchLocation, fetchLocationAuto, type LocationResult } from "../weather";
 import { fetchNearbyPois, type Poi } from "../services/poi";
 import TextBlock from "./TextBlock";
 import ImageBlock from "./ImageBlock";
@@ -257,9 +257,50 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
     if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
   }, [initialDiary, initialTemplateId]);
 
-  // 定位 + 天气 + POI：iOS Safari 要求必须由用户手势触发 GPS，
-  // 所以不自动调用，让用户点「📍 点我定位」按钮手动触发。
-  // 非 iOS 设备上 useEffect 也不自动调，保持一致体验。
+  // 新建日记时自动加载顶部栏的 定位 + 天气（不用用户点按钮）
+  // 注意：自动模式只走 IP 定位，不碰 GPS（iOS Safari 要求 GPS 必须用户手势触发）
+  // 用户点「📍 点我定位」按钮则会调 fetchLocation() 拿真实 GPS
+  useEffect(() => {
+    if (initialDiary) return; // 编辑模式已有数据，不自动拉
+    let cancelled = false;
+
+    async function autoLoad() {
+      setWeatherLoading(true);
+      setLocationLoading(true);
+      pushLog(`🚀 自动加载顶部栏 (IP定位+天气), template=${templateId}`);
+
+      // 1) IP 定位（不走 GPS，避免 iOS 静默拦截）
+      const loc = await fetchLocationAuto();
+      if (cancelled) return;
+      pushLog(`📍 自动定位: ${loc.name} (${loc.lat.toFixed(3)}, ${loc.lon.toFixed(3)}) 来源=${loc.source}`);
+      setLocation({ name: loc.name, lat: loc.lat, lon: loc.lon });
+      setLocationSource(loc.source);
+
+      // 2) 天气
+      try {
+        const w = await fetchWeather(loc.lat, loc.lon);
+        if (!cancelled && w) {
+          pushLog(`☀️ 自动天气: ${w.temp}° ${w.description}`);
+          setWeather(w);
+        }
+      } catch (e) {
+        pushLog(`⚠️ 天气失败: ${(e as any)?.message ?? e}`, "warn");
+      }
+
+      // 3) POI（旅行模板自动拉）
+      if (templateId === "travel") {
+        pushLog(`🗺️ 自动拉 POI...`);
+        await loadNearbyPois(loc.lat, loc.lon);
+      }
+
+      setWeatherLoading(false);
+      setLocationLoading(false);
+    }
+
+    void autoLoad();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** 手动重新获取 GPS + 天气 + POI */
   async function refetchAll() {
