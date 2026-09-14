@@ -85,6 +85,7 @@ function promptForDate(dateStr: string): string {
 }
 
 // 🔑 可拖拽的 block 壳 — 只负责拖拽，内容由 children 提供
+// 整个 block 都能触发拖拽（PointerSensor + 5px distance 区分拖拽和输入）
 function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
   const {
     attributes,
@@ -106,16 +107,17 @@ function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
     <div
       ref={setNodeRef}
       style={style}
-      className={`block-enter group relative ${isDragging ? "shadow-lg rounded-lg" : ""}`}
+      {...attributes}
+      {...listeners}
+      className={`relative ${isDragging ? "shadow-lg rounded-lg" : ""}`}
     >
-      {/* 拖拽把手 — 鼠标 hover 或触摸时长按区域 */}
+      {/* 拖拽把手 — 视觉提示，pointer-events:none 不拦截触摸事件
+          整个 block 都能触发拖拽，把手只是告诉用户"可以拖这里" */}
       <div
-        {...attributes}
-        {...listeners}
-        className="absolute left-0 top-0 bottom-0 w-4 -ml-2 flex items-center justify-center cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity select-none"
-        title="拖动排序"
+        className="absolute left-0 top-0 bottom-0 w-10 -ml-5 flex items-center justify-center select-none pointer-events-none"
+        aria-hidden="true"
       >
-        <span className="text-paper-ink3 text-lg leading-none">⋮⋮</span>
+        <span className={`text-xl leading-none transition-colors ${isDragging ? "text-paper-accent" : "text-paper-ink3/30"}`}>⋮⋮</span>
       </div>
       {children}
     </div>
@@ -200,7 +202,8 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    setBlocks((prev) => {
+    // 🔑 直接 setBlocksRaw，跳过 normalize — reorder 不会产生相邻 text block，normalize 反而会干扰
+    setBlocksRaw((prev) => {
       const oldIndex = prev.findIndex((b) => b.id === active.id);
       const newIndex = prev.findIndex((b) => b.id === over.id);
       if (oldIndex < 0 || newIndex < 0) return prev;
