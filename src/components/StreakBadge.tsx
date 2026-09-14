@@ -52,22 +52,22 @@ export default function StreakBadge({ diaries }: Props) {
 
   return (
     <div className="card p-5 animate-fade-up">
-      {/* 主区域：大数字 + 标签 */}
-      <div className="flex items-center gap-4">
-        {/* 火焰 icon */}
-        <div className="shrink-0 w-14 h-14 rounded-2xl bg-gradient-to-br from-orange-400 to-red-500 flex items-center justify-center text-2xl shadow-sm">
+      {/* 主区域：icon + 数字 + 标签 */}
+      <div className="flex items-center gap-3">
+        {/* 火焰 icon — paper 风格 outline */}
+        <div className="shrink-0 w-12 h-12 rounded-xl border border-paper-line bg-paper-surface flex items-center justify-center text-xl">
           🔥
         </div>
 
-        {/* 大数字 */}
+        {/* 数字 + 标签 */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-baseline gap-2">
-            <span className="text-5xl font-bold text-paper-ink leading-none tracking-tight">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-3xl font-bold text-paper-ink leading-none tracking-tight">
               {streak}
             </span>
-            <span className="text-base text-paper-ink2 font-medium">天</span>
+            <span className="text-sm text-paper-ink2 font-medium">天</span>
           </div>
-          <div className="text-sm text-paper-ink2 mt-1">连续写日记中</div>
+          <div className="text-xs text-paper-ink2 mt-0.5">连续写日记中</div>
         </div>
 
         {/* 里程碑 badge */}

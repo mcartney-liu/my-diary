@@ -712,6 +712,21 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
   if (cached) localStorage.removeItem(cacheKey);
 
   // 🔑 优先用 title（AI 快记时 title 是真实内容），过滤掉模板默认标题
+  // 🔑 模板占位文字黑名单（checklist 模板默认内容）
+  const PLACEHOLDER_PATTERNS = [
+    /^早上做了什么/,
+    /^下午逛了哪里/,
+    /^晚上有什么安排/,
+    /^今天吃了什么/,
+    /^今天花了/,
+    /^有没有遇到/,
+    /^跑步 \/ 瑜伽/,
+    /^头痛 \/ 疲惫/,
+    /^我在做什么/,
+    /^感受如何/,
+    /^（可选）/,
+  ];
+
   const parts = dayDiaries.map(d => {
     const title = (d.title || '').trim();
     // 跳过模板默认标题（带 emoji 前缀的默认模板标题）
@@ -722,9 +737,12 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
     if (Array.isArray(d.blocks)) {
       for (const b of d.blocks) {
         if (b.kind === 'heading') continue;
-        // 跳过纯模板式 text 内容（太短的、像占位符的）
+        // 跳过纯模板式 text 内容（太短的、像占位符的、模板 checklist 里的默认文字）
         if (b.content && b.content.length >= 4) {
-          body += b.content + ' ';
+          const text = b.content.trim();
+          const isPlaceholder = PLACEHOLDER_PATTERNS.some(p => p.test(text));
+          if (isPlaceholder) continue;
+          body += text + ' ';
           if (body.length > 150) break;
         }
       }
