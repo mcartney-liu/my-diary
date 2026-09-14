@@ -736,10 +736,15 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
     let body = '';
     if (Array.isArray(d.blocks)) {
       for (const b of d.blocks) {
-        if (b.kind === 'heading') continue;
+        // 跳过不适合做文本摘要的 block 类型
+        if (b.kind === 'heading' || b.kind === 'image' || b.kind === 'audio' || b.kind === 'divider') continue;
         // 跳过纯模板式 text 内容（太短的、像占位符的、模板 checklist 里的默认文字）
         if (b.content && b.content.length >= 4) {
-          const text = b.content.trim();
+          let text = b.content.trim();
+          // 🔑 关键：过滤 data URL（图片 base64）
+          if (text.startsWith('data:') || text.startsWith('base64,')) continue;
+          // 过滤纯数字（记账模板里的金额数字独立 block）
+          if (/^\d+(\.\d+)?$/.test(text)) continue;
           const isPlaceholder = PLACEHOLDER_PATTERNS.some(p => p.test(text));
           if (isPlaceholder) continue;
           body += text + ' ';
