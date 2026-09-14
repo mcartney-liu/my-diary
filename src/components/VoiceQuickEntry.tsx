@@ -278,8 +278,7 @@ export default function VoiceQuickEntry() {
                   onChange={(e) => setTypedText(e.target.value)}
                   placeholder="写一句话，比如：今天花了50块买奶茶"
                   rows={3}
-                  className="w-full bg-paper-surface rounded-xl border border-paper-line p-2.5 text-sm text-paper-ink resize-none focus:outline-none focus:border-paper-accent min-h-[80px]"
-                  autoFocus
+                  className="w-full bg-paper-surface rounded-xl border border-paper-line p-2.5 text-base text-paper-ink resize-none focus:outline-none focus:border-paper-accent min-h-[80px]"
                 />
                 <button
                   onClick={submitTyped}
