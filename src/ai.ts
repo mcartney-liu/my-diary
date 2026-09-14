@@ -82,7 +82,7 @@ const STORAGE_KEY = "mydiary.ai.provider";
 const DEFAULT_PROVIDER: AiProvider = {
   name: "Agnes",
   endpoint: "https://api.agnes-ai.cn/v1/chat/completions",
-  model: "agnes-2.5-flash",
+  model: "agnes-3.0-flash",
   apiKey: "sk-vgf79jNxIWOstqrYhcU5FLBV3V67jpSfRaBnSHKDwNb2UOQ4",
 };
 
@@ -92,11 +92,6 @@ export function getAiProvider(): AiProvider {
     if (raw) {
       const p = JSON.parse(raw) as AiProvider;
       if (p && p.apiKey) {
-        // 🔑 自动迁移：agnes-3.0-flash 已挂，迁移到 2.5-flash
-        if (p.model === "agnes-3.0-flash") {
-          p.model = "agnes-2.5-flash";
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
-        }
         return p;
       }
     }
