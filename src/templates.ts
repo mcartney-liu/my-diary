@@ -45,7 +45,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     defaultBlocks: [tb("")],
     defaultTitle: "📖 今日日记",
     defaultMoodId: "calm",
-    showLines: false,
+    showLines: true,
   },
   {
     id: "finance",

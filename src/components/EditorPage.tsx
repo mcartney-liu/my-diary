@@ -252,21 +252,20 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   }, [showTagInput]);
 
   // 新建日记时：如果给了 initialTemplateId → 从模板读初始值
-  // 🔑 但如果有 initialPolished（AI 快记注入的数据），就跳过模板默认值
+  // 🔑 initialPolished（AI 快记注入）只跳过 blocks/title/mood/tags，但模板的视觉属性（showLines/wallpaper）仍然要应用
   useEffect(() => {
     if (initialDiary) return; // 编辑模式不走这里
-    if (initialPolished) {
-      if (initialTemplateId) setTemplateId(initialTemplateId);
-      return;
-    }
     const tpl = templateById(initialTemplateId);
     if (!tpl) return;
     setTemplateId(tpl.id);
+    // 视觉属性：不管有没有 polished 都应用
+    if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
+    if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
+    // 内容属性：有 polished 就跳过模板默认值
+    if (initialPolished) return;
     setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
     if (tpl.defaultTitle) setTitle(tpl.defaultTitle);
     if (tpl.defaultMoodId) setMoodId(tpl.defaultMoodId);
-    if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
-    if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
     if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
   }, [initialDiary, initialTemplateId, initialPolished]);
 
