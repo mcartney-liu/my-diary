@@ -1722,8 +1722,8 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
           onCancel={() => setConfirmSwitchTpl(false)}
         />
 
-        {/* 🛠️ 调试面板 — 手机上看定位/POI 状态 */}
-        {debugOpen && (
+        {/* 🛠️ 调试面板 — 仅开发环境显示 */}
+        {import.meta.env.DEV && debugOpen && (
           <div className="fixed bottom-24 left-2 right-2 md:left-auto md:right-4 md:w-96 z-50 max-h-[60vh] overflow-hidden rounded-xl border border-slate-300 bg-slate-900/95 backdrop-blur shadow-2xl text-xs text-slate-100 flex flex-col animate-[fade-in_0.15s]">
             {/* 头部 */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
@@ -1761,12 +1761,14 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
             </div>
           </div>
         )}
-        {/* 悬浮按钮（右下角） */}
-        <button
-          onClick={() => setDebugOpen((v) => !v)}
-          className="fixed bottom-24 right-2 z-40 w-9 h-9 rounded-full bg-slate-800 text-white text-sm shadow-lg active:scale-90 transition md:bottom-4 md:right-4"
-          title="调试面板"
-        >🛠️</button>
+        {/* 悬浮按钮（仅开发环境） */}
+        {import.meta.env.DEV && (
+          <button
+            onClick={() => setDebugOpen((v) => !v)}
+            className="fixed bottom-24 right-2 z-40 w-9 h-9 rounded-full bg-slate-800 text-white text-sm shadow-lg active:scale-90 transition md:bottom-4 md:right-4"
+            title="调试面板"
+          >🛠️</button>
+        )}
       </div>
     );
   }
