@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import type { Diary } from "./types";
+import type { Diary, MoodId, DiaryBlock } from "./types";
 import { loadDiaries, seedIfEmpty } from "./storage";
 import { upsertDiary as apiUpsert, deleteDiary as apiDelete } from "./api";
 import CalendarPage from "./components/CalendarPage";
@@ -233,14 +233,42 @@ function EditorPageWrapper(props: {
   const existing = id ? props.allDiaries.find((d) => d.id === id && !d.deletedAt) : undefined;
   const templateId = sp.get("template") ?? "diary";
 
+  // 🔑 AI 快记：用 useMemo 空依赖读 sessionStorage
+  // 这样 React StrictMode 双调用也只会执行一次
+  const { initialPolished, templateIdOverride } = useMemo(() => {
+    let polished: { title?: string; blocks?: DiaryBlock[]; moodId?: MoodId; tags?: string[] } | undefined;
+    let tplOverride: string | undefined;
+    try {
+      const raw = sessionStorage.getItem("mydiary.quickentry");
+      if (raw) {
+        const data = JSON.parse(raw);
+        sessionStorage.removeItem("mydiary.quickentry"); // 立即清，防止重复注入
+        if (data?.polished) {
+          polished = {
+            title: data.polished.title,
+            blocks: data.polished.blocks,
+            moodId: data.polished.mood as MoodId | undefined,
+            tags: data.polished.tags,
+          };
+        }
+        if (data.templateId) tplOverride = data.templateId;
+      }
+    } catch { /* ignore */ }
+    return { initialPolished: polished, templateIdOverride: tplOverride };
+  }, []);
+
   if (props.mode === "edit" && !existing) {
     return <Navigate to="/editor" replace />;
   }
 
+  // 如果 VoiceQuickEntry 传了 templateId，优先用它
+  const effectiveTemplateId = templateIdOverride ?? templateId;
+
   return (
     <EditorPage
       initialDiary={existing}
-      initialTemplateId={templateId}
+      initialTemplateId={effectiveTemplateId}
+      initialPolished={initialPolished}
       onSave={async (d) => { await props.onUpsert(d); }}
       onSoftDelete={(d) => { props.onSoftDelete(d.id); nav("/", { replace: true }); }}
       onCancel={() => nav("/", { replace: true })}

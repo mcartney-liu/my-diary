@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { moodById } from "../data";
@@ -33,18 +34,36 @@ function daysUntilUnlock(ms: number): number {
 
 export default function DayList({ date, diaries, onSoftDelete }: Props) {
   const nav = useNavigate();
-  const sorted = [...diaries].sort((a, b) => b.updatedAt - a.updatedAt);
-  const capsuleLockedCount = sorted.filter(
-    (d) => d.capsuleUnlockAt && d.capsuleUnlockAt > Date.now()
-  ).length;
+  const [activeFilter, setActiveFilter] = useState<string | null>(null); // 🔑 筛选状态
+
+  // 先按时间排序
+  const sorted = useMemo(
+    () => [...diaries].sort((a, b) => b.updatedAt - a.updatedAt),
+    [diaries]
+  );
 
   // 模板统计（今日每种模板多少篇）
-  const templateStats = sorted.reduce<Record<string, number>>((acc, d) => {
-    const tid = d.templateId ?? "diary";
-    acc[tid] = (acc[tid] ?? 0) + 1;
+  const templateStats = useMemo(() => {
+    const acc: Record<string, number> = {};
+    for (const d of sorted) {
+      const tid = d.templateId ?? "diary";
+      acc[tid] = (acc[tid] ?? 0) + 1;
+    }
     return acc;
-  }, {});
+  }, [sorted]);
+
+  // 🔑 根据 activeFilter 过滤
+  const filtered = useMemo(() => {
+    if (!activeFilter) return sorted;
+    return sorted.filter((d) => (d.templateId ?? "diary") === activeFilter);
+  }, [sorted, activeFilter]);
+
+  const capsuleLockedCount = useMemo(
+    () => filtered.filter((d) => d.capsuleUnlockAt && d.capsuleUnlockAt > Date.now()).length,
+    [filtered]
+  );
   const hasDiaries = sorted.length > 0;
+  const isFiltered = activeFilter !== null;
 
   return (
     <section className="card p-4 md:p-6 animate-fade-up">
@@ -52,43 +71,59 @@ export default function DayList({ date, diaries, onSoftDelete }: Props) {
         <span className="text-paper-accent">📖</span>
         {date}
         <span className="text-xs font-normal text-paper-ink2">· 周{weekdayCN(date)}</span>
-        <span className="text-xs font-normal text-paper-ink2 ml-auto">
-          {sorted.length} 篇
-          {capsuleLockedCount > 0 && <span className="text-amber-600">（含 {capsuleLockedCount} 🔒）</span>}
+        <span className="ml-auto flex items-center gap-2">
+          {isFiltered && (
+            <button
+              onClick={() => setActiveFilter(null)}
+              className="text-[11px] px-2 py-0.5 rounded-full bg-paper-accent/15 text-paper-accent hover:bg-paper-accent/25 transition"
+            >
+              ✕ 取消筛选
+            </button>
+          )}
+          <span className="text-xs font-normal text-paper-ink2">
+            {isFiltered ? `${filtered.length} / ${sorted.length}` : sorted.length} 篇
+            {capsuleLockedCount > 0 && <span className="text-amber-600">（含 {capsuleLockedCount} 🔒）</span>}
+          </span>
         </span>
       </h2>
 
-      {/* 模板统计标签 — 直接展示 */}
+      {/* 模板统计标签 — 可点击筛选 */}
       {hasDiaries && (
         <div className="mb-3 flex items-center gap-1.5 flex-wrap">
           {Object.entries(templateStats)
             .sort((a, b) => b[1] - a[1])
             .map(([tid, count]) => {
               const tpl = templateById(tid);
+              const active = activeFilter === tid;
               return (
-                <span
+                <button
                   key={tid}
-                  className="text-[11px] px-2 py-0.5 rounded-full bg-paper-surface border border-paper-line text-paper-ink2"
+                  onClick={() => setActiveFilter(active ? null : tid)}
+                  className={`text-[11px] px-2 py-0.5 rounded-full border transition active:scale-95 ${
+                    active
+                      ? "bg-paper-accent/15 border-paper-accent text-paper-accent font-medium"
+                      : "bg-paper-surface border-paper-line text-paper-ink2 hover:border-paper-accent/40 hover:text-paper-ink"
+                  }`}
                 >
                   {tpl?.icon ?? "📖"} {tpl?.name ?? "日记"} × {count}
-                </span>
+                </button>
               );
             })}
         </div>
       )}
 
-      {sorted.length === 0 ? (
+      {filtered.length === 0 ? (
         <button
           onClick={() => nav("/editor")}
           className="w-full text-center py-8 rounded-xl border-2 border-dashed border-paper-line text-paper-ink2 hover:border-paper-accent hover:text-paper-accent transition-colors"
         >
-          这一天还没有写日记 ✍️
+          {isFiltered ? `这一天没有${templateById(activeFilter!)?.name ?? "该类型"}日记` : "这一天还没有写日记"} ✍️
           <br />
           <span className="text-xs">点击写第一篇</span>
         </button>
       ) : (
         <ul className="space-y-3">
-          {sorted.map((d, idx) => {
+          {filtered.map((d, idx) => {
             const mood = moodById(d.moodId);
             const isLocked = !!(d.capsuleUnlockAt && d.capsuleUnlockAt > Date.now());
 

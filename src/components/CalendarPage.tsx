@@ -8,6 +8,7 @@ import SearchBar from "./SearchBar";
 import OnThisDay from "./OnThisDay";
 import MoodHeatmap from "./MoodHeatmap";
 import DayList from "./DayList";
+import VoiceQuickEntry from "./VoiceQuickEntry";
 
 interface Props {
   diaries: Diary[];
@@ -66,7 +67,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const todayStr = fmtDate(now);
 
   return (
-    <div className="min-h-screen pb-28">
+    <div className="min-h-screen pb-24">
       {/* 顶部导航 */}
       <header className="sticky top-0 z-20 backdrop-blur-sm bg-[#faf6ef]/85 border-b border-paper-line/60">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -273,6 +274,13 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           </div>
         ) : null;
       })()}
+
+      {/* 📱 底部固定操作栏 */}
+      <nav className="fixed bottom-0 inset-x-0 z-20 backdrop-blur-sm bg-[#faf6ef]/90 border-t border-paper-line">
+        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-center">
+          <VoiceQuickEntry />
+        </div>
+      </nav>
     </div>
   );
 }

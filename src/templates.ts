@@ -54,9 +54,8 @@ export const TEMPLATES: DiaryTemplate[] = [
     description: "多条流水 + 分类 + 自动计算",
     defaultBlocks: [
       heading("💰 今日流水", 2),
-      fi("expense", "food", 38, "午餐"),
-      fi("expense", "transport", 15, "打车"),
-      fi("income", "salary", 0, "工资"),
+      fi("expense", "food", 0, ""),
+      fi("income", "salary", 0, ""),
       divider(),
       heading("备注", 3),
       tb(""),

@@ -1,5 +1,7 @@
+import { useEffect, useMemo, useState } from "react";
 import type { Diary } from "../types";
-import { computeStreak, computeMaxStreak } from "../data";
+import { computeStreak, computeMaxStreak, fmtDate } from "../data";
+import { summarizeDay } from "../ai";
 
 interface Props {
   diaries: Diary[];
@@ -10,18 +12,43 @@ export default function StreakBadge({ diaries }: Props) {
   const max = computeMaxStreak(diaries);
   const total = diaries.length;
 
-  const yesterday = new Date();
+  const now = new Date();
+  const todayStr = fmtDate(now);
+  const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
-  const hasYesterday = diaries.some(
-    (x) =>
-      x.date ===
-      `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`
+  const yesterdayStr = fmtDate(yesterday);
+
+  const hasToday = diaries.some((x) => x.date === todayStr);
+  const hasYesterday = diaries.some((x) => x.date === yesterdayStr);
+
+  const todayDiaries = useMemo(
+    () => diaries.filter((d) => d.date === todayStr),
+    [diaries, todayStr]
   );
-  const hasToday = diaries.some(
-    (x) =>
-      x.date ===
-      `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}`
+  const yesterdayDiaries = useMemo(
+    () => diaries.filter((d) => d.date === yesterdayStr),
+    [diaries, yesterdayStr]
   );
+
+  // 🔑 AI 总结
+  const [todaySummary, setTodaySummary] = useState<string | null>(null);
+  const [yesterdaySummary, setYesterdaySummary] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (todayDiaries.length) {
+      summarizeDay(todayDiaries, todayStr).then((s) => {
+        if (!cancelled && s) setTodaySummary(s);
+      });
+    }
+    if (yesterdayDiaries.length) {
+      summarizeDay(yesterdayDiaries, yesterdayStr).then((s) => {
+        if (!cancelled && s) setYesterdaySummary(s);
+      });
+    }
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayDiaries.length, yesterdayDiaries.length]);
 
   return (
     <div className="card p-5 animate-fade-up">
@@ -51,21 +78,35 @@ export default function StreakBadge({ diaries }: Props) {
         )}
       </div>
 
-      {/* 状态行：昨天/今天 */}
-      <div className="mt-4 flex items-center gap-2 text-xs text-paper-ink2">
-        <span className={`px-1.5 py-0.5 rounded ${hasYesterday ? "bg-paper-accent/15 text-paper-accent" : "bg-paper-line/40"}`}>
-          昨天 {hasYesterday ? "✓" : "·"}
-        </span>
-        <span className={`px-1.5 py-0.5 rounded ${hasToday ? "bg-paper-accent/15 text-paper-accent" : "bg-paper-line/40"}`}>
-          今天 {hasToday ? "✓" : "·"}
-        </span>
-        {!hasToday && streak > 0 && (
-          <span className="ml-auto text-amber-600">今天写一篇就不断！</span>
-        )}
-        {streak === 0 && (
-          <span className="ml-auto text-paper-ink2">今天开始，第一天 ✨</span>
-        )}
-      </div>
+      {/* 🔑 有温度的 AI 总结 — 昨天 */}
+      {hasYesterday && (
+        <div className="mt-3 text-xs text-paper-ink2 leading-relaxed">
+          <span className="text-paper-ink3">昨天</span>
+          <span className="mx-1">·</span>
+          <span className="text-[13px] text-paper-ink/80">
+            {yesterdaySummary ?? "✨ 回忆中..."}
+          </span>
+        </div>
+      )}
+
+      {/* 🔑 有温度的 AI 总结 — 今天 */}
+      {hasToday && (
+        <div className="mt-1.5 text-xs text-paper-ink2 leading-relaxed">
+          <span className="text-paper-ink3">今天</span>
+          <span className="mx-1">·</span>
+          <span className="text-[13px] text-paper-ink/80">
+            {todaySummary ?? "✨ 正在记录..."}
+          </span>
+        </div>
+      )}
+
+      {/* 没写日记时的提示（保持不变） */}
+      {!hasToday && streak > 0 && (
+        <div className="mt-3 text-xs text-amber-600">今天写一篇就不断！</div>
+      )}
+      {!hasToday && streak === 0 && (
+        <div className="mt-3 text-xs text-paper-ink2">今天开始，第一天 ✨</div>
+      )}
 
       {/* 分隔线 */}
       <div className="mt-4 h-px bg-paper-line/60" />

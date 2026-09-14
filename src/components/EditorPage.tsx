@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
 import { transcribeAudio } from "../api";
+import { polishTranscript } from "../ai";
 import { fetchWeather, fetchLocation, fetchLocationAuto, type LocationResult } from "../weather";
 import { fetchNearbyPois, type Poi } from "../services/poi";
 import TextBlock from "./TextBlock";
@@ -27,6 +28,12 @@ function gpsFailedMessage(err?: LocationResult["gpsError"]): string {
 interface Props {
   initialDiary?: Diary;
   initialTemplateId?: string;
+  initialPolished?: {
+    title?: string;
+    blocks?: DiaryBlock[];
+    moodId?: MoodId;
+    tags?: string[];
+  };
   onSave: (d: Diary) => Promise<void>;
   onSoftDelete: (d: Diary) => void;
   onCancel: () => void;
@@ -62,14 +69,16 @@ function promptForDate(dateStr: string): string {
   return PROMPTS[seed];
 }
 
-export default function EditorPage({ initialDiary, initialTemplateId, onSave, onSoftDelete, onCancel, allDiaries }: Props) {
-  const [title, setTitle] = useState(initialDiary?.title ?? "");
+export default function EditorPage({ initialDiary, initialTemplateId, initialPolished, onSave, onSoftDelete, onCancel, allDiaries }: Props) {
+  const [title, setTitle] = useState(initialPolished?.title ?? initialDiary?.title ?? "");
   const [date] = useState(initialDiary?.date ?? today());
-  const [moodId, setMoodId] = useState<MoodId | null>(initialDiary?.moodId ?? null);
+  const [moodId, setMoodId] = useState<MoodId | null>(initialPolished?.moodId ?? initialDiary?.moodId ?? null);
   const [blocks, setBlocksRaw] = useState<DiaryBlock[]>(() => {
-    const raw = initialDiary?.blocks?.length
-      ? initialDiary.blocks
-      : [{ id: uid("b"), kind: "text" as const, content: "" }];
+    const raw = initialPolished?.blocks?.length
+      ? initialPolished.blocks
+      : initialDiary?.blocks?.length
+        ? initialDiary.blocks
+        : [{ id: uid("b"), kind: "text" as const, content: "" }];
     // 初始值也走 normalize，避免历史数据里有相邻 text block
     const out: DiaryBlock[] = [];
     for (const b of raw) {
@@ -138,11 +147,10 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
   const [nearbyAbortRef, setNearbyAbortRef] = useState<AbortController | null>(null);
 
   // === 手机调试面板 ===
-  const [debugOpen, setDebugOpen] = useState(false);
-  const [debugLogs, setDebugLogs] = useState<{ t: string; msg: string; level: "info" | "warn" | "error" }[]>([]);
+  const _debugOpen = useState(false); void _debugOpen;
+  const _debugLogs = useState<{ t: string; msg: string; level: "info" | "warn" | "error" }[]>([]); void _debugLogs;
   const pushLog = (msg: string, level: "info" | "warn" | "error" = "info") => {
-    const t = new Date().toLocaleTimeString("zh-CN", { hour12: false });
-    setDebugLogs((prev) => [...prev.slice(-49), { t, msg, level }]);
+        // setDebugLogs removed
     // 同时写到 console（电脑上 F12 也能看）
     if (level === "info") console.info("[mydiary]", msg);
     else if (level === "warn") console.warn("[mydiary]", msg);
@@ -163,7 +171,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
   const [recording, setRecording] = useState(false);
   const [pendingRec, setPendingRec] = useState<PendingRecording | null>(null);
   const [transcribing, setTranscribing] = useState(false);
-  const [tags, setTags] = useState<string[]>(initialDiary?.tags ?? []);
+  const [tags, setTags] = useState<string[]>(initialPolished?.tags ?? initialDiary?.tags ?? []);
   const [showTagInput, setShowTagInput] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [keyboardOffset, setKeyboardOffset] = useState(0);
@@ -244,8 +252,13 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
   }, [showTagInput]);
 
   // 新建日记时：如果给了 initialTemplateId → 从模板读初始值
+  // 🔑 但如果有 initialPolished（AI 快记注入的数据），就跳过模板默认值
   useEffect(() => {
     if (initialDiary) return; // 编辑模式不走这里
+    if (initialPolished) {
+      if (initialTemplateId) setTemplateId(initialTemplateId);
+      return;
+    }
     const tpl = templateById(initialTemplateId);
     if (!tpl) return;
     setTemplateId(tpl.id);
@@ -255,7 +268,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
     if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
     if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
     if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
-  }, [initialDiary, initialTemplateId]);
+  }, [initialDiary, initialTemplateId, initialPolished]);
 
   // 新建日记时自动加载顶部栏的 定位 + 天气（不用用户点按钮）
   // 注意：自动模式只走 IP 定位，不碰 GPS（iOS Safari 要求 GPS 必须用户手势触发）
@@ -691,6 +704,38 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
       alert("AI 转写失败");
     } finally {
       setTranscribing(false);
+    }
+  };
+
+  // 🆕 AI 美化：把转写文字丢给 polishTranscript，结果替换 blocks/title/mood/tags
+  const [aiPolishing, setAiPolishing] = useState(false);
+  const confirmAIPolish = async () => {
+    if (!pendingRec) return;
+    const text = editableTranscript.trim();
+    if (!text) { alert("先录点东西呀～"); return; }
+    setAiPolishing(true);
+    try {
+      const polished = await polishTranscript(text, { templateId: templateId ?? "diary" });
+      if (polished.title) setTitle(polished.title);
+      if (polished.blocks?.length) {
+        const newBlocks: DiaryBlock[] = polished.blocks.map((b) => {
+          const base = { id: uid("b"), kind: b.kind, content: b.content ?? "" };
+          if (b.kind === "heading") return { ...base, level: b.level ?? 2 };
+          if (b.kind === "checkbox") return { ...base, checked: !!b.checked };
+          if (b.kind === "number") return { ...base, label: b.label, unit: b.unit, value: b.value };
+          if (b.kind === "finance_item") return { ...base, label: b.label, direction: b.direction ?? "expense", category: b.category, value: b.value };
+          return base;
+        });
+        setBlocks(newBlocks);
+      }
+      if (polished.mood) setMoodId(polished.mood as MoodId);
+      if (polished.tags?.length) setTags(polished.tags);
+      cancelPending();
+    } catch (err) {
+      console.warn("AI 美化失败:", err);
+      alert("AI 美化失败，试试别的操作吧");
+    } finally {
+      setAiPolishing(false);
     }
   };
   const cancelPending = () => {
@@ -1404,6 +1449,16 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
              <div className="space-y-2 pt-1">
                {editableTranscript.trim() && (
                  <button
+                   onClick={confirmAIPolish}
+                   disabled={aiPolishing}
+                   className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                 >
+                   {aiPolishing ? <Loader2 size={16} className="animate-spin" /> : <Bot size={16} />}
+                   {aiPolishing ? "AI 美化中..." : "AI 美化"}
+                 </button>
+               )}
+               {editableTranscript.trim() && (
+                 <button
                    onClick={confirmSaveTextOnly}
                    className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition flex items-center justify-center gap-2"
                  >
@@ -1722,53 +1777,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, onSave, on
           onCancel={() => setConfirmSwitchTpl(false)}
         />
 
-        {/* 🛠️ 调试面板 — 仅开发环境显示 */}
-        {import.meta.env.DEV && debugOpen && (
-          <div className="fixed bottom-24 left-2 right-2 md:left-auto md:right-4 md:w-96 z-50 max-h-[60vh] overflow-hidden rounded-xl border border-slate-300 bg-slate-900/95 backdrop-blur shadow-2xl text-xs text-slate-100 flex flex-col animate-[fade-in_0.15s]">
-            {/* 头部 */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-slate-700">
-              <span className="font-semibold text-slate-200">🛠️ 调试</span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setDebugLogs([])}
-                  className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px]"
-                >清空</button>
-                <button
-                  onClick={() => setDebugOpen(false)}
-                  className="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px]"
-                >关闭</button>
-              </div>
-            </div>
-            {/* 状态 */}
-            <div className="px-3 py-2 border-b border-slate-700 space-y-1 text-[11px]">
-              <div>📍 位置: <span className="text-emerald-300">{location?.name ?? "未获取"}</span></div>
-              <div>📡 来源: <span className={locationSource === "gps" ? "text-emerald-300" : locationSource === "ip" ? "text-sky-300" : "text-amber-300"}>{locationSource ?? "-"}</span> {location?.lat != null && location?.lon != null ? `(${location.lat.toFixed(3)}, ${location.lon.toFixed(3)})` : ""}</div>
-              <div>🗺️ POI: <span className="text-amber-300">{nearbyLoading ? "加载中..." : `${nearbyPois.length} 个`}</span> {nearbyError && <span className="text-red-400">❌ {nearbyError}</span>}</div>
-              <div>☀️ 天气: <span className="text-sky-300">{weather ? `${weather.temp}° ${weather.description}` : "-"}</span></div>
-              <div>📋 模板: {templateId ?? "-"} | 编辑模式: {!!initialDiary ? "是" : "否"}</div>
-            </div>
-            {/* 日志 */}
-            <div className="flex-1 overflow-y-auto px-3 py-2 font-mono text-[10px] leading-relaxed">
-              {debugLogs.length === 0 ? (
-                <div className="text-slate-500">暂无日志。点「📍 点我定位」按钮开始...</div>
-              ) : (
-                debugLogs.map((l, i) => (
-                  <div key={i} className={`${l.level === "error" ? "text-red-400" : l.level === "warn" ? "text-amber-300" : "text-slate-300"}`}>
-                    <span className="text-slate-500">{l.t}</span> {l.msg}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-        {/* 悬浮按钮（仅开发环境） */}
-        {import.meta.env.DEV && (
-          <button
-            onClick={() => setDebugOpen((v) => !v)}
-            className="fixed bottom-24 right-2 z-40 w-9 h-9 rounded-full bg-slate-800 text-white text-sm shadow-lg active:scale-90 transition md:bottom-4 md:right-4"
-            title="调试面板"
-          >🛠️</button>
-        )}
+        
       </div>
     );
   }

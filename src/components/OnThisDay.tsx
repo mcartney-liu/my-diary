@@ -22,7 +22,7 @@ export default function OnThisDay({ diaries }: Props) {
         <span className="text-lg">🎞️</span>
         <span className="font-medium text-paper-ink">On This Day</span>
         <span className="text-xs text-paper-ink2">· 往年的今天</span>
-        <span className="ml-auto text-xs text-paper-ink2">{entries.length} 年</span>
+        <span className="ml-auto text-xs text-paper-ink2">{entries.length} 篇</span>
       </div>
       <div className="space-y-2">
         {visible.map((d) => {
