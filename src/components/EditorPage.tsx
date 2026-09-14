@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
@@ -15,6 +15,21 @@ import { TEMPLATES, templateById } from "../templates";
 import { categoriesByDir,  } from "../categories";
 import GridSnap from "./GridSnap";
 import ConfirmDialog from "./ConfirmDialog";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 function gpsFailedMessage(err?: LocationResult["gpsError"]): string {
   switch (err) {
@@ -67,6 +82,44 @@ function promptForDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   const seed = (y * 1000 + m * 50 + d) % PROMPTS.length;
   return PROMPTS[seed];
+}
+
+// 🔑 可拖拽的 block 壳 — 只负责拖拽，内容由 children 提供
+function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 50 : "auto",
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`block-enter group relative ${isDragging ? "shadow-lg rounded-lg" : ""}`}
+    >
+      {/* 拖拽把手 — 鼠标 hover 或触摸时长按区域 */}
+      <div
+        {...attributes}
+        {...listeners}
+        className="absolute left-0 top-0 bottom-0 w-4 -ml-2 flex items-center justify-center cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity select-none"
+        title="拖动排序"
+      >
+        <span className="text-paper-ink3 text-lg leading-none">⋮⋮</span>
+      </div>
+      {children}
+    </div>
+  );
 }
 
 export default function EditorPage({ initialDiary, initialTemplateId, initialPolished, onSave, onSoftDelete, onCancel, allDiaries }: Props) {
@@ -134,6 +187,26 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       return normalizeBlocks(next);
     });
   };
+
+  // 🔑 dnd-kit 拖拽配置
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5, // 移动 5px 才触发拖拽，避免跟滚动冲突
+      },
+    })
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setBlocks((prev) => {
+      const oldIndex = prev.findIndex((b) => b.id === active.id);
+      const newIndex = prev.findIndex((b) => b.id === over.id);
+      if (oldIndex < 0 || newIndex < 0) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+  }
   const [showMood, setShowMood] = useState(false);
   const [weather, setWeather] = useState(initialDiary?.weather ?? null);
   const [location, setLocation] = useState(initialDiary?.location ?? null);
@@ -1227,8 +1300,11 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           className={`paper-editor rounded-card shadow-card min-h-[200px] ${wallpaper ? "has-wallpaper" : ""} ${!showLines ? "no-lines" : ""}`}
           style={wallpaper ? { backgroundImage: `url(${wallpaper})` } : undefined}
         >
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
           {blocks.map((b, idx) => (
-          <div key={b.id} className="block-enter px-4 md:px-6">
+          <SortableBlock id={b.id} key={b.id}>
+          <div className="px-4 md:px-6">
             {b.kind === "text" && (
               <TextBlock block={b} onChange={(c) => updateBlock(b.id, { content: c })} onRemove={() => removeBlock(b.id)} />
             )}
@@ -1335,7 +1411,10 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
             {idx === blocks.length - 1 && <div className="h-6" />}
           </div>
+          </SortableBlock>
           ))}
+          </SortableContext>
+          </DndContext>
 
           {/* === 记账专属：汇总卡片 + 添加按钮（只在记账模板时显示） === */}
           {isFinanceTemplate && financeSummary.count > 0 && (
