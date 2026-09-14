@@ -46,6 +46,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     defaultTitle: "📖 今日日记",
     defaultMoodId: "calm",
     showLines: true,
+    wallpaper: "/papers/mist-mountain.jpg",
   },
   {
     id: "finance",
@@ -64,6 +65,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     defaultTitle: "💰 今日记账",
     defaultMoodId: "calm",
     defaultTags: ["记账"],
+    wallpaper: "/papers/mist-mountain.jpg",
   },
   {
     id: "reading",
@@ -140,6 +142,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     defaultMoodId: "happy",
     showLines: false,
     defaultTags: ["运动"],
+    wallpaper: "/papers/sunrise-dream.jpg",
   },
   {
     id: "plan",
@@ -164,6 +167,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     defaultMoodId: "calm",
     showLines: false,
     defaultTags: ["计划"],
+    wallpaper: "/papers/mist-mountain.jpg",
   },
   {
     id: "gratitude",
@@ -208,6 +212,7 @@ export const TEMPLATES: DiaryTemplate[] = [
     defaultMoodId: "calm",
     showLines: false,
     defaultTags: ["健康"],
+    wallpaper: "/papers/sage-journal.jpg",
   },
 ];
 
