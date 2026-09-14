@@ -168,13 +168,9 @@ export default function DayList({ date, diaries, onSoftDelete }: Props) {
                 style={{ animationDelay: `${idx * 60}ms` }}
               >
                 <div className="flex items-start gap-3">
-                  {mood ? (
-                    <div
-                      className="w-8 h-8 md:w-9 md:h-9 rounded-lg flex items-center justify-center text-lg md:text-xl shrink-0 shadow-soft"
-                      style={{ backgroundColor: mood.color + "40" }}
-                      title={mood.name}
-                    >
-                      {mood.icon}
+                  {dTpl ? (
+                    <div className="w-8 h-8 md:w-9 md:h-9 rounded-lg bg-paper-accent/10 flex items-center justify-center text-lg md:text-xl shrink-0 border border-paper-accent/20">
+                      {dTpl.icon}
                     </div>
                   ) : (
                     <div className="w-8 h-8 md:w-9 md:h-9 rounded-lg bg-paper-line/50 shrink-0" />
@@ -182,9 +178,9 @@ export default function DayList({ date, diaries, onSoftDelete }: Props) {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      {dTpl && (
-                        <span className="text-base leading-none shrink-0" title={dTpl.name}>
-                          {dTpl.icon}
+                      {mood && (
+                        <span className="text-base leading-none shrink-0" title={mood.name}>
+                          {mood.icon}
                         </span>
                       )}
                       <h3 className="font-medium text-paper-ink truncate">
