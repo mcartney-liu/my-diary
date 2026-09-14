@@ -110,15 +110,12 @@ function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
       style={style}
       className={`relative ${isDragging ? "shadow-lg rounded-lg" : ""}`}
     >
-      {/* 拖拽把手 — 只有这里能触发拖拽
-          -webkit-touch-callout:none 禁止 iOS 长按弹菜单
-          touch-action:none 禁止浏览器默认触摸行为
-          user-select:none 禁止文本选择 */}
+      {/* 拖拽把手 — 在 block 内部最左边，用浅色背景让用户看得见 */}
       <button
         type="button"
         {...attributes}
         {...listeners}
-        className="absolute left-0 top-0 bottom-0 w-10 -ml-5 flex items-center justify-center cursor-grab active:cursor-grabbing select-none z-10"
+        className="absolute left-0 top-0 bottom-0 w-7 flex items-center justify-center cursor-grab active:cursor-grabbing select-none z-10 border-r border-paper-line/60 bg-paper-surface/40"
         style={{
           WebkitTouchCallout: "none",
           userSelect: "none",
@@ -126,7 +123,7 @@ function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
         }}
         aria-label="拖动排序"
       >
-        <span className={`text-xl leading-none transition-colors ${isDragging ? "text-paper-accent" : "text-paper-ink3/30"}`}>⋮⋮</span>
+        <span className={`text-base leading-none transition-colors ${isDragging ? "text-paper-accent" : "text-paper-ink3/50"}`}>⋮⋮</span>
       </button>
       {children}
     </div>
