@@ -140,7 +140,7 @@ function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
         }}
         aria-label="拖动排序"
       >
-        <span className={`text-base leading-none ${isDragging ? "text-paper-accent" : "text-paper-ink3/40"}`}>⋮⋮</span>
+        <span className={`text-base leading-none ${isDragging ? "text-paper-accent" : "text-paper-ink3"}`}>⋮⋮</span>
       </button>
       {children}
     </div>
