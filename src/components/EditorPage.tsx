@@ -162,7 +162,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const [wallpaper, setWallpaper] = useState<string | undefined>(initialDiary?.wallpaper);
   const [showLines, setShowLines] = useState<boolean>(initialDiary?.showLines ?? true);
   const [showWallpaperMenu, setShowWallpaperMenu] = useState(false);
-  const [templateId, setTemplateId] = useState<string | undefined>(initialDiary?.templateId);
+  const [templateId, setTemplateId] = useState<string | undefined>(initialDiary?.templateId ?? initialTemplateId);
   const [showTemplateMenu, setShowTemplateMenu] = useState(false);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
   const [saveToast, setSaveToast] = useState(false);
