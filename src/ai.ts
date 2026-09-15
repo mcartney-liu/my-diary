@@ -790,6 +790,118 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
   return null;
 }
 
+// ============================================================
+// Skill: 读书推荐 — 基于用户日记内容推荐书目
+// ============================================================
+
+export interface BookRecommendation {
+  title: string;
+  author?: string;
+  reason?: string;
+}
+
+/**
+ * 根据用户最近的日记内容，推荐 3-5 本书。
+ * - 优先从日记里的兴趣关键词（旅行/历史/科幻/心理...）推断偏好
+ * - 排除已在读书目，避免重复推荐
+ * - 没有 AI 或 AI 失败 → 返回 FALLBACK_BOOKS
+ */
+export async function recommendBooks(
+  contextDiaries: Diary[],
+  existingBooks: string[],
+  provider?: AiProvider | null
+): Promise<BookRecommendation[]> {
+  const p = provider ?? getAiProvider();
+
+  // 构造用户兴趣画像：从最近 10 篇日记里抽取有实质内容的片段
+  const recent = contextDiaries
+    .filter(d => !d.deletedAt)
+    .slice(0, 10);
+
+  const snippets: string[] = [];
+  for (const d of recent) {
+    if (d.title && d.title.length > 3) snippets.push(d.title);
+    if (Array.isArray(d.blocks)) {
+      for (const b of d.blocks) {
+        if (b.kind === "text" && b.content && b.content.length > 10 && !b.content.startsWith("data:")) {
+          snippets.push(b.content.slice(0, 60));
+        }
+      }
+    }
+    if (snippets.length >= 15) break;
+  }
+
+  const existingList = existingBooks.filter(Boolean).slice(0, 20);
+
+  if (!p) return filterFallback(existingList);
+
+  const userContent = snippets.length
+    ? snippets.join("\n")
+    : "(暂无历史日记，推荐经典好书)";
+
+  try {
+    const raw = await callChatCompletion(p, [
+      {
+        role: "system",
+        content: `你是有品味的阅读顾问。根据用户的日记内容，推荐 3-5 本适合 TA 的书。
+严格返回 JSON: {"books": [{"title": "书名", "author": "作者", "reason": "一句话推荐理由"}]}
+要求:
+- 中文书名，作者可选
+- reason 要对应用户的具体兴趣，不要空话套话
+- 排除用户已经在读的书（会在 user prompt 里列出）
+- 书的类型要多样一点，不要全是同一个类别`,
+      },
+      {
+        role: "user",
+        content: `用户最近日记片段:
+${userContent}
+
+已经在读的书（不要重复推荐）:
+${existingList.length ? existingList.join("、") : "(无)"}
+
+请推荐 3-5 本书，返回严格 JSON。`,
+      },
+    ], 0.8);
+
+    const json = extractJson(raw);
+    const r = JSON.parse(json) as { books: BookRecommendation[] };
+    if (Array.isArray(r.books) && r.books.length > 0) {
+      return r.books
+        .filter(b => b.title && !existingList.some(e => b.title!.includes(e) || e.includes(b.title!)))
+        .slice(0, 5)
+        .map(b => ({
+          title: b.title.trim(),
+          author: b.author?.trim() || undefined,
+          reason: b.reason?.trim() || undefined,
+        }));
+    }
+  } catch (e) {
+    console.warn("[recommendBooks] AI failed:", e);
+  }
+
+  return filterFallback(existingList);
+}
+
+/** AI 不可用时的安全网 — 10 本经典好书 */
+const FALLBACK_BOOKS: BookRecommendation[] = [
+  { title: "活着", author: "余华", reason: "关于生命韧性的朴素叙事" },
+  { title: "百年孤独", author: "马尔克斯", reason: "魔幻现实主义的巅峰之作" },
+  { title: "人类简史", author: "尤瓦尔·赫拉利", reason: "换一个角度看我们自己" },
+  { title: "围城", author: "钱钟书", reason: "中国式幽默与世态炎凉" },
+  { title: "小王子", author: "圣埃克苏佩里", reason: "写给大人的童话" },
+  { title: "平凡的世界", author: "路遥", reason: "普通人的奋斗史诗" },
+  { title: "三体", author: "刘慈欣", reason: "中国科幻的里程碑" },
+  { title: "月亮与六便士", author: "毛姆", reason: "理想与现实的永恒对照" },
+  { title: "撒哈拉的故事", author: "三毛", reason: "自由自在的生活方式" },
+  { title: "沉默的大多数", author: "王小波", reason: "有趣的灵魂从不妥协" },
+];
+
+function filterFallback(existing: string[]): BookRecommendation[] {
+  return FALLBACK_BOOKS
+    .filter(b => !existing.some(e => b.title.includes(e) || e.includes(b.title)))
+    .slice(0, 5);
+}
+
 function ruleSummarize(parts: string[]): string | null {
   const text = parts.join(' ');
   const has = (kws: string[]) => kws.some(k => text.includes(k));

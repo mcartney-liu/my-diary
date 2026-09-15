@@ -4,7 +4,7 @@ import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
 import { transcribeAudio } from "../api";
-import { polishTranscript } from "../ai";
+import { polishTranscript, recommendBooks } from "../ai";
 import { fetchWeather, fetchLocation, fetchLocationAuto, type LocationResult } from "../weather";
 import { fetchNearbyPois, type Poi } from "../services/poi";
 import TextBlock from "./TextBlock";
@@ -598,6 +598,49 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const [showBookPicker, setShowBookPicker] = useState(false);
   const [aiRecommendLoading, setAiRecommendLoading] = useState(false);
   const [aiRecommendations, setAiRecommendations] = useState<Array<{ title: string; author?: string; reason?: string }>>([]);
+  const [manualBookTitle, setManualBookTitle] = useState("");
+
+  // === 选书面板：进入读书模板且 book 还是默认值时自动打开 ===
+  useEffect(() => {
+    if (bookNeedsPicking && !showBookPicker) {
+      setShowBookPicker(true);
+      // 触发 AI 推荐（异步，不阻塞 UI）
+      const existingTitles = readingBooks.map(b => b.title);
+      setAiRecommendLoading(true);
+      recommendBooks(allDiaries ?? [], existingTitles)
+        .then(recs => setAiRecommendations(recs))
+        .catch(() => setAiRecommendations([]))
+        .finally(() => setAiRecommendLoading(false));
+    } else if (!bookNeedsPicking && showBookPicker) {
+      setShowBookPicker(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookNeedsPicking, isReadingTemplate]);
+
+  // 选中一本书（从 正在读 / AI 推荐 / 手动输入）
+  const pickBook = useCallback((title: string, author = "", totalPages?: number) => {
+    if (!bookBlock) return;
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    updateBlock(bookBlock.id, {
+      content: trimmed,
+      author: author || bookBlock.author,
+      bookId: trimmed,
+      totalPages: totalPages ?? bookBlock.totalPages ?? 200,
+      currentPage: bookBlock.currentPage ?? 0,
+    });
+    setShowBookPicker(false);
+    setManualBookTitle("");
+  }, [bookBlock, updateBlock]);
+
+  // 用户主动关闭面板（遮罩或 × 按钮） —— 把 book block 设为空，让 bookNeedsPicking 变 false
+  const dismissBookPicker = useCallback(() => {
+    if (bookBlock) {
+      updateBlock(bookBlock.id, { content: "", bookId: "" });
+    }
+    setShowBookPicker(false);
+    setManualBookTitle("");
+  }, [bookBlock, updateBlock]);
 
   const addFinanceItem = (direction: "expense" | "income" = "expense") => {
     const defaultCat = direction === "income" ? "salary" : "food";
@@ -2029,6 +2072,151 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           }}
           onCancel={() => setConfirmSwitchTpl(false)}
         />
+
+        {/* ====== 选书面板 Modal ====== */}
+        {showBookPicker && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+            {/* 遮罩 */}
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => {
+                dismissBookPicker();
+              }}
+            />
+            {/* 面板 */}
+            <div className="relative bg-[#faf6ef] rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[85vh] flex flex-col overflow-hidden border border-paper-line">
+              {/* 头部 */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-paper-line shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">📚</span>
+                  <span className="font-semibold text-paper-ink">选择一本书</span>
+                </div>
+                <button
+                  onClick={dismissBookPicker}
+                  className="p-1.5 -mr-1.5 rounded-full text-paper-ink3 hover:text-paper-ink hover:bg-paper-surface transition"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* 滚动区 */}
+              <div className="flex-1 overflow-y-auto px-4 py-3 space-y-5">
+                {/* === Section 1: 继续读 === */}
+                {readingBooks.length > 0 && (
+                  <section>
+                    <h3 className="text-xs font-semibold text-paper-ink2 uppercase tracking-wider mb-2 flex items-center gap-1">
+                      <span className="text-paper-accent">▶</span> 正在读
+                    </h3>
+                    <div className="space-y-2">
+                      {readingBooks.map((rb) => {
+                        const pct = Math.min(100, (rb.latestPage / Math.max(1, rb.totalPages)) * 100);
+                        return (
+                          <button
+                            key={rb.bookId}
+                            onClick={() => pickBook(rb.title, rb.author, rb.totalPages)}
+                            className="w-full text-left rounded-xl border border-paper-line bg-paper-surface/70 hover:bg-paper-surface p-3 transition active:scale-[0.98]"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="font-bold text-paper-ink truncate">《{rb.title}》</div>
+                                {rb.author && (
+                                  <div className="text-xs text-paper-ink2 truncate mt-0.5">{rb.author}</div>
+                                )}
+                              </div>
+                              <div className="text-right shrink-0">
+                                <div className="text-xs text-paper-ink font-semibold">
+                                  {rb.latestPage}/{rb.totalPages}
+                                </div>
+                                <div className="text-[10px] text-paper-ink3">
+                                  {rb.diaryCount} 篇日记
+                                </div>
+                              </div>
+                            </div>
+                            <div className="mt-2 h-1.5 bg-paper-line/50 rounded-full overflow-hidden">
+                              <div
+                                className="h-full bg-paper-accent rounded-full transition-all"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                {/* === Section 2: AI 推荐 === */}
+                <section>
+                  <h3 className="text-xs font-semibold text-paper-ink2 uppercase tracking-wider mb-2 flex items-center gap-1">
+                    <span className="text-paper-accent">✨</span>
+                    AI 推荐
+                  </h3>
+                  {aiRecommendLoading ? (
+                    <div className="space-y-2">
+                      {[0, 1, 2].map((i) => (
+                        <div key={i} className="animate-pulse rounded-xl border border-paper-line bg-paper-surface/50 p-3">
+                          <div className="h-4 w-2/3 bg-paper-line/60 rounded mb-2" />
+                          <div className="h-3 w-1/2 bg-paper-line/40 rounded" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : aiRecommendations.length > 0 ? (
+                    <div className="space-y-2">
+                      {aiRecommendations.map((rec, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => pickBook(rec.title, rec.author)}
+                          className="w-full text-left rounded-xl border border-paper-line bg-paper-surface/70 hover:bg-paper-surface p-3 transition active:scale-[0.98]"
+                        >
+                          <div className="font-bold text-paper-ink">《{rec.title}》</div>
+                          {rec.author && (
+                            <div className="text-xs text-paper-ink2 mt-0.5">{rec.author}</div>
+                          )}
+                          {rec.reason && (
+                            <div className="text-xs text-paper-ink3 mt-1.5 line-clamp-2 leading-relaxed">
+                              {rec.reason}
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-paper-ink3 italic">暂时没有推荐，试试手动输入吧</div>
+                  )}
+                </section>
+
+                {/* === Section 3: 手动输入 === */}
+                <section>
+                  <h3 className="text-xs font-semibold text-paper-ink2 uppercase tracking-wider mb-2 flex items-center gap-1">
+                    <span className="text-paper-accent">✏️</span> 手动输入
+                  </h3>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={manualBookTitle}
+                      onChange={(e) => setManualBookTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && manualBookTitle.trim()) {
+                          pickBook(manualBookTitle);
+                        }
+                      }}
+                      placeholder="《书名》"
+                      className="flex-1 rounded-xl border border-paper-line bg-paper-surface/70 px-3 py-2.5 text-sm text-paper-ink placeholder:text-paper-ink3 outline-none focus:border-paper-accent transition"
+                      autoFocus={!aiRecommendLoading && readingBooks.length === 0}
+                    />
+                    <button
+                      onClick={() => manualBookTitle.trim() && pickBook(manualBookTitle)}
+                      disabled={!manualBookTitle.trim()}
+                      className="shrink-0 px-4 py-2.5 rounded-xl bg-paper-accent text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 active:scale-95 transition"
+                    >
+                      确定
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        )}
 
         
       </div>
