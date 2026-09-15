@@ -7,7 +7,7 @@ export interface MoodTag {
   color: string; // hex e.g. "#ffcf5c"
 }
 
-export type BlockKind = "text" | "image" | "audio" | "heading" | "number" | "divider" | "checkbox" | "finance_item";
+export type BlockKind = "text" | "image" | "audio" | "heading" | "number" | "divider" | "checkbox" | "finance_item" | "book" | "quote";
 
 export interface DiaryBlock {
   id: string;
@@ -23,6 +23,13 @@ export interface DiaryBlock {
   // === finance_item 专属 ===
   direction?: "expense" | "income"; // 支出 / 收入
   category?: string;         // 分类 key，如 "food" / "transport"
+  // === book 专属 ===
+  author?: string;           // 作者
+  totalPages?: number;       // 总页数
+  currentPage?: number;      // 当前页
+  bookId?: string;           // 跨日记聚合用（同书名自动匹配）
+  // === quote 专属 ===
+  pageNumber?: number;       // 摘抄所在页码
 }
 
 export interface WeatherInfo {

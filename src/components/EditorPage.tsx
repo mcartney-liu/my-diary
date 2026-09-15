@@ -846,7 +846,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     const now = Date.now();
     const cleaned = blocks.filter((b) => {
       if (b.kind === "text") return b.content.trim().length > 0;
-      if (b.kind === "divider" || b.kind === "heading" || b.kind === "number" || b.kind === "checkbox" || b.kind === "finance_item") return true;
+      if (b.kind === "divider" || b.kind === "heading" || b.kind === "number" || b.kind === "checkbox" || b.kind === "finance_item" || b.kind === "book" || b.kind === "quote") return true;
       return !!b.content; // image/audio 需要有 dataURL
     });
     const finalBlocks: DiaryBlock[] = cleaned.length ? cleaned : [{ id: uid("b"), kind: "text" as const, content: "" }];
@@ -1433,6 +1433,104 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                 onChange={(patch) => updateBlock(b.id, patch)}
                 onRemove={() => removeBlock(b.id)}
               />
+            )}
+
+            {/* book — 书籍信息 + 进度条 */}
+            {b.kind === "book" && (
+              <div className="py-2 group">
+                <div className="rounded-xl border border-paper-line bg-paper-surface/60 p-3">
+                  <div className="flex items-start gap-3">
+                    <div className="text-3xl shrink-0">📚</div>
+                    <div className="flex-1 min-w-0">
+                      <input
+                        type="text"
+                        value={b.content}
+                        onChange={(e) => {
+                          updateBlock(b.id, { content: e.target.value, bookId: e.target.value });
+                        }}
+                        placeholder="《书名》"
+                        className="w-full bg-transparent outline-none text-lg font-bold text-paper-ink placeholder:text-paper-ink3"
+                      />
+                      <input
+                        type="text"
+                        value={b.author ?? ""}
+                        onChange={(e) => updateBlock(b.id, { author: e.target.value })}
+                        placeholder="作者"
+                        className="w-full bg-transparent outline-none text-sm text-paper-ink2 placeholder:text-paper-ink3 mt-0.5"
+                      />
+                      {/* 进度条 */}
+                      <div className="mt-2.5">
+                        <div className="flex items-center justify-between text-xs text-paper-ink2 mb-1">
+                          <span>进度</span>
+                          <span>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              value={b.currentPage ?? 0}
+                              onChange={(e) => updateBlock(b.id, { currentPage: e.target.value ? Number(e.target.value) : 0 })}
+                              className="w-10 bg-transparent outline-none text-right text-paper-ink font-semibold"
+                            />
+                            {" / "}
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              value={b.totalPages ?? 200}
+                              onChange={(e) => updateBlock(b.id, { totalPages: e.target.value ? Number(e.target.value) : 200 })}
+                              className="w-10 bg-transparent outline-none text-right text-paper-ink"
+                            />
+                            {" 页"}
+                          </span>
+                        </div>
+                        <div className="h-2 bg-paper-line/40 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-paper-accent rounded-full transition-all duration-300"
+                            style={{
+                              width: `${Math.min(100, ((b.currentPage ?? 0) / Math.max(1, b.totalPages ?? 1)) * 100)}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeBlock(b.id)}
+                      className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition shrink-0"
+                      title="删除"
+                    >×</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* quote — 摘抄 */}
+            {b.kind === "quote" && (
+              <div className="py-1 group">
+                <div className="flex gap-2 items-start">
+                  <div className="text-paper-accent text-lg leading-none mt-1 shrink-0">"</div>
+                  <textarea
+                    value={b.content}
+                    onChange={(e) => updateBlock(b.id, { content: e.target.value })}
+                    placeholder="摘抄一段喜欢的话..."
+                    rows={2}
+                    className="flex-1 bg-transparent outline-none text-sm text-paper-ink leading-relaxed placeholder:text-paper-ink3 resize-none border-l-2 border-paper-accent/40 pl-2 py-1"
+                  />
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      value={b.pageNumber ?? ""}
+                      onChange={(e) => updateBlock(b.id, { pageNumber: e.target.value ? Number(e.target.value) : undefined })}
+                      placeholder="页"
+                      className="w-12 bg-transparent outline-none text-xs text-paper-ink2 text-right placeholder:text-paper-ink3"
+                      title="页码"
+                    />
+                    <button
+                      onClick={() => removeBlock(b.id)}
+                      className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-xs transition"
+                      title="删除"
+                    >×</button>
+                  </div>
+                </div>
+              </div>
             )}
 
             {idx === blocks.length - 1 && <div className="h-6" />}

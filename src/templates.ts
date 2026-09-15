@@ -35,6 +35,12 @@ function check(content: string, checked = false): DiaryBlock {
 function fi(direction: "expense" | "income", category: string, value = 0, content = ""): DiaryBlock {
   return { id: uid("f"), kind: "finance_item", content, direction, category, value };
 }
+function book(title: string, author = "", totalPages = 200, currentPage = 0): DiaryBlock {
+  return { id: uid("b"), kind: "book", content: title, author, totalPages, currentPage, bookId: title };
+}
+function quote(content: string, pageNumber?: number): DiaryBlock {
+  return { id: uid("b"), kind: "quote", content, pageNumber };
+}
 
 export const TEMPLATES: DiaryTemplate[] = [
   {
@@ -73,15 +79,13 @@ export const TEMPLATES: DiaryTemplate[] = [
     icon: "📚",
     description: "进度 + 摘抄 + 感悟",
     defaultBlocks: [
-      heading("📚 《书名》", 2),
-      heading("作者", 3),
-      tb(""),
-      numField("已读页数", "页"),
+      book("选择一本书", ""),
+      numField("今日阅读", "分钟"),
       divider(),
       heading("🌟 摘抄", 3),
-      tb(""),
+      quote(""),
       divider(),
-      heading("💡 感悟", 3),
+      heading("💡 今日感悟", 3),
       tb(""),
     ],
     wallpaper: "/papers/sage-journal.jpg",
