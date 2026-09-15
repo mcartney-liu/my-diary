@@ -547,6 +547,57 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   }, [allDiaries, templateId]);
 
   const isFinanceTemplate = templateId === "finance";
+  const isReadingTemplate = templateId === "reading";
+
+  // === 读书模板：跨日记聚合"正在读的书" ===
+  const readingBooks = useMemo(() => {
+    if (!isReadingTemplate || !allDiaries) return [] as Array<{
+      bookId: string; title: string; author: string;
+      latestPage: number; totalPages: number; diaryCount: number;
+      firstDate: string; lastDate: string; quotes: string[];
+    }>;
+    const map = new Map<string, {
+      title: string; author: string;
+      latestPage: number; totalPages: number; diaryCount: number;
+      firstDate: string; lastDate: string; quotes: string[];
+    }>();
+    for (const d of allDiaries) {
+      if (d.deletedAt) continue;
+      let bookBlock: DiaryBlock | undefined;
+      for (const b of d.blocks) if (b.kind === "book" && b.content && b.content !== "选择一本书") { bookBlock = b; break; }
+      if (!bookBlock) continue;
+      const id = bookBlock.bookId ?? bookBlock.content;
+      const existing = map.get(id);
+      const quotes = d.blocks.filter(b => b.kind === "quote" && b.content.trim()).map(b => b.content.trim());
+      if (existing) {
+        existing.latestPage = Math.max(existing.latestPage, bookBlock.currentPage ?? 0);
+        existing.totalPages = Math.max(existing.totalPages, bookBlock.totalPages ?? 0);
+        existing.diaryCount++;
+        if (d.date < existing.firstDate) existing.firstDate = d.date;
+        if (d.date > existing.lastDate) existing.lastDate = d.date;
+        existing.quotes.push(...quotes);
+      } else {
+        map.set(id, {
+          title: bookBlock.content,
+          author: bookBlock.author ?? "",
+          latestPage: bookBlock.currentPage ?? 0,
+          totalPages: bookBlock.totalPages ?? 0,
+          diaryCount: 1,
+          firstDate: d.date,
+          lastDate: d.date,
+          quotes,
+        });
+      }
+    }
+    return Array.from(map.entries()).map(([bookId, v]) => ({ bookId, ...v }));
+  }, [allDiaries, isReadingTemplate]);
+
+  // 检测当前 book block 是否是默认值（"选择一本书"），如果是则弹出选书面板
+  const bookBlock = blocks.find((b) => b.kind === "book");
+  const bookNeedsPicking = isReadingTemplate && (!bookBlock?.content || bookBlock.content === "选择一本书");
+  const [showBookPicker, setShowBookPicker] = useState(false);
+  const [aiRecommendLoading, setAiRecommendLoading] = useState(false);
+  const [aiRecommendations, setAiRecommendations] = useState<Array<{ title: string; author?: string; reason?: string }>>([]);
 
   const addFinanceItem = (direction: "expense" | "income" = "expense") => {
     const defaultCat = direction === "income" ? "salary" : "food";
