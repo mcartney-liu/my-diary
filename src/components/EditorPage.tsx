@@ -4,7 +4,7 @@ import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
 import { transcribeAudio } from "../api";
-import { polishTranscript, recommendBooks } from "../ai";
+import { polishTranscript, recommendBooks, kickoffBookNote, type BookRecommendation } from "../ai";
 import { fetchWeather, fetchLocation, fetchLocationAuto, type LocationResult } from "../weather";
 import { fetchNearbyPois, type Poi } from "../services/poi";
 import TextBlock from "./TextBlock";
@@ -597,7 +597,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const bookNeedsPicking = isReadingTemplate && (!bookBlock?.content || bookBlock.content === "选择一本书");
   const [showBookPicker, setShowBookPicker] = useState(false);
   const [aiRecommendLoading, setAiRecommendLoading] = useState(false);
-  const [aiRecommendations, setAiRecommendations] = useState<Array<{ title: string; author?: string; reason?: string }>>([]);
+  const [aiRecommendations, setAiRecommendations] = useState<BookRecommendation[]>([]);
   const [manualBookTitle, setManualBookTitle] = useState("");
 
   // === 选书面板：进入读书模板且 book 还是默认值时自动打开 ===
@@ -617,21 +617,96 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookNeedsPicking, isReadingTemplate]);
 
-  // 选中一本书（从 正在读 / AI 推荐 / 手动输入）
-  const pickBook = useCallback((title: string, author = "", totalPages?: number) => {
+  /**
+   * 选中一本书 —— 支持三种来源：
+   * 1. 正在读（BookRecommendation 不含 openingQuote/quickTake → 只填 book block）
+   * 2. AI 推荐（含 openingQuote/quickTake → 自动追加 quote + text blocks）
+   * 3. 手动输入（manual 分支 → 只填 book block，可选异步 AI 生成 kickoff）
+   */
+  const pickBook = useCallback((
+    target: string | BookRecommendation,
+    opts: { totalPages?: number; manual?: boolean; aiKickoff?: boolean } = {}
+  ) => {
     if (!bookBlock) return;
-    const trimmed = title.trim();
-    if (!trimmed) return;
+
+    let title: string;
+    let author = "";
+    let openingQuote: string | undefined;
+    let quoteSource: string | undefined;
+    let quickTake: string | undefined;
+
+    if (typeof target === "string") {
+      title = target.trim();
+    } else {
+      title = target.title.trim();
+      author = target.author ?? "";
+      openingQuote = target.openingQuote;
+      quoteSource = target.quoteSource;
+      quickTake = target.quickTake;
+    }
+    if (!title) return;
+
+    // 1. 更新 book block
     updateBlock(bookBlock.id, {
-      content: trimmed,
+      content: title,
       author: author || bookBlock.author,
-      bookId: trimmed,
-      totalPages: totalPages ?? bookBlock.totalPages ?? 200,
+      bookId: title,
+      totalPages: opts.totalPages ?? bookBlock.totalPages ?? 200,
       currentPage: bookBlock.currentPage ?? 0,
     });
+
+    // 2. 如果有 AI 素材，自动追加 quote + text blocks
+    const extras: DiaryBlock[] = [];
+    if (openingQuote) {
+      extras.push({
+        id: uid("b"),
+        kind: "quote",
+        content: openingQuote,
+        pageNumber: quoteSource ? undefined : undefined, // quoteSource 是文字描述不是数字页码
+      });
+    }
+    if (quickTake) {
+      extras.push({
+        id: uid("b"),
+        kind: "text",
+        content: quickTake,
+      });
+    }
+
+    if (extras.length > 0) {
+      setBlocks((prev) => {
+        const idx = prev.findIndex((b) => b.id === bookBlock.id);
+        if (idx === -1) return [...prev, ...extras];
+        const copy = [...prev];
+        copy.splice(idx + 1, 0, ...extras);
+        return copy;
+      });
+    }
+
     setShowBookPicker(false);
     setManualBookTitle("");
-  }, [bookBlock, updateBlock]);
+
+    // 3. 手动输入 + 要求 AI 起头 → 异步调 kickoffBookNote
+    if (opts.manual && opts.aiKickoff && !openingQuote) {
+      kickoffBookNote(title, author).then((kickoff) => {
+        if (!kickoff.openingQuote && !kickoff.quickTake) return;
+        setBlocks((prev) => {
+          const idx = prev.findIndex((b) => b.id === bookBlock.id);
+          const newBlocks: DiaryBlock[] = [];
+          if (kickoff.openingQuote) {
+            newBlocks.push({ id: uid("b"), kind: "quote", content: kickoff.openingQuote });
+          }
+          if (kickoff.quickTake) {
+            newBlocks.push({ id: uid("b"), kind: "text", content: kickoff.quickTake });
+          }
+          if (idx === -1) return [...prev, ...newBlocks];
+          const copy = [...prev];
+          copy.splice(idx + 1, 0, ...newBlocks);
+          return copy;
+        });
+      });
+    }
+  }, [bookBlock, updateBlock, setBlocks]);
 
   // 用户主动关闭面板（遮罩或 × 按钮） —— 把 book block 设为空，让 bookNeedsPicking 变 false
   const dismissBookPicker = useCallback(() => {
@@ -2073,15 +2148,13 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           onCancel={() => setConfirmSwitchTpl(false)}
         />
 
-        {/* ====== 选书面板 Modal ====== */}
+        {/* ====== 启动读书笔记 Modal ====== */}
         {showBookPicker && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
             {/* 遮罩 */}
             <div
               className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-              onClick={() => {
-                dismissBookPicker();
-              }}
+              onClick={() => dismissBookPicker()}
             />
             {/* 面板 */}
             <div className="relative bg-[#faf6ef] rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[85vh] flex flex-col overflow-hidden border border-paper-line">
@@ -2089,14 +2162,12 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
               <div className="flex items-center justify-between px-4 py-3 border-b border-paper-line shrink-0">
                 <div className="flex items-center gap-2">
                   <span className="text-xl">📚</span>
-                  <span className="font-semibold text-paper-ink">选择一本书</span>
+                  <span className="font-semibold text-paper-ink">启动读书笔记</span>
                 </div>
                 <button
                   onClick={dismissBookPicker}
                   className="p-1.5 -mr-1.5 rounded-full text-paper-ink3 hover:text-paper-ink hover:bg-paper-surface transition"
-                >
-                  ×
-                </button>
+                >×</button>
               </div>
 
               {/* 滚动区 */}
@@ -2105,7 +2176,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                 {readingBooks.length > 0 && (
                   <section>
                     <h3 className="text-xs font-semibold text-paper-ink2 uppercase tracking-wider mb-2 flex items-center gap-1">
-                      <span className="text-paper-accent">▶</span> 正在读
+                      <span className="text-paper-accent">▶</span> 继续读
                     </h3>
                     <div className="space-y-2">
                       {readingBooks.map((rb) => {
@@ -2113,7 +2184,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                         return (
                           <button
                             key={rb.bookId}
-                            onClick={() => pickBook(rb.title, rb.author, rb.totalPages)}
+                            onClick={() => pickBook(rb.title, { totalPages: rb.totalPages })}
                             className="w-full text-left rounded-xl border border-paper-line bg-paper-surface/70 hover:bg-paper-surface p-3 transition active:scale-[0.98]"
                           >
                             <div className="flex items-start justify-between gap-2">
@@ -2127,16 +2198,11 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                                 <div className="text-xs text-paper-ink font-semibold">
                                   {rb.latestPage}/{rb.totalPages}
                                 </div>
-                                <div className="text-[10px] text-paper-ink3">
-                                  {rb.diaryCount} 篇日记
-                                </div>
+                                <div className="text-[10px] text-paper-ink3">{rb.diaryCount} 篇日记</div>
                               </div>
                             </div>
                             <div className="mt-2 h-1.5 bg-paper-line/50 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-paper-accent rounded-full transition-all"
-                                style={{ width: `${pct}%` }}
-                              />
+                              <div className="h-full bg-paper-accent rounded-full transition-all" style={{ width: `${pct}%` }} />
                             </div>
                           </button>
                         );
@@ -2148,15 +2214,15 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                 {/* === Section 2: AI 推荐 === */}
                 <section>
                   <h3 className="text-xs font-semibold text-paper-ink2 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <span className="text-paper-accent">✨</span>
-                    AI 推荐
+                    <span className="text-paper-accent">✨</span> AI 推荐（附金句）
                   </h3>
                   {aiRecommendLoading ? (
                     <div className="space-y-2">
                       {[0, 1, 2].map((i) => (
-                        <div key={i} className="animate-pulse rounded-xl border border-paper-line bg-paper-surface/50 p-3">
-                          <div className="h-4 w-2/3 bg-paper-line/60 rounded mb-2" />
+                        <div key={i} className="animate-pulse rounded-xl border border-paper-line bg-paper-surface/50 p-3 space-y-2">
+                          <div className="h-4 w-2/3 bg-paper-line/60 rounded" />
                           <div className="h-3 w-1/2 bg-paper-line/40 rounded" />
+                          <div className="h-3 w-full bg-paper-line/30 rounded" />
                         </div>
                       ))}
                     </div>
@@ -2165,16 +2231,19 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                       {aiRecommendations.map((rec, idx) => (
                         <button
                           key={idx}
-                          onClick={() => pickBook(rec.title, rec.author)}
+                          onClick={() => pickBook(rec)}
                           className="w-full text-left rounded-xl border border-paper-line bg-paper-surface/70 hover:bg-paper-surface p-3 transition active:scale-[0.98]"
                         >
                           <div className="font-bold text-paper-ink">《{rec.title}》</div>
-                          {rec.author && (
-                            <div className="text-xs text-paper-ink2 mt-0.5">{rec.author}</div>
+                          {rec.author && <div className="text-xs text-paper-ink2 mt-0.5">{rec.author}</div>}
+                          {rec.openingQuote && (
+                            <div className="mt-2 pl-2 border-l-2 border-paper-accent/40 text-xs text-paper-ink2 leading-relaxed italic line-clamp-2">
+                              "{rec.openingQuote}"
+                            </div>
                           )}
-                          {rec.reason && (
-                            <div className="text-xs text-paper-ink3 mt-1.5 line-clamp-2 leading-relaxed">
-                              {rec.reason}
+                          {rec.quickTake && (
+                            <div className="text-[11px] text-paper-ink3 mt-1.5 line-clamp-2 leading-relaxed">
+                              💡 {rec.quickTake}
                             </div>
                           )}
                         </button>
@@ -2188,29 +2257,33 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                 {/* === Section 3: 手动输入 === */}
                 <section>
                   <h3 className="text-xs font-semibold text-paper-ink2 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <span className="text-paper-accent">✏️</span> 手动输入
+                    <span className="text-paper-accent">✏️</span> 自己填一本
                   </h3>
-                  <div className="flex gap-2">
+                  <div className="space-y-2">
                     <input
                       type="text"
                       value={manualBookTitle}
                       onChange={(e) => setManualBookTitle(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && manualBookTitle.trim()) {
-                          pickBook(manualBookTitle);
-                        }
-                      }}
                       placeholder="《书名》"
-                      className="flex-1 rounded-xl border border-paper-line bg-paper-surface/70 px-3 py-2.5 text-sm text-paper-ink placeholder:text-paper-ink3 outline-none focus:border-paper-accent transition"
+                      className="w-full rounded-xl border border-paper-line bg-paper-surface/70 px-3 py-2.5 text-sm text-paper-ink placeholder:text-paper-ink3 outline-none focus:border-paper-accent transition"
                       autoFocus={!aiRecommendLoading && readingBooks.length === 0}
                     />
-                    <button
-                      onClick={() => manualBookTitle.trim() && pickBook(manualBookTitle)}
-                      disabled={!manualBookTitle.trim()}
-                      className="shrink-0 px-4 py-2.5 rounded-xl bg-paper-accent text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 active:scale-95 transition"
-                    >
-                      确定
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => manualBookTitle.trim() && pickBook(manualBookTitle, { manual: true, aiKickoff: false })}
+                        disabled={!manualBookTitle.trim()}
+                        className="flex-1 px-4 py-2.5 rounded-xl border border-paper-line bg-paper-surface text-paper-ink text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-95 active:scale-95 transition"
+                      >
+                        直接开始
+                      </button>
+                      <button
+                        onClick={() => manualBookTitle.trim() && pickBook(manualBookTitle, { manual: true, aiKickoff: true })}
+                        disabled={!manualBookTitle.trim()}
+                        className="flex-1 px-4 py-2.5 rounded-xl bg-paper-accent text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 active:scale-95 transition flex items-center justify-center gap-1"
+                      >
+                        <span>✨</span> AI 帮起头
+                      </button>
+                    </div>
                   </div>
                 </section>
               </div>

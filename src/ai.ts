@@ -798,6 +798,12 @@ export interface BookRecommendation {
   title: string;
   author?: string;
   reason?: string;
+  /** 书中金句 */
+  openingQuote?: string;
+  /** 金句出处（章节/页码） */
+  quoteSource?: string;
+  /** 一句话解读/看点 */
+  quickTake?: string;
 }
 
 /**
@@ -843,11 +849,16 @@ export async function recommendBooks(
     const raw = await callChatCompletion(p, [
       {
         role: "system",
-        content: `你是有品味的阅读顾问。根据用户的日记内容，推荐 3-5 本适合 TA 的书。
-严格返回 JSON: {"books": [{"title": "书名", "author": "作者", "reason": "一句话推荐理由"}]}
+        content: `你是有品味的阅读顾问。根据用户的日记内容，推荐 3-5 本适合 TA 的书，并为每本书准备好启动读书笔记的素材。
+
+严格返回 JSON:
+{"books": [{"title": "书名", "author": "作者", "reason": "一句话推荐理由", "openingQuote": "书中一句让人印象深刻的原文金句（完整句子，不要编造）", "quoteSource": "这句话的出处，如 第3章 或 上册P128", "quickTake": "一句话解读，帮读者快速抓住这本书的核心看点或气质"}]}
+
 要求:
-- 中文书名，作者可选
+- 中文书名和金句，作者可选
 - reason 要对应用户的具体兴趣，不要空话套话
+- openingQuote 必须是书中真实存在的原文，不要编造！如果不确定就留空字符串
+- quickTake 要精炼，20-40 字
 - 排除用户已经在读的书（会在 user prompt 里列出）
 - 书的类型要多样一点，不要全是同一个类别`,
       },
@@ -873,6 +884,9 @@ ${existingList.length ? existingList.join("、") : "(无)"}
           title: b.title.trim(),
           author: b.author?.trim() || undefined,
           reason: b.reason?.trim() || undefined,
+          openingQuote: b.openingQuote?.trim() || undefined,
+          quoteSource: b.quoteSource?.trim() || undefined,
+          quickTake: b.quickTake?.trim() || undefined,
         }));
     }
   } catch (e) {
@@ -882,24 +896,85 @@ ${existingList.length ? existingList.join("、") : "(无)"}
   return filterFallback(existingList);
 }
 
-/** AI 不可用时的安全网 — 10 本经典好书 */
+/** AI 不可用时的安全网 — 10 本经典好书，每本配金句 + 解读 */
 const FALLBACK_BOOKS: BookRecommendation[] = [
-  { title: "活着", author: "余华", reason: "关于生命韧性的朴素叙事" },
-  { title: "百年孤独", author: "马尔克斯", reason: "魔幻现实主义的巅峰之作" },
-  { title: "人类简史", author: "尤瓦尔·赫拉利", reason: "换一个角度看我们自己" },
-  { title: "围城", author: "钱钟书", reason: "中国式幽默与世态炎凉" },
-  { title: "小王子", author: "圣埃克苏佩里", reason: "写给大人的童话" },
-  { title: "平凡的世界", author: "路遥", reason: "普通人的奋斗史诗" },
-  { title: "三体", author: "刘慈欣", reason: "中国科幻的里程碑" },
-  { title: "月亮与六便士", author: "毛姆", reason: "理想与现实的永恒对照" },
-  { title: "撒哈拉的故事", author: "三毛", reason: "自由自在的生活方式" },
-  { title: "沉默的大多数", author: "王小波", reason: "有趣的灵魂从不妥协" },
+  { title: "活着", author: "余华", reason: "关于生命韧性的朴素叙事",
+    openingQuote: "人是为活着本身而活着的，而不是为了活着之外的任何事物所活着。",
+    quoteSource: "第1章", quickTake: "用一个农民的一生，写尽了中国人对苦难最朴素的承受。" },
+  { title: "百年孤独", author: "马尔克斯", reason: "魔幻现实主义的巅峰之作",
+    openingQuote: "多年以后，面对行刑队，奥雷里亚诺·布恩迪亚上校将会回想起父亲带他去见识冰块的那个遥远的下午。",
+    quoteSource: "第1章", quickTake: "一句话把时间的重量和命运的循环砸在你脸上。" },
+  { title: "人类简史", author: "尤瓦尔·赫拉利", reason: "换一个角度看我们自己",
+    openingQuote: "金钱是有史以来最普遍也最有效的互信系统。",
+    quoteSource: "第3章", quickTake: "把你一直以为的『常识』全部拆掉再重组。" },
+  { title: "围城", author: "钱钟书", reason: "中国式幽默与世态炎凉",
+    openingQuote: "城外的人想进去，城里的人想出来。",
+    quoteSource: "第9章", quickTake: "一个比喻能当一本书的名片，这就是钱钟。" },
+  { title: "小王子", author: "圣埃克苏佩里", reason: "写给大人的童话",
+    openingQuote: "所有的大人都曾经是小孩，虽然，只有少数的人记得。",
+    quoteSource: "献词", quickTake: "用最简单的方式说最扎心的话。" },
+  { title: "平凡的世界", author: "路遥", reason: "普通人的奋斗史诗",
+    openingQuote: "其实我们每个人的生活都是一个世界，即使最平凡的人也要为他生活的那个世界而奋斗。",
+    quoteSource: "第3部", quickTake: "没有金手指，只有汗水和尊严。" },
+  { title: "三体", author: "刘慈欣", reason: "中国科幻的里程碑",
+    openingQuote: "给岁月以文明，而不是给文明以岁月。",
+    quoteSource: "第3部", quickTake: "科幻不只是想象未来，更是照向现在的一面镜子。" },
+  { title: "月亮与六便士", author: "毛姆", reason: "理想与现实的永恒对照",
+    openingQuote: "满地都是六便士，他却抬头看见了月亮。",
+    quoteSource: "结尾", quickTake: "如果你也曾想过『要不就这样算了』，这本书值得一读。" },
+  { title: "撒哈拉的故事", author: "三毛", reason: "自由自在的生活方式",
+    openingQuote: "每想你一次，天上飘落一粒沙，从此形成了撒哈拉。",
+    quoteSource: "《撒哈拉的故事》", quickTake: "有一种生活，叫做『三毛式的浪漫』。" },
+  { title: "沉默的大多数", author: "王小波", reason: "有趣的灵魂从不妥协",
+    openingQuote: "我这辈子做过最正确的事，就是一直在走自己的路。",
+    quoteSource: "《沉默的大多数》", quickTake: "幽默、聪明、不装——王小波是中文里少见的清醒者。" },
 ];
 
 function filterFallback(existing: string[]): BookRecommendation[] {
   return FALLBACK_BOOKS
     .filter(b => !existing.some(e => b.title.includes(e) || e.includes(b.title)))
     .slice(0, 5);
+}
+
+/**
+ * 手动输入书名后，AI 帮起个头 —— 返回金句 + 一句话解读。
+ * 失败时返回空对象（不阻塞编辑器）。
+ */
+export async function kickoffBookNote(
+  title: string,
+  author?: string,
+  provider?: AiProvider | null
+): Promise<{ openingQuote?: string; quoteSource?: string; quickTake?: string }> {
+  const p = provider ?? getAiProvider();
+  if (!p) return {};
+  if (!title.trim()) return {};
+
+  try {
+    const raw = await callChatCompletion(p, [
+      {
+        role: "system",
+        content: `你是读书笔记助手。用户正在读一本书，帮 TA 准备好启动笔记的素材。
+严格返回 JSON: {"openingQuote": "书中真实存在的一句金句，不确定就留空字符串", "quoteSource": "出处如 第3章", "quickTake": "20-40字的一句话解读"}
+openingQuote 必须是原文，绝对不要编造！如果不确定这本书的原文就返回空字符串。`,
+      },
+      {
+        role: "user",
+        content: `书名: 《${title}》${author ? ` 作者: ${author}` : ""}
+请给出 1 句金句 + 1 个解读，返回严格 JSON。`,
+      },
+    ], 0.6);
+
+    const json = extractJson(raw);
+    const r = JSON.parse(json) as { openingQuote?: string; quoteSource?: string; quickTake?: string };
+    return {
+      openingQuote: r.openingQuote?.trim() || undefined,
+      quoteSource: r.quoteSource?.trim() || undefined,
+      quickTake: r.quickTake?.trim() || undefined,
+    };
+  } catch (e) {
+    console.warn("[kickoffBookNote] failed:", e);
+    return {};
+  }
 }
 
 function ruleSummarize(parts: string[]): string | null {
