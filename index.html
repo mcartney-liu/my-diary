@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -6,10 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#faf6ef" />
     <title>My Diary · 手写日记</title>
-    <!-- 字体：全部走本地系统字体，零网络请求（Google Fonts 在中国被墙） -->
+    <!-- 字体预加载 + block 显示，避免 FOUT（先显示默认字体再闪成钢笔字） -->
+    <link rel="preload" href="/fonts/MaShanZheng.ttf" as="font" type="font/ttf" crossorigin />
+    <link rel="preload" href="/fonts/Kalam.ttf" as="font" type="font/ttf" crossorigin />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+

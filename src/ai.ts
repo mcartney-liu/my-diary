@@ -1010,3 +1010,81 @@ function ruleSummarize(parts: string[]): string | null {
   const body = firstSentence.length > 30 ? firstSentence.slice(0, 30) : firstSentence;
   return emoji + ' ' + body;
 }
+
+// ============================================================
+// Skill: 反馈整理 — 把用户口语化反馈转成开发可处理的结构化格式
+// ============================================================
+
+export interface PolishFeedbackResult {
+  title: string;           // 一句话标题（≤30字）
+  steps: string[];          // 复现步骤（如果有）
+  expected: string;         // 期望行为
+  actual: string;           // 实际行为（如果是 bug）
+  suggestion?: string;      // 改进建议（如果是建议类）
+  severity: "low" | "medium" | "high";
+}
+
+/**
+ * Skill 4: 反馈整理 — 用户口语化描述 → 开发视角的 bug report / suggestion
+ * 和日记 polish 不同！不是润色成文章，而是**拆解成问题**
+ */
+export async function polishFeedback(
+  rawText: string,
+  feedbackType: string = "suggestion",
+  provider?: AiProvider | null
+): Promise<string> {
+  if (!rawText?.trim()) return rawText;
+
+  const p = provider ?? getAiProvider();
+  if (!p) return rawText; // 没 AI 就返回原文
+
+  const typeLabel: Record<string, string> = {
+    suggestion: "💡 建议",
+    bug: "🐛 Bug 报告",
+    other: "📝 其他",
+  };
+
+  const systemPrompt = `你是一名资深 QA，负责把用户口语化的反馈/建议整理成开发团队能直接处理的结构化条目。
+
+**核心原则**：不是把用户的话润色成文章，而是**拆解成清晰的条目**，让开发一眼能看懂。
+
+**你要做的**：
+1. 修正错别字（同音字/语音转写错误）
+2. 识别用户说的是什么功能、什么场景
+3. 提炼关键信息，去掉"气死我了""真糟糕"等情绪词
+4. 整理成**纯文本条目**，不要任何 Markdown 代码块（不要用 \`\`\` 包裹）
+
+**输出格式（纯文本，不要代码块）**：
+
+如果是 Bug，输出这 4 行：
+标题：一句话说清楚（≤30字）
+复现：用户操作了什么步骤
+期望：本来应该发生什么
+实际：现在实际发生了什么
+
+如果是建议，输出这 3 行：
+标题：一句话说清楚（≤30字）
+现状：现在是什么样
+希望：希望改成什么样
+
+**格式要求**：
+- 纯文本，不要 \`\`\` markdown \`\`\` 代码块
+- 不要 **粗体**，就用"标题：" 这样的中文标签
+- 每条一行，简短精炼
+- 语气客观，不带情绪`;
+
+  const userPrompt = `用户原始反馈（${typeLabel[feedbackType] ?? feedbackType}）:
+${rawText}
+
+请整理成结构化的开发视角格式，返回 Markdown 文字。`;
+
+  try {
+    const raw = await callChatCompletion(p, [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ], 0.3); // 低温度 = 客观事实，不要瞎发挥
+    return raw.trim();
+  } catch {
+    return rawText; // AI 挂了 → 返回原文
+  }
+}

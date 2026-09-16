@@ -7,9 +7,10 @@ interface Props {
   onChange: (content: string) => void;
   onRemove: () => void;
   extraClass?: string;
+  onTextareaRef?: (el: HTMLTextAreaElement | null) => void;
 }
 
-export default function TextBlock({ block, onChange, onRemove, extraClass = "" }: Props) {
+export default function TextBlock({ block, onChange, onRemove, extraClass = "", onTextareaRef }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // iOS 中文输入法 composition 状态：true = 正在输入拼音候选，不要 setState
@@ -75,14 +76,17 @@ export default function TextBlock({ block, onChange, onRemove, extraClass = "" }
   return (
     <div className="group relative">
       <textarea
-        ref={ref}
+        ref={(el) => {
+          ref.current = el;
+          onTextareaRef?.(el);
+        }}
         value={localValue}
         onChange={handleChange}
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
         onBlur={resize}
         placeholder={empty ? "在此书写..." : ""}
-        className={`w-full resize-none bg-transparent outline-none text-[17px] leading-8 font-hand text-paper-ink placeholder:text-paper-ink2/50 ${
+        className={`w-full resize-none bg-transparent outline-none text-[17px] leading-8 [font-family:var(--app-editor-font)] text-paper-ink placeholder:text-paper-ink2/50 ${
           empty ? "min-h-[96px] py-1" : ""
         } ${extraClass}`}
         style={{ minHeight: empty ? 96 : undefined, WebkitUserSelect: "text", touchAction: "manipulation" }}

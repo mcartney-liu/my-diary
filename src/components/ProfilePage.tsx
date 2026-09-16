@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
 import { getProfile, patchProfile, submitFeedback, type ProfileStats } from "../api";
+import { polishFeedback, getAiProvider } from "../ai";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
 
@@ -30,8 +31,16 @@ export default function ProfilePage() {
   const [fbType, setFbType] = useState("suggestion");
   const [fbTitle, setFbTitle] = useState("");
   const [fbContent, setFbContent] = useState("");
+  const [fontSetting, setFontSetting] = useState(localStorage.getItem("mydiary_font") || "hand");
+  const [showFontPicker, setShowFontPicker] = useState(false);
   const [fbSubmitting, setFbSubmitting] = useState(false);
   const [fbSent, setFbSent] = useState(false);
+  // 语音录入
+  const [fbRecording, setFbRecording] = useState(false);
+  const fbSpeechRef = useRef<any>(null);
+  const fbSpeechSupported = typeof (window as any).SpeechRecognition !== "undefined" || typeof (window as any).webkitSpeechRecognition !== "undefined";
+  // AI 美化
+  const [fbPolishing, setFbPolishing] = useState(false);
 
   useEffect(() => {
     getProfile()
@@ -39,6 +48,12 @@ export default function ProfilePage() {
       .catch(e => setError(e.message || "加载失败"))
       .finally(() => setLoading(false));
   }, []);
+
+  // ===== 字体切换：fontSetting 变化 → localStorage + body[data-font] =====
+  useEffect(() => {
+    localStorage.setItem("mydiary_font", fontSetting);
+    document.body.setAttribute("data-font", fontSetting);
+  }, [fontSetting]);
 
   const handleLogout = () => {
     if (!confirm("确定要退出登录吗？")) return;
@@ -68,6 +83,60 @@ export default function ProfilePage() {
       alert("提交失败: " + (e.message || "网络错误，请稍后再试"));
     } finally {
       setFbSubmitting(false);
+    }
+  };
+
+  // ===== 反馈语音录入 =====
+  const startFbRecording = () => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { alert("当前浏览器不支持语音识别"); return; }
+    const rec = new SR();
+    rec.lang = "zh-CN";
+    rec.interimResults = true;
+    rec.continuous = true;
+    let finalText = "";
+    rec.onresult = (e: any) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += t;
+        else interim += t;
+      }
+      setFbContent((prev) => {
+        const base = prev.replace(/\s*(临时:.*)?$/, "");
+        return finalText + interim ? finalText + interim : base;
+      });
+    };
+    rec.onerror = (e: any) => {
+      console.warn("反馈语音识别错误:", e.error);
+      setFbRecording(false);
+    };
+    rec.onend = () => {
+      setFbRecording(false);
+    };
+    fbSpeechRef.current = rec;
+    rec.start();
+    setFbRecording(true);
+  };
+  const stopFbRecording = () => {
+    try { fbSpeechRef.current?.stop(); } catch {}
+    setFbRecording(false);
+  };
+
+  // ===== 反馈 AI 美化（开发视角 bug report）=====
+  const runFbPolish = async () => {
+    if (!fbContent.trim()) { alert("先写点东西再整理吧"); return; }
+    setFbPolishing(true);
+    try {
+      const polished = await polishFeedback(fbContent, fbType, getAiProvider());
+      setFbContent(polished);
+      // 自动提取标题：格式是 "标题：xxx" 或 "标题: xxx"
+      const titleMatch = polished.match(/^标题[:：]\s*(.+)$/m);
+      if (titleMatch) setFbTitle(titleMatch[1].trim());
+    } catch (e: any) {
+      alert("AI 整理失败: " + (e.message || "试试文字输入吧"));
+    } finally {
+      setFbPolishing(false);
     }
   };
 
@@ -211,6 +280,7 @@ export default function ProfilePage() {
           <MenuItem icon="🎨" label="主题色（即将上线）" disabled />
           <MenuItem icon="🔔" label="每日提醒（即将上线）" disabled />
           <MenuItem icon="📤" label="导出数据（即将上线）" disabled />
+          <MenuItem icon="🖋️" label="字体样式" hint={fontSetting === "hand" ? "钢笔手写" : fontSetting === "kalam" ? "英文手写" : "系统默认"} onClick={() => setShowFontPicker(true)} />
           <MenuItem icon="🔐" label="修改密码" onClick={() => alert("功能开发中...")} />
         </section>
 
@@ -323,6 +393,29 @@ export default function ProfilePage() {
                       className="w-full mt-1.5 px-3 py-2 rounded-lg border border-paper-line bg-paper-surface text-paper-ink focus:outline-none focus:border-paper-accent resize-none"
                     />
                     <div className="text-right text-paper-ink3 text-xs mt-1">{fbContent.length}/2000</div>
+                    {/* 语音录入 + AI 整理 */}
+                    <div className="flex gap-2 mt-2">
+                      {fbSpeechSupported ? (
+                        <button
+                          onClick={fbRecording ? stopFbRecording : startFbRecording}
+                          disabled={fbPolishing}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition ${
+                            fbRecording
+                              ? "bg-red-500 text-white border-red-500 animate-pulse"
+                              : "bg-paper-surface text-paper-ink2 border-paper-line hover:border-paper-accent"
+                          } disabled:opacity-40`}
+                        >
+                          {fbRecording ? "⏹️ 停止录音" : "🎙️ 语音录入"}
+                        </button>
+                      ) : null}
+                      <button
+                        onClick={runFbPolish}
+                        disabled={!fbContent.trim() || fbPolishing}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-paper-line bg-paper-surface text-paper-ink2 hover:border-paper-accent transition disabled:opacity-40"
+                      >
+                        {fbPolishing ? "✨ 整理中..." : "✨ AI 整理成 bug 报告"}
+                      </button>
+                    </div>
                   </div>
 
                   {/* 提交按钮 */}
@@ -394,6 +487,67 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+
+      {/* 🖋️ 字体选择器 */}
+      {showFontPicker && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowFontPicker(false)}>
+          <div
+            className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-slide-up"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
+              <h3 className="text-paper-ink font-semibold text-lg">🖋️ 选择字体</h3>
+              <button
+                onClick={() => setShowFontPicker(false)}
+                className="text-paper-ink3 hover:text-paper-ink text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-paper-surface transition"
+              >×</button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              {[
+                { key: "hand",  label: "钢笔手写", desc: "中文手写风格", sample: "今天天气真不错～" },
+                { key: "kalam", label: "英文手写", desc: "Kalam 手写体",  sample: "Hello, my diary." },
+                { key: "sans",  label: "系统默认", desc: "简洁干净",     sample: "今天天气真不错～" },
+              ].map(o => {
+                const active = fontSetting === o.key;
+                const fontFamily =
+                  o.key === "hand"  ? `"Ma Shan Zheng", "KaiTi", "楷体", system-ui, sans-serif` :
+                  o.key === "kalam" ? `"Kalam", "Ma Shan Zheng", "KaiTi", "楷体", system-ui, sans-serif` :
+                                      `"PingFang SC", "Microsoft YaHei", system-ui, sans-serif`;
+                return (
+                  <button
+                    key={o.key}
+                    onClick={() => { setFontSetting(o.key); setShowFontPicker(false); }}
+                    className={[
+                      "w-full text-left p-4 rounded-xl border-2 transition flex items-center gap-4",
+                      active
+                        ? "border-paper-accent bg-paper-surface"
+                        : "border-paper-line bg-paper-card hover:border-paper-ink3",
+                    ].join(" ")}
+                  >
+                    {/* 预览文字（用对应字体渲染） */}
+                    <div
+                      className="text-[22px] text-paper-ink leading-snug min-w-0 flex-1 truncate"
+                      style={{ fontFamily }}
+                    >{o.sample}</div>
+                    {/* 右侧：标签 + 对勾 */}
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className={[
+                        "text-sm font-medium",
+                        active ? "text-paper-accent" : "text-paper-ink2",
+                      ].join(" ")}>{o.label}</span>
+                      <span className="text-paper-ink3 text-xs">{o.desc}</span>
+                    </div>
+                    {active && (
+                      <span className="text-paper-accent text-xl shrink-0">✓</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -410,7 +564,7 @@ function StatTile({ label, value, suffix }: { label: string; value: string; suff
   );
 }
 
-function MenuItem({ icon, label, onClick, disabled }: { icon: string; label: string; onClick?: () => void; disabled?: boolean }) {
+function MenuItem({ icon, label, hint, onClick, disabled }: { icon: string; label: string; hint?: string; onClick?: () => void; disabled?: boolean }) {
   return (
     <button
       onClick={disabled ? undefined : onClick}
@@ -422,6 +576,7 @@ function MenuItem({ icon, label, onClick, disabled }: { icon: string; label: str
     >
       <span className="text-lg">{icon}</span>
       <span className="flex-1 text-paper-ink">{label}</span>
+      {hint && <span className="text-paper-ink3 text-sm">{hint}</span>}
       {!disabled && <span className="text-paper-ink3 text-sm">›</span>}
     </button>
   );

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus, Pencil } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
@@ -152,8 +152,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const [date] = useState(initialDiary?.date ?? today());
   const [moodId, setMoodId] = useState<MoodId | null>(initialPolished?.moodId ?? initialDiary?.moodId ?? null);
   const [blocks, setBlocksRaw] = useState<DiaryBlock[]>(() => {
-    const raw = initialPolished?.blocks?.length
-      ? initialPolished.blocks
+    const raw = initialPolished?.blocks?.length      ? initialPolished.blocks
       : initialDiary?.blocks?.length
         ? initialDiary.blocks
         : [{ id: uid("b"), kind: "text" as const, content: "" }];
@@ -173,6 +172,9 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     return out;
   });
 
+  // 底部常驻输入框（Notion 风格：不用 useEffect 自动 focus，直接点击就能弹键盘）
+  const [bottomInput, setBottomInput] = useState("");
+
   // normalizeBlocks — 清理 blocks 数组，保证：
   // 1. 没有相邻的 text block（合并成一个，用 \n 分隔）
   // 2. 没有空 text block（除了最后一个可以是空的让用户继续写）
@@ -181,12 +183,25 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     if (!arr.length) return [{ id: uid("b"), kind: "text", content: "" }];
     const out: DiaryBlock[] = [];
     for (const b of arr) {
+      // deleted 的 block 直接保留，不参与合并判断
+      if (b.deleted) {
+        out.push({ ...b });
+        continue;
+      }
       if (b.kind === "text") {
-        if (out.length && out[out.length - 1].kind === "text") {
-          // 合并到上一个 text block（如果有内容就加 \n）
-          const last = out[out.length - 1];
-          const sep = last.content && b.content ? "\n" : "";
-          out[out.length - 1] = { ...last, content: (last.content + sep + b.content).trim() };
+        // 找 out 里最后一个非 deleted 的 text block 才合并
+        // 但！两个都有内容的 text block 不合并（用户明确想分开）
+        const lastReal = [...out].reverse().find(x => !x.deleted);
+        if (lastReal && lastReal.kind === "text") {
+          // 只合并"空 + 有"或"空 + 空"，不合并"有 + 有"
+          if (!lastReal.content.trim() || !b.content.trim()) {
+            const sep = lastReal.content && b.content ? "\n" : "";
+            const idx = out.lastIndexOf(lastReal);
+            out[idx] = { ...lastReal, content: (lastReal.content + sep + b.content).trim() };
+          } else {
+            // 两个都有内容 → 保持独立！
+            out.push({ ...b });
+          }
         } else {
           out.push({ ...b });
         }
@@ -194,13 +209,19 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
         out.push({ ...b });
       }
     }
-    // 去掉末尾的空 text block（保留至少一个）
-    while (out.length > 1 && out[out.length - 1].kind === "text" && !out[out.length - 1].content.trim()) {
-      out.pop();
+    // 去掉末尾的空 text block（但跳过 deleted 的）
+    while (out.length > 1) {
+      const last = out[out.length - 1];
+      if (last.kind === "text" && !last.deleted && !last.content.trim()) out.pop();
+      else break;
     }
-    // 确保最后一个是 text block
-    if (out[out.length - 1].kind !== "text") {
-      out.push({ id: uid("t"), kind: "text", content: "" });
+    // 确保最后一个（非 deleted）是 text block
+    const lastRealIdx = [...out].reverse().findIndex(x => !x.deleted);
+    if (lastRealIdx !== -1) {
+      const realLast = out[out.length - 1 - lastRealIdx];
+      if (realLast.kind !== "text") {
+        out.push({ id: uid("t"), kind: "text", content: "" });
+      }
     }
     return out;
   };
@@ -310,6 +331,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const pendingTplRef = useRef<string | undefined>(undefined);
   const pendingCustomTplRef = useRef<UserTemplate | undefined>(undefined);
   const pendingFocusIdRef = useRef<string | null>(null);  // addBlock 后需要自动 focus 的 block id
+  const textareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());  // block.id → textarea ref
 
   // ===== 模板管理 =====
   async function loadMyTemplates() {
@@ -713,23 +735,16 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   // addBlock 后自动 focus 新的 text block（iOS 键盘弹出来）
   useEffect(() => {
     const targetId = pendingFocusIdRef.current;
-    console.log("[focus] blocks changed, pendingFocusId:", targetId, "blocks count:", blocks.length);
     if (!targetId) return;
-    // 在下一帧 DOM 渲染完后找 textarea focus
-    requestAnimationFrame(() => {
-      const sel = `[data-block-id="${targetId}"] textarea`;
-      console.log("[focus] selector:", sel);
-      const ta = document.querySelector<HTMLTextAreaElement>(sel);
-      console.log("[focus] found textarea?", !!ta);
-      if (ta) {
-        ta.focus();
-        console.log("[focus] focused! activeElement:", document.activeElement?.tagName);
-        // 光标移到末尾
-        const len = ta.value.length;
-        ta.setSelectionRange(len, len);
-      }
-      pendingFocusIdRef.current = null;
-    });
+    // 用 ref Map 找，不用 DOM 查询
+    const ta = textareaRefs.current.get(targetId);
+    console.log("[focus] pendingFocusId:", targetId, "refs has?", textareaRefs.current.has(targetId), "el:", !!ta);
+    if (ta) {
+      ta.focus();
+      const len = ta.value.length;
+      ta.setSelectionRange(len, len);
+    }
+    pendingFocusIdRef.current = null;
   }, [blocks]);
 
   // 本月汇总（所有已保存的 finance 模板日记）
@@ -950,15 +965,21 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     const block: DiaryBlock = { id: uid(kind[0]), kind, content, durationMs };
     // 记住要 focus 谁
     pendingFocusIdRef.current = kind === "text" ? block.id : null;
+    console.log("[addBlock] called, kind:", kind, "new block id:", block.id);
     setBlocks((prev) => {
+      console.log("[addBlock] prev length:", prev.length, "prev ids:", prev.map(b => b.id));
       // 非 text 块 + autoText=true → 自动在后面补一个空 text block
       // 确保用户永远有地方点（模仿 Notion/Word）
       if (kind !== "text" && autoText) {
         const emptyText: DiaryBlock = { id: uid("t"), kind: "text", content: "" };
         pendingFocusIdRef.current = emptyText.id;  // focus 补的那个 text
-        return [...prev, block, emptyText];
+        const result = [...prev, block, emptyText];
+        console.log("[addBlock] result length:", result.length);
+        return result;
       }
-      return [...prev, block];
+      const result = [...prev, block];
+      console.log("[addBlock] result length:", result.length);
+      return result;
     });
   };
 
@@ -1729,6 +1750,10 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                 onChange={(c) => updateBlock(b.id, { content: c })}
                 onRemove={() => markDeleted(b.id)}
                 extraClass={b.deleted ? "line-through decoration-red-400 decoration-2" : ""}
+                onTextareaRef={(el) => {
+                  if (el) textareaRefs.current.set(b.id, el);
+                  else textareaRefs.current.delete(b.id);
+                }}
               />
             )}
             {b.kind === "image" && (
@@ -1937,15 +1962,40 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           </SortableContext>
           </DndContext>
 
-          {/* === 底部：继续书写按钮（始终可见） === */}
-          <div className="px-4 md:px-6 mt-2 mb-2">
-            <button
-              onClick={() => addBlock("text")}
-              className="w-full py-3 rounded-xl border-2 border-dashed border-paper-line hover:border-paper-accent/60 text-paper-ink3 hover:text-paper-accent transition flex items-center justify-center gap-2 text-sm"
-            >
-              <span className="text-lg leading-none">＋</span>
-              <span>继续书写...</span>
-            </button>
+          {/* === 底部：常驻输入框（Notion 风格，点了就能弹键盘 ✅） === */}
+          <div className="px-4 md:px-6 mt-2 mb-4">
+            <textarea
+              value={bottomInput}
+              onChange={(e) => setBottomInput(e.target.value)}
+              onKeyDown={(e) => {
+                // 按 Enter（非 Shift）→ 提交成 block
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  const text = bottomInput.trim();
+                  if (text) {
+                    setBlocks((prev) => [
+                      ...prev,
+                      { id: uid("t"), kind: "text", content: text },
+                    ]);
+                    setBottomInput("");
+                  }
+                }
+              }}
+              onBlur={() => {
+                // 失焦也提交（如果有内容）
+                const text = bottomInput.trim();
+                if (text) {
+                  setBlocks((prev) => [
+                    ...prev,
+                    { id: uid("t"), kind: "text", content: text },
+                  ]);
+                  setBottomInput("");
+                }
+              }}
+              placeholder="＋ 继续书写..."
+              rows={1}
+              className="w-full resize-none px-3 py-2 rounded-xl border-2 border-dashed border-paper-line hover:border-paper-accent/60 focus:border-paper-accent focus:border-solid outline-none [font-family:var(--app-editor-font)] text-[17px] leading-8 text-paper-ink placeholder:text-paper-ink2/50 bg-transparent transition"
+            />
           </div>
 
           {/* === 记账专属：汇总卡片 + 添加按钮（只在记账模板时显示） === */}

@@ -1,17 +1,17 @@
-/* === 本地字体（永远秒开，不受网络影响） === */
+﻿/* === 本地字体（永远秒开，不受网络影响） === */
 @font-face {
   font-family: "Ma Shan Zheng";
   src: url("/fonts/MaShanZheng.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 @font-face {
   font-family: "Kalam";
   src: url("/fonts/Kalam.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
-  font-display: swap;
+  font-display: block;
 }
 
 @tailwind base;
@@ -19,9 +19,16 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
+
+/* === 编辑器字体变量（用户可在"我的 → 设置 → 字体样式"里切换） === */
+body[data-font="hand"]    { --app-editor-font: "Ma Shan Zheng", "KaiTi", "STKaiti", "楷体", system-ui, sans-serif; }
+body[data-font="kalam"]   { --app-editor-font: "Kalam", "Ma Shan Zheng", "KaiTi", "楷体", system-ui, sans-serif; }
+body[data-font="sans"]    { --app-editor-font: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", system-ui, sans-serif; }
+/* 默认值（没设 data-font 时） */
+body                      { --app-editor-font: "Ma Shan Zheng", "KaiTi", "STKaiti", "楷体", system-ui, sans-serif; }
+
 body {
   margin: 0;
-  font-family: "Kalam", "Ma Shan Zheng", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif;
   background-color: #faf6ef;
   color: #3d2f1f;
   -webkit-tap-highlight-color: transparent;
@@ -114,3 +121,5 @@ input::placeholder, textarea::placeholder {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
+
+
