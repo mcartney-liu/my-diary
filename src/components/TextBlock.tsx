@@ -86,7 +86,7 @@ export default function TextBlock({ block, onChange, onRemove, extraClass = "", 
         onCompositionEnd={handleCompositionEnd}
         onBlur={resize}
         placeholder={empty ? "在此书写..." : ""}
-        className={`w-full resize-none bg-transparent outline-none text-[17px] leading-8 [font-family:var(--app-editor-font)] text-paper-ink placeholder:text-paper-ink2/50 ${
+        className={`w-full resize-none bg-transparent outline-none text-[17px] leading-8 text-paper-ink placeholder:text-paper-ink2/50 ${
           empty ? "min-h-[96px] py-1" : ""
         } ${extraClass}`}
         style={{ minHeight: empty ? 96 : undefined, WebkitUserSelect: "text", touchAction: "manipulation" }}

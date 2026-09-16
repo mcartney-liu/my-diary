@@ -1,17 +1,17 @@
-﻿/* === 本地字体（永远秒开，不受网络影响） === */
+/* === 本地字体（永远秒开，不受网络影响） === */
 @font-face {
   font-family: "Ma Shan Zheng";
   src: url("/fonts/MaShanZheng.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 @font-face {
   font-family: "Kalam";
   src: url("/fonts/Kalam.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
-  font-display: block;
+  font-display: swap;
 }
 
 @tailwind base;
@@ -20,12 +20,12 @@
 
 html, body, #root { height: 100%; }
 
-/* === 编辑器字体变量（用户可在"我的 → 设置 → 字体样式"里切换） === */
-body[data-font="hand"]    { --app-editor-font: "Ma Shan Zheng", "KaiTi", "STKaiti", "楷体", system-ui, sans-serif; }
-body[data-font="kalam"]   { --app-editor-font: "Kalam", "Ma Shan Zheng", "KaiTi", "楷体", system-ui, sans-serif; }
-body[data-font="sans"]    { --app-editor-font: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", system-ui, sans-serif; }
-/* 默认值（没设 data-font 时） */
-body                      { --app-editor-font: "Ma Shan Zheng", "KaiTi", "STKaiti", "楷体", system-ui, sans-serif; }
+/* === 全局字体（用户可在"我的 → 设置 → 字体样式"里切换） === */
+body[data-font="hand"]    { font-family: "Ma Shan Zheng", "KaiTi", "STKaiti", "楷体", system-ui, sans-serif; }
+body[data-font="kalam"]   { font-family: "Kalam", "Ma Shan Zheng", "KaiTi", "楷体", system-ui, sans-serif; }
+body[data-font="sans"]    { font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", system-ui, sans-serif; }
+/* 默认：钢笔手写 */
+body                      { font-family: "Ma Shan Zheng", "KaiTi", "STKaiti", "楷体", system-ui, sans-serif; }
 
 body {
   margin: 0;
@@ -121,5 +121,3 @@ input::placeholder, textarea::placeholder {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
-
-

@@ -1994,7 +1994,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
               }}
               placeholder="＋ 继续书写..."
               rows={1}
-              className="w-full resize-none px-3 py-2 rounded-xl border-2 border-dashed border-paper-line hover:border-paper-accent/60 focus:border-paper-accent focus:border-solid outline-none [font-family:var(--app-editor-font)] text-[17px] leading-8 text-paper-ink placeholder:text-paper-ink2/50 bg-transparent transition"
+              className="w-full resize-none px-3 py-2 rounded-xl border-2 border-dashed border-paper-line hover:border-paper-accent/60 focus:border-paper-accent focus:border-solid outline-none text-[17px] leading-8 text-paper-ink placeholder:text-paper-ink2/50 bg-transparent transition"
             />
           </div>
 
