@@ -10,6 +10,7 @@ import EditorPage from "./components/EditorPage";
 import TrashPage from "./components/TrashPage";
 import TagsPage from "./components/TagsPage";
 import CapsulePage from "./components/CapsulePage";
+import ProfilePage from "./components/ProfilePage";
 
 // 后台写入 localStorage（不阻塞主线程）
 let saveQueue = Promise.resolve();
@@ -235,6 +236,7 @@ export default function App() {
         <Route path="/trash" element={<TrashPage diaries={deletedDiaries} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onBatchRestore={handleBatchRestore} onBatchPermanentDelete={handleBatchPermanentDelete} />} />
         <Route path="/tags" element={<TagsPage diaries={diaries} />} />
         <Route path="/capsule" element={<CapsulePage diaries={diaries} />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route
           path="/editor"
           element={<EditorPageWrapper mode="new" allDiaries={allDiaries} onUpsert={handleUpsert} onSoftDelete={handleSoftDelete} />}

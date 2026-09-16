@@ -99,6 +99,13 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             >
               🗑️
             </button>
+            <button
+              onClick={() => nav("/profile")}
+              title="我的"
+              className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95"
+            >
+              👤
+            </button>
             <button onClick={() => nav("/editor")} className="btn-primary flex items-center gap-1.5 text-sm">
               <span className="text-base leading-none">＋</span> 写日记
             </button>
