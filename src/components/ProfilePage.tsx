@@ -450,27 +450,47 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
+              {/* === v0.2.1 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v0.2.0</span>
+                  <span className="font-bold text-paper-accent">v{__APP_VERSION__}</span>
                   <span className="text-paper-ink3 text-xs">2026年09月16日</span>
+                  <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
-                  <div><b className="text-paper-ink">🎉 新功能</b></div>
+                  <div><b className="text-paper-ink">🖋️ 新功能</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>📚 模板共享 — 创建 / 编辑 / 共享自定义模板</li>
-                    <li>🎨 信纸共享 — 上传信纸 / 一键共享</li>
-                    <li>👤 全新「我的」页面 — 3 个 Tab</li>
-                    <li>💬 反馈与建议 — 直接提交到 D1</li>
+                    <li>🖋️ 字体自定义 — 我的→设置→字体样式，三种可选
+                      <span className="text-paper-ink3 text-xs ml-1">（全手写推荐 / 钢笔中文 / 系统默认）</span>
+                    </li>
+                    <li>全局生效：标题、按钮、日历、编辑器文字全部跟着变</li>
+                    <li>设置自动保存，下次打开自动恢复</li>
                   </ul>
-                  <div><b className="text-paper-ink">🔧 改进</b></div>
+                  <div><b className="text-paper-ink">🐛 修复</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>模板切换有内容时弹确认框</li>
-                    <li>选中色统一紫色 (violet)</li>
-                    <li>Drawer 精简，编辑/删除统一去「我的」</li>
+                    <li>iOS Safari 中文不手写 — 强制重绘 hack</li>
+                    <li>Tailwind preflight 覆盖手写字体 — html+body 双重保险</li>
+                    <li>字体栈顺序修复：Kalam 放第一位覆盖英文数字</li>
                   </ul>
                 </div>
               </div>
+
+              {/* === v0.2.0 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink3">v0.2.0</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月16日</span>
+                </div>
+                <div className="space-y-1 text-paper-ink3 leading-relaxed text-xs">
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>📚 模板共享 / 🎨 信纸共享</li>
+                    <li>👤 全新「我的」页面 3 个 Tab</li>
+                    <li>💬 反馈与建议 → 提交到 D1</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* === v0.1.0 === */}
               <div className="border-t border-paper-line pt-4">
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-bold text-paper-ink3">v0.1.0</span>
@@ -480,8 +500,7 @@ export default function ProfilePage() {
                   <ul className="list-disc pl-5 space-y-1">
                     <li>邮箱注册/登录 + JWT 鉴权</li>
                     <li>日记 CRUD + 云端同步</li>
-                    <li>10 种 Block 组件</li>
-                    <li>8 个官方模板</li>
+                    <li>10 种 Block 组件 + 8 个官方模板</li>
                   </ul>
                 </div>
               </div>
