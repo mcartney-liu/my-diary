@@ -3,7 +3,7 @@ import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, File
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
-import { transcribeAudio, listTemplates, saveTemplate, updateTemplate, deleteTemplate, type UserTemplate } from "../api";
+import { transcribeAudio, listTemplates, saveTemplate, updateTemplate, deleteTemplate, listPapers, type UserTemplate, type UserPaper } from "../api";
 import { polishTranscript, recommendBooks, kickoffBookNote, type BookRecommendation } from "../ai";
 import { fetchWeather, fetchLocation, fetchLocationAuto, type LocationResult } from "../weather";
 import { fetchNearbyPois, type Poi } from "../services/poi";
@@ -271,6 +271,8 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const [builderKinds, setBuilderKinds] = useState<string[]>([]);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<UserTemplate | null>(null);
+  const [myPapers, setMyPapers] = useState<UserPaper[]>([]);
+  const [loadingPapers, setLoadingPapers] = useState(false);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
   const [saveToast, setSaveToast] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -312,7 +314,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   async function loadMyTemplates() {
     setLoadingMyTemplates(true);
     try {
-      const data = await listTemplates();
+      const data = await listTemplates("all");
       setMyTemplates(data.templates);
     } catch {
       // 登录过期或网络错误，静默
@@ -327,6 +329,17 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       setMyTemplates((prev) => prev.filter((t) => t.id !== id));
     } catch {
       alert("删除失败");
+    }
+  }
+
+  async function loadPapers() {
+    setLoadingPapers(true);
+    try {
+      const data = await listPapers("all");
+      setMyPapers(data.papers);
+    } catch {}
+    finally {
+      setLoadingPapers(false);
     }
   }
 
@@ -2078,7 +2091,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
             {/* 信纸/壁纸按钮 */}
             <button
-              onClick={() => setShowWallpaperMenu(true)}
+              onClick={() => { setShowWallpaperMenu(true); void loadPapers(); }}
               className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink hover:bg-paper-line/50 transition active:scale-95"
               title="信纸 / 壁纸"
             >
@@ -2162,6 +2175,81 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                     })}
                   </div>
                 </div>
+
+                {/* 我的信纸 */}
+                {(() => {
+                  const owned = myPapers.filter((p) => p.is_owner);
+                  if (owned.length === 0 && !loadingPapers) return null;
+                  return (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="text-xs text-paper-ink2">👤 我的信纸</div>
+                      {loadingPapers && <Loader2 size={12} className="animate-spin text-paper-ink3" />}
+                    </div>
+                    <div className="grid grid-cols-4 gap-3">
+                      {owned.map((p) => {
+                        const selected = wallpaper === p.image_data;
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => { setWallpaper(p.image_data); if (p.show_lines !== undefined) setShowLines(p.show_lines); }}
+                            className={`group relative aspect-[3/4] rounded-lg border-2 overflow-hidden transition ${
+                              selected ? "border-sky-400 ring-2 ring-sky-200" : "border-paper-line hover:border-paper-ink2"
+                            }`}
+                            title={p.name}
+                          >
+                            <img src={p.thumbnail || p.image_data} alt={p.name} className="w-full h-full object-cover" />
+                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/50 to-transparent px-1 py-0.5">
+                              <div className="text-[9px] text-white truncate">{p.name}</div>
+                            </div>
+                            {selected && (
+                              <div className="absolute inset-0 flex items-start justify-end p-1 pointer-events-none">
+                                <span className="w-5 h-5 rounded-full bg-sky-500 text-white text-xs flex items-center justify-center shadow">✓</span>
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  );
+                })()}
+
+                {/* 共享信纸 */}
+                {(() => {
+                  const shared = myPapers.filter((p) => !p.is_owner);
+                  if (shared.length === 0) return null;
+                  return (
+                  <div>
+                    <div className="text-xs text-paper-ink2 mb-3">🌐 共享信纸</div>
+                    <div className="grid grid-cols-4 gap-3">
+                      {shared.map((p) => {
+                        const selected = wallpaper === p.image_data;
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => { setWallpaper(p.image_data); if (p.show_lines !== undefined) setShowLines(p.show_lines); }}
+                            className={`group relative aspect-[3/4] rounded-lg border-2 overflow-hidden transition ${
+                              selected ? "border-emerald-400 ring-2 ring-emerald-200" : "border-paper-line hover:border-paper-ink2"
+                            }`}
+                            title={p.name}
+                          >
+                            <img src={p.thumbnail || p.image_data} alt={p.name} className="w-full h-full object-cover" />
+                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/50 to-transparent px-1 py-0.5">
+                              <div className="text-[9px] text-white truncate">{p.author_name ? `${p.name}·${p.author_name}` : p.name}</div>
+                            </div>
+                            {selected && (
+                              <div className="absolute inset-0 flex items-start justify-end p-1 pointer-events-none">
+                                <span className="w-5 h-5 rounded-full bg-emerald-500 text-white text-xs flex items-center justify-center shadow">✓</span>
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  );
+                })()}
 
                 {/* 自定义图片 */}
                 <div>
@@ -2258,82 +2346,114 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                 </div>
 
                 {/* ===== 我的模板 ===== */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-paper-ink3">👤 我的模板</span>
-                    {loadingMyTemplates && <Loader2 size={12} className="animate-spin text-paper-ink3" />}
-                  </div>
-                  {myTemplates.length === 0 && !loadingMyTemplates ? (
-                    <div className="text-center py-6 text-[12px] text-paper-ink3 italic">
-                      还没有自定义模板，点下面按钮创建
+                {(() => {
+                  const owned = myTemplates.filter((t) => t.is_owner);
+                  return (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-paper-ink3">👤 我的模板</span>
+                      {loadingMyTemplates && <Loader2 size={12} className="animate-spin text-paper-ink3" />}
                     </div>
-                  ) : (
-                    <div className="flex flex-col gap-2.5">
-                      {myTemplates.map((tpl) => {
-                        const selected = templateId === `custom-${tpl.id}`;
-                        const kindsFromBlocks = [...new Set(tpl.blocks.map((b) => b.kind))];
-                        return (
-                          <div key={tpl.id} className="flex items-center gap-2 group">
-                            <button
-                              onClick={() => applyMyTemplate(tpl)}
-                              className={`flex-1 p-3 rounded-xl border-2 text-left transition ${
-                                selected
-                                  ? "border-violet-400 ring-2 ring-violet-200 bg-violet-50/50"
-                                  : "border-paper-line hover:border-paper-ink2 hover:bg-paper-surface"
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 mb-0.5">
-                                <span className="text-xl">{tpl.icon}</span>
-                                <span className={`font-medium text-sm ${selected ? "text-violet-900" : "text-paper-ink"}`}>
-                                  {tpl.name}
-                                </span>
-                                {selected && <span className="ml-auto w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center">✓</span>}
-                              </div>
-                              <div className="text-[11px] text-paper-ink2 leading-tight">
-                                {blocksSummary(tpl.blocks)}
-                              </div>
-                            </button>
-                            {/* 操作按钮 — 右侧竖排，hover 时显现 */}
-                            <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition">
+                    {owned.length === 0 && !loadingMyTemplates ? (
+                      <div className="text-center py-4 text-[11px] text-paper-ink3 italic">
+                        还没有自定义模板，去「我的 → 模板库」创建吧
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2.5">
+                        {owned.map((tpl) => {
+                          const selected = templateId === `custom-${tpl.id}`;
+                          const kindsFromBlocks = [...new Set(tpl.blocks.map((b) => b.kind))];
+                          return (
+                            <div key={tpl.id} className="flex items-center gap-2 group">
                               <button
-                                title="编辑"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingTemplate(tpl);
-                                  setBuilderName(tpl.name);
-                                  setBuilderIcon(tpl.icon);
-                                  setBuilderKinds(kindsFromBlocks);
-                                  setShowCustomBuilder(true);
-                                  setShowTemplateMenu(false);
-                                }}
-                                className="w-8 h-8 rounded-lg bg-paper-surface border border-paper-line text-paper-ink2 hover:border-violet-300 hover:text-violet-500 hover:bg-violet-50 flex items-center justify-center transition"
-                              ><Pencil size={13} /></button>
-                              <button
-                                title="删除"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (confirm(`删除模板"${tpl.name}"？`)) deleteMyTemplate(tpl.id);
-                                }}
-                                className="w-8 h-8 rounded-lg bg-paper-surface border border-paper-line text-paper-ink2 hover:border-red-200 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition"
-                              ><Trash2 size={13} /></button>
+                                onClick={() => applyMyTemplate(tpl)}
+                                className={`flex-1 p-3 rounded-xl border-2 text-left transition ${
+                                  selected
+                                    ? "border-violet-400 ring-2 ring-violet-200 bg-violet-50/50"
+                                    : "border-paper-line hover:border-paper-ink2 hover:bg-paper-surface"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <span className="text-xl">{tpl.icon}</span>
+                                  <span className={`font-medium text-sm ${selected ? "text-violet-900" : "text-paper-ink"}`}>
+                                    {tpl.name}
+                                  </span>
+                                  {selected && <span className="ml-auto w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center">✓</span>}
+                                </div>
+                                <div className="text-[11px] text-paper-ink2 leading-tight">
+                                  {blocksSummary(tpl.blocks)}
+                                </div>
+                              </button>
+                              <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition">
+                                <button
+                                  title="编辑"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingTemplate(tpl);
+                                    setBuilderName(tpl.name);
+                                    setBuilderIcon(tpl.icon);
+                                    setBuilderKinds(kindsFromBlocks);
+                                    setShowCustomBuilder(true);
+                                    setShowTemplateMenu(false);
+                                  }}
+                                  className="w-8 h-8 rounded-lg bg-paper-surface border border-paper-line text-paper-ink2 hover:border-violet-300 hover:text-violet-500 hover:bg-violet-50 flex items-center justify-center transition"
+                                ><Pencil size={13} /></button>
+                                <button
+                                  title="删除"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (confirm(`删除模板"${tpl.name}"？`)) deleteMyTemplate(tpl.id);
+                                  }}
+                                  className="w-8 h-8 rounded-lg bg-paper-surface border border-paper-line text-paper-ink2 hover:border-red-200 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition"
+                                ><Trash2 size={13} /></button>
+                              </div>
                             </div>
-                          </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  );
+                })()}
+
+                {/* ===== 共享模板 ===== */}
+                {(() => {
+                  const shared = myTemplates.filter((t) => !t.is_owner);
+                  if (shared.length === 0) return null;
+                  return (
+                  <div>
+                    <div className="text-xs font-medium text-paper-ink3 mb-2">🌐 共享模板</div>
+                    <div className="flex flex-col gap-2.5">
+                      {shared.map((tpl) => {
+                        const selected = templateId === `custom-${tpl.id}`;
+                        return (
+                          <button
+                            key={tpl.id}
+                            onClick={() => applyMyTemplate(tpl)}
+                            className={`w-full p-3 rounded-xl border-2 text-left transition ${
+                              selected
+                                ? "border-emerald-400 ring-2 ring-emerald-200 bg-emerald-50/50"
+                                : "border-paper-line hover:border-paper-ink2 hover:bg-paper-surface"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-xl">{tpl.icon}</span>
+                              <span className={`font-medium text-sm ${selected ? "text-emerald-900" : "text-paper-ink"}`}>
+                                {tpl.name}
+                              </span>
+                              {selected && <span className="ml-auto w-5 h-5 rounded-full bg-emerald-500 text-white text-xs flex items-center justify-center">✓</span>}
+                            </div>
+                            <div className="text-[11px] text-paper-ink2 leading-tight flex items-center gap-2">
+                              <span>{blocksSummary(tpl.blocks)}</span>
+                              {tpl.author_name && <span className="text-paper-ink3">· 由 {tpl.author_name} 发布</span>}
+                            </div>
+                          </button>
                         );
                       })}
                     </div>
-                  )}
-                </div>
-
-                {/* ===== 自定义模板入口 ===== */}
-                <div className="pt-2">
-                  <button
-                    onClick={() => { setShowTemplateMenu(false); setShowCustomBuilder(true); void loadMyTemplates(); }}
-                    className="w-full py-3 rounded-xl border-2 border-dashed border-paper-line text-paper-ink2 hover:border-violet-300 hover:text-violet-600 hover:bg-violet-50/30 transition flex items-center justify-center gap-2 text-sm"
-                  >
-                    <Plus size={16} />
-                    自定义模板（选组件组合）
-                  </button>
-                </div>
+                  </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
