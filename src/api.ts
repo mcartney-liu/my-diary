@@ -1,5 +1,5 @@
 // Cloud API client — talks to Cloudflare Workers
-// Falls back to in-memory if offline (local cache)
+// 自动注入 Bearer token，token 存 localStorage
 
 import type { Diary } from "./types";
 
@@ -7,104 +7,102 @@ export const API_BASE =
   (import.meta as unknown as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE ??
   "https://mydiary-api.mcartneyliu.workers.dev";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
+const TOKEN_KEY = "mydiary-web:auth:token";
+
+/** 存 token */
+export function setToken(t: string | null) {
+  if (t) localStorage.setItem(TOKEN_KEY, t);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+async function request<T>(path: string, init?: RequestInit, auth = true): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(init?.headers as Record<string, string> ?? {}),
+  };
+  if (auth) {
+    const t = getToken();
+    if (t) headers["Authorization"] = `Bearer ${t}`;
+  }
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (!res.ok) {
+    // 401 → token 过期，清掉
+    if (res.status === 401) setToken(null);
     const err = await res.text().catch(() => res.statusText);
     throw new Error(`${res.status}: ${err}`);
   }
   return (await res.json()) as T;
 }
 
-export async function listDiaries(params?: { month?: string; date?: string }) {
+// ====== Auth ======
+export interface AuthUser { id: string; email: string; nickname: string }
+export interface AuthResult { token: string; user: AuthUser }
+
+export function register(email: string, password: string, nickname?: string) {
+  return request<AuthResult>("/api/auth/register", {
+    method: "POST", body: JSON.stringify({ email, password, nickname }),
+  }, false);
+}
+export function login(email: string, password: string) {
+  return request<AuthResult>("/api/auth/login", {
+    method: "POST", body: JSON.stringify({ email, password }),
+  }, false);
+}
+export function me() {
+  return request<{ user: AuthUser }>("/api/auth/me");
+}
+export function logout() { setToken(null); }
+
+// ====== Diaries ======
+export function listDiaries(params?: { from?: string; to?: string; limit?: number }) {
   const qs = new URLSearchParams();
-  if (params?.month) qs.set("month", params.month);
-  if (params?.date) qs.set("date", params.date);
+  if (params?.from) qs.set("from", params.from);
+  if (params?.to) qs.set("to", params.to);
+  if (params?.limit) qs.set("limit", String(params.limit));
   const q = qs.toString();
-  return request<Diary[]>(`/api/diaries${q ? "?" + q : ""}`);
+  return request<{ diaries: Diary[] }>(`/api/diaries${q ? "?" + q : ""}`);
+}
+export function upsertDiary(d: Diary) {
+  return request<{ id: string }>("/api/diaries", { method: "POST", body: JSON.stringify({
+    id: d.id, date: d.date, template_id: d.templateId, title: d.title,
+    mood_id: d.moodId, tags: d.tags, weather: d.weather, blocks: d.blocks,
+  })});
+}
+export function deleteDiary(id: string) {
+  return request<{ ok: boolean }>(`/api/diaries?id=${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export async function getDiary(id: string) {
-  return request<Diary>(`/api/diaries/${id}`);
+// ====== Profile ======
+export interface ProfileStats { total_diaries: number; streak_days: number; total_words: number }
+export interface ProfileResult { user: AuthUser; profile: any; stats: ProfileStats }
+
+export function getProfile() {
+  return request<ProfileResult>("/api/profile");
+}
+export function patchProfile(patch: Record<string, any>) {
+  return request<{ ok: boolean }>("/api/profile", { method: "PATCH", body: JSON.stringify(patch) });
 }
 
-export async function upsertDiary(d: Diary) {
-  return request<{ id: string }>("/api/diaries", {
-    method: "POST",
-    body: JSON.stringify(d),
-  });
+// ====== 测试/工具 ======
+export function healthCheck() {
+  try { return fetch(`${API_BASE}/api/auth/me`).then(r => r.status !== 404).catch(() => false); } catch { return false; }
 }
 
-export async function updateDiary(d: Diary) {
-  return request<{ updatedAt: number }>("/api/diaries", {
-    method: "PUT",
-    body: JSON.stringify(d),
-  });
-}
-
-export async function deleteDiary(id: string) {
-  return request<{ ok: boolean }>(`/api/diaries/${id}`, { method: "DELETE" });
-}
-
-// Sync: 客户端推送本地变更 + 拉取远端新增
-export async function sync(body: { lastSync: number; diaries: Diary[] }) {
-  return request<{ serverTime: number; diaries: Diary[] }>("/api/sync", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-export async function healthCheck() {
-  try {
-    const r = await fetch(`${API_BASE}/api/health`);
-    return r.ok;
-  } catch {
-    return false;
-  }
-}
-
-// Whisper 语音转文字
-// 优先走 Vite proxy → 本地 Whisper 服务（localhost:8080）
-// 本地没起 → fallback 到 Cloudflare Worker
+// Whisper 语音转文字（本地 → 云端 fallback）
 export async function transcribeAudio(blob: Blob): Promise<string> {
-  const body = blob;
   const headers = { "Content-Type": "application/octet-stream" };
-
-  // 1) 本地 Whisper 服务（Vite proxy 会把 /api/transcribe 转到 localhost:8080）
   try {
-    const res = await fetch("/api/transcribe", {
-      method: "POST",
-      body,
-      headers,
-    });
+    const res = await fetch("/api/transcribe", { method: "POST", body: blob, headers });
     if (res.ok) {
       const data = (await res.json()) as { text?: string };
-      if (data.text && data.text.trim()) {
-        console.info("[mydiary] transcribeAudio: 本地 Whisper 成功");
-        return data.text.trim();
-      }
+      if (data.text?.trim()) return data.text.trim();
     }
-    console.info("[mydiary] transcribeAudio: 本地服务不可用（%s），尝试云端", res.status);
-  } catch (e) {
-    console.info("[mydiary] transcribeAudio: 本地没起，尝试云端");
-  }
-
-  // 2) Fallback: Cloudflare Worker
-  const res = await fetch(`${API_BASE}/api/transcribe`, {
-    method: "POST",
-    body,
-    headers,
-  });
-  if (!res.ok) {
-    const err = await res.text().catch(() => res.statusText);
-    throw new Error(`${res.status}: ${err}`);
-  }
+  } catch {}
+  const res = await fetch(`${API_BASE}/api/transcribe`, { method: "POST", body: blob, headers });
+  if (!res.ok) throw new Error(`transcribe failed: ${res.status}`);
   const data = (await res.json()) as { text?: string };
   return data.text ?? "";
 }

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { Diary, MoodId, DiaryBlock } from "./types";
-import { loadDiaries, seedIfEmpty } from "./storage";
-import { upsertDiary as apiUpsert, deleteDiary as apiDelete } from "./api";
+import { seedIfEmpty } from "./storage";
+import { upsertDiary as apiUpsert, deleteDiary as apiDelete, listDiaries as apiListDiaries, getToken } from "./api";
+import { useAuth } from "./AuthContext";
+import LoginPage from "./components/LoginPage";
 import CalendarPage from "./components/CalendarPage";
 import EditorPage from "./components/EditorPage";
 import TrashPage from "./components/TrashPage";
@@ -59,10 +61,24 @@ function dedupeDiaries(list: Diary[]): Diary[] {
 }
 
 export default function App() {
+  const auth = useAuth();
   const [allDiaries, setAllDiaries] = useState<Diary[]>([]);
   const [loading, setLoading] = useState(true);
   const [offlineBanner, setOfflineBanner] = useState(false);
   const skipBackgroundSyncRef = useRef(false);
+
+  // 🛡️ 守卫：AuthProvider 还在验证 token → loading spinner
+  if (auth.loading) {
+    return (
+      <div className="min-h-screen bg-[#f5f0e8] flex items-center justify-center">
+        <div className="text-paper-ink2 text-sm">加载中...</div>
+      </div>
+    );
+  }
+  // 🛡️ 守卫：未登录 → LoginPage
+  if (!auth.loggedIn) {
+    return <LoginPage />;
+  }
 
   // 过滤：正常日记（未软删）和回收站（已软删）
   const diaries = allDiaries.filter((d) => !d.deletedAt);
@@ -73,10 +89,11 @@ export default function App() {
       seedIfEmpty();
 
       const raw = localStorage.getItem("mydiary-web:diaries:v1");
+      let cleaned: Diary[] = [];
       if (raw) {
         try {
-          let parsed: Diary[] = JSON.parse(raw);
-          const cleaned = dedupeDiaries(parsed);
+          const parsed: Diary[] = JSON.parse(raw);
+          cleaned = dedupeDiaries(parsed);
           if (cleaned.length !== parsed.length) {
             saveLocal(cleaned);
           }
@@ -85,18 +102,30 @@ export default function App() {
       }
       setLoading(false);
 
-      // 后台静默 sync
-      fetch(`${import.meta.env.VITE_API_BASE ?? "https://mydiary-api.mcartneyliu.workers.dev"}/api/health`)
-        .then((r) => r.ok)
-        .then(async (online) => {
-          if (!online) return;
-          const fresh = await loadDiaries().catch(() => null);
-          if (!fresh) return;
-          if (!skipBackgroundSyncRef.current) {
-            setAllDiaries(fresh);
-          }
-        })
-        .catch(() => { /* 离线 */ });
+      // 云端拉取（已登录状态下，优先用云端数据）
+      if (getToken()) {
+        apiListDiaries({ limit: 365 })
+          .then(r => {
+            if (r.diaries?.length) {
+              const mapped: Diary[] = r.diaries.map((d: any) => ({
+                id: d.id,
+                date: d.date,
+                templateId: d.template_id || "diary",
+                title: d.title || "",
+                moodId: d.mood_id || "calm",
+                tags: Array.isArray(d.tags) ? d.tags : [],
+                weather: d.weather ? JSON.parse(d.weather) : null,
+                blocks: Array.isArray(d.blocks) ? d.blocks : [],
+                createdAt: d.created_at,
+                updatedAt: d.updated_at,
+              }));
+              const merged = dedupeDiaries([...cleaned, ...mapped]);
+              setAllDiaries(merged);
+              saveLocal(merged);
+            }
+          })
+          .catch(() => { /* 离线或 token 过期，保留本地 */ });
+      }
     }
     init();
   }, []);
