@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
 import { getProfile, patchProfile, submitFeedback, type ProfileStats } from "../api";
+import TemplateLibrary from "./TemplateLibrary";
+import PaperLibrary from "./PaperLibrary";
 
 interface ProfileData {
   user: { id: string; email: string; nickname?: string; avatar?: string };
@@ -18,6 +20,7 @@ export default function ProfilePage() {
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<"profile" | "templates" | "papers">("profile");
 
   // 反馈弹窗
   const [showFeedback, setShowFeedback] = useState(false);
@@ -170,6 +173,25 @@ export default function ProfilePage() {
           </div>
         </section>
 
+        {/* Tab bar: 个人 / 模板库 / 信纸库 */}
+        <div className="flex gap-1 p-1 bg-paper-card rounded-card shadow-card border border-paper-line/50">
+          {[
+            { k: "profile", label: "👤 个人" },
+            { k: "templates", label: "📚 模板库" },
+            { k: "papers", label: "🎨 信纸库" },
+          ].map((t) => (
+            <button
+              key={t.k}
+              onClick={() => setActiveTab(t.k as any)}
+              className={`flex-1 py-2 rounded-md text-sm transition ${
+                activeTab === t.k ? "bg-white shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
+              }`}
+            >{t.label}</button>
+          ))}
+        </div>
+
+        {activeTab === "profile" && (
+        <>
         {/* 统计卡片 */}
         <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
           <h3 className="text-paper-ink2 text-xs font-medium tracking-wider uppercase mb-4">📊 写作统计</h3>
@@ -195,8 +217,21 @@ export default function ProfilePage() {
           <MenuItem icon="ℹ️" label="版本 v0.1.0" disabled />
           <MenuItem icon="❤️" label="反馈与建议" onClick={() => setShowFeedback(true)} />
         </section>
+        </>)}
 
-        {/* 退出登录 */}
+        {activeTab === "templates" && (
+          <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
+            <TemplateLibrary />
+          </section>
+        )}
+
+        {activeTab === "papers" && (
+          <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
+            <PaperLibrary />
+          </section>
+        )}
+
+        {/* 退出登录（始终显示） */}
         <button
           onClick={handleLogout}
           className="w-full py-3 rounded-card border border-red-200 bg-red-50 text-red-600 font-medium hover:bg-red-100 transition active:scale-[0.98]"

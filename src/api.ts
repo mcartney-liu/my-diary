@@ -133,6 +133,10 @@ export interface UserTemplate {
   wallpaper: string;
   show_lines: boolean;
   default_mood_id: string;
+  is_public: boolean;
+  author_id: string;
+  author_name: string;
+  is_owner: boolean;
   created_at: number;
   updated_at: number;
 }
@@ -147,8 +151,8 @@ export function saveTemplate(payload: {
   });
 }
 
-export function listTemplates() {
-  return request<{ templates: UserTemplate[] }>("/api/templates");
+export function listTemplates(scope: "mine" | "public" | "all" = "mine") {
+  return request<{ templates: UserTemplate[] }>(`/api/templates?scope=${scope}`);
 }
 
 export function deleteTemplate(id: string) {
@@ -157,4 +161,48 @@ export function deleteTemplate(id: string) {
 
 export function updateTemplate(patch: Partial<UserTemplate> & { id: string }) {
   return request<{ ok: boolean }>("/api/templates", { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export function shareTemplate(id: string, is_public: boolean) {
+  return request<{ ok: boolean }>("/api/templates/share", {
+    method: "PATCH", body: JSON.stringify({ id, is_public }),
+  });
+}
+
+// ====== Papers (信纸库) ======
+export interface UserPaper {
+  id: string;
+  name: string;
+  description: string;
+  image_data: string;
+  thumbnail: string;
+  show_lines: boolean;
+  is_public: boolean;
+  author_id: string;
+  author_name: string;
+  is_owner: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export function savePaper(payload: {
+  name: string; description?: string; image_data: string; thumbnail?: string; show_lines?: boolean;
+}) {
+  return request<{ id: string; ok: boolean }>("/api/papers", {
+    method: "POST", body: JSON.stringify(payload),
+  });
+}
+
+export function listPapers(scope: "mine" | "public" | "all" = "mine") {
+  return request<{ papers: UserPaper[] }>(`/api/papers?scope=${scope}`);
+}
+
+export function deletePaper(id: string) {
+  return request<{ ok: boolean }>(`/api/papers?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function sharePaper(id: string, is_public: boolean) {
+  return request<{ ok: boolean }>("/api/papers/share", {
+    method: "PATCH", body: JSON.stringify({ id, is_public }),
+  });
 }
