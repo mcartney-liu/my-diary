@@ -127,3 +127,13 @@ input::placeholder, textarea::placeholder {
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
+
+/* === iOS Safari 字体重绘 hack ===
+   iOS WebKit 有个已知 bug：font-display: swap + 大字体（5.6MB Ma Shan Zheng），
+   字体下载完后已渲染的文字不会自动重绘。
+   解决方案：JS 里 document.fonts.ready.then 给 html 加 .fonts-loaded，
+   然后通过 -webkit-text-stroke 强制 WebKit 重排所有文字。
+   桌面 Chrome/Android Chrome 不受影响（它们自己会正确重绘）。 */
+html.fonts-loaded * {
+  -webkit-text-stroke: 0.001px transparent;
+}
