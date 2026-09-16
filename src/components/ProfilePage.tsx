@@ -5,6 +5,8 @@ import { getProfile, patchProfile, submitFeedback, type ProfileStats } from "../
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
 
+declare const __APP_VERSION__: string;
+
 interface ProfileData {
   user: { id: string; email: string; nickname?: string; avatar?: string };
   profile: { bio?: string; theme?: string; default_mood?: string; daily_goal?: number } | null;
@@ -24,6 +26,7 @@ export default function ProfilePage() {
 
   // 反馈弹窗
   const [showFeedback, setShowFeedback] = useState(false);
+  const [showChangelog, setShowChangelog] = useState(false);
   const [fbType, setFbType] = useState("suggestion");
   const [fbTitle, setFbTitle] = useState("");
   const [fbContent, setFbContent] = useState("");
@@ -214,7 +217,7 @@ export default function ProfilePage() {
         {/* 关于 */}
         <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 overflow-hidden">
           <h3 className="text-paper-ink2 text-xs font-medium tracking-wider uppercase px-5 pt-4 pb-2">💬 关于</h3>
-          <MenuItem icon="ℹ️" label="版本 v0.1.0" disabled />
+          <MenuItem icon="ℹ️" label={`版本 v${__APP_VERSION__} · 点击看更新记录`} onClick={() => setShowChangelog(true)} />
           <MenuItem icon="❤️" label="反馈与建议" onClick={() => setShowFeedback(true)} />
         </section>
         </>)}
@@ -333,6 +336,61 @@ export default function ProfilePage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 📋 版本更新记录弹窗 */}
+      {showChangelog && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowChangelog(false)}>
+          <div
+            className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-slide-up max-h-[85vh] flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line shrink-0">
+              <h3 className="text-paper-ink font-semibold text-lg">📋 更新记录</h3>
+              <button
+                onClick={() => setShowChangelog(false)}
+                className="text-paper-ink3 hover:text-paper-ink text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-paper-surface transition"
+              >×</button>
+            </div>
+            <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
+              <div>
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-accent">v0.2.0</span>
+                  <span className="text-paper-ink3 text-xs">2026-09-16</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">🎉 新功能</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>📚 模板共享 — 创建 / 编辑 / 共享自定义模板</li>
+                    <li>🎨 信纸共享 — 上传信纸 / 一键共享</li>
+                    <li>👤 全新「我的」页面 — 3 个 Tab</li>
+                    <li>💬 反馈与建议 — 直接提交到 D1</li>
+                  </ul>
+                  <div><b className="text-paper-ink">🔧 改进</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>模板切换有内容时弹确认框</li>
+                    <li>选中色统一紫色 (violet)</li>
+                    <li>Drawer 精简，编辑/删除统一去「我的」</li>
+                  </ul>
+                </div>
+              </div>
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink3">v0.1.0</span>
+                  <span className="text-paper-ink3 text-xs">2026-09-10</span>
+                </div>
+                <div className="space-y-1 text-paper-ink3 leading-relaxed text-xs">
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>邮箱注册/登录 + JWT 鉴权</li>
+                    <li>日记 CRUD + 云端同步</li>
+                    <li>10 种 Block 组件</li>
+                    <li>8 个官方模板</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
