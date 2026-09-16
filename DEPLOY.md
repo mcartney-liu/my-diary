@@ -1,4 +1,4 @@
-# MyDiary — 部署与环境指南
+﻿# MyDiary — 部署与环境指南
 
 ## 🗺️ 架构总览
 
@@ -209,10 +209,14 @@ git push origin main                     # push 到 GitHub
 
 | 用途 | URL | 备注 |
 |---|---|---|
+| **测试隧道（当前）** | **https://oil-liberty-word-journal.trycloudflare.com** | ✅ 你测代码用这个 |
 | 生产前端 | **https://mydiary-web.pages.dev** | 发给同事这个 |
 | 生产 Worker | https://mydiary-api.mcartneyliu.workers.dev | 前端不直连，通过 Pages Functions 走同域 |
 | Dev Worker | https://mydiary-api-dev.mcartneyliu.workers.dev | 本地/dev 隧道用 |
 | GitHub | https://github.com/mcartney-liu/my-diary | 代码仓库 |
+
+> ⚠️ trycloudflare.com 是 Quick Tunnel（免费无账号），cloudflared 挂了重启后地址会变。
+> 如果隧道挂了，我重新跑 cloudflared tunnel --url http://localhost:5173 拿新地址。
 
 ---
 
@@ -227,3 +231,4 @@ git push origin main                     # push 到 GitHub
 ---
 
 **记住：改后端 = 先 dev 测，再 prod。改前端 = 本地测了就 deploy 就行。**
+
