@@ -458,19 +458,22 @@ export default function ProfilePage() {
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
-                  <div><b className="text-paper-ink">🖋️ 新功能</b></div>
+                  <div><b className="text-paper-ink">🎉 新功能</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>🖋️ 字体自定义 — 我的→设置→字体样式，三种可选
+                    <li>💾 <b>日记 Block 软删除</b> — 删除后划掉 + 恢复按钮，确认后才真正删除</li>
+                    <li>✍️ <b>继续书写</b> — 编辑器底部直接写，不用点按钮新建 block</li>
+                    <li>📚 <b>模板/信纸共享系统</b> — 共享给所有人、带作者信息</li>
+                    <li>🖋️ <b>字体自定义</b> — 我的→设置→字体样式，三种可选
                       <span className="text-paper-ink3 text-xs ml-1">（全手写推荐 / 钢笔中文 / 系统默认）</span>
                     </li>
-                    <li>全局生效：标题、按钮、日历、编辑器文字全部跟着变</li>
-                    <li>设置自动保存，下次打开自动恢复</li>
+                    <li>🧪 <b>Dev Pages 测试环境</b> — mydiary-web-dev.pages.dev，永久不变</li>
                   </ul>
                   <div><b className="text-paper-ink">🐛 修复</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>iOS Safari 中文不手写 — 强制重绘 hack</li>
+                    <li>删除后恢复功能 — 修了很久的核心交互</li>
+                    <li>iOS Safari 中文不手写 — font-display:swap + 大字体不自动重绘</li>
                     <li>Tailwind preflight 覆盖手写字体 — html+body 双重保险</li>
-                    <li>字体栈顺序修复：Kalam 放第一位覆盖英文数字</li>
+                    <li>字体栈顺序：Kalam 放第一位覆盖英文数字</li>
                   </ul>
                 </div>
               </div>

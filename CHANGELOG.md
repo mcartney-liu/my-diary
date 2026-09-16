@@ -4,15 +4,20 @@
 
 ### 🎉 新功能
 
+- **💾 日记 Block 软删除** — 删除后划掉显示 + 恢复按钮，二次确认后才真正删除（修了很久的核心交互）
+- **✍️ 继续书写** — 编辑器底部直接写新内容，不用点按钮新建 block
+- **📚 模板/信纸共享系统** — 共享给所有人、带作者信息
 - **🖋️ 字体自定义** — 「我的 → 设置 → 字体样式」三种可选
   - ✍️ 全手写（推荐）：中文钢笔 + 英文手写
   - 🖋️ 钢笔中文：中文手写、英文印刷
   - 📝 系统默认：简洁印刷体
   - 设置自动保存到 localStorage，下次打开自动恢复
   - 全局生效：标题、按钮、日历、编辑器文字全部跟着变
+- **🧪 Dev Pages 测试环境** — mydiary-web-dev.pages.dev，永久不变，前端 Pages Functions 按 host 自动连 dev/prod Worker
 
 ### 🐛 Bug 修复
 
+- **删除后恢复功能** — 软删除后能恢复的核心交互 bug
 - **iOS Safari 中文字体不手写** — WebKit 的 font-display: swap + 5.6MB 大字体，下载完后已渲染文字不自动重绘。通过 document.fonts.ready + -webkit-text-stroke hack 强制重排
 - **Tailwind preflight 覆盖手写字体** — Tailwind 给 html 注入了 PingFang SC，之前只给 body 设手写体导致被覆盖。现在 html 和 body 同时设
 - **Kalam 放字体栈第一位** — 之前顺序反了导致英文数字回退到印刷楷体
@@ -25,13 +30,15 @@
 
 | 文件 | 改动 |
 |------|------|
-| src/components/ProfilePage.tsx | 字体设置 + FontPicker Modal |
+| src/components/ProfilePage.tsx | 字体设置 + FontPicker Modal + changelog 弹窗 |
+| src/components/EditorPage.tsx | Block 软删除 + 底部续写 textarea |
 | src/index.css | Tailwind preflight 覆盖 + iOS 重绘 hack |
 | src/main.tsx | 启动时恢复 html/body[data-font] + iOS 重绘触发 |
+| functions/api/\[\[path\]\].js | Pages Functions 按 host 智能路由 |
 | workers/wrangler.toml | dev/prod 双环境配置 |
 | DEPLOY.md | 完整运维手册（全新重写）|
 | CHANGELOG.md | v0.2.1 版本记录 |
-| package.json | 版本 0.2.0 → 0.2.1 |
+| package.json / vite.config.ts | 版本 0.2.0 → 0.2.1 |
 
 ---
 
