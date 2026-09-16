@@ -1,13 +1,16 @@
-// Cloud API client — talks to Cloudflare Workers (via Pages Functions proxy on same domain)
-// 自动注入 Bearer token，token 存 localStorage
+// Cloud API client — talks to Cloudflare Workers
+// 开发环境: 直连 dev Worker 绝对地址 (绕开 Vite proxy —— Node.js 在本 Windows 上连不了海外 HTTPS)
+// 生产环境: 相对路径走 Pages Functions 同域代理 (绕开 iPhone Safari 对 workers.dev 的封锁)
 
 import type { Diary } from "./types";
 
-// 默认相对路径 —— 走 Pages Functions (/functions/api.js) 同域代理
-// 开发环境或需要直连 Worker 时可设 VITE_API_BASE
+// DEV → 绝对地址 dev Worker
+// PROD → 空字符串 → 相对路径 /api/* → Pages Functions 代理
+// 可通过 VITE_API_BASE 环境变量覆盖
+const envBase = (import.meta as unknown as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE;
 export const API_BASE =
-  (import.meta as unknown as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE ??
-  "";
+  envBase !== undefined ? envBase :
+  (import.meta.env.DEV ? "https://mydiary-api-dev.mcartneyliu.workers.dev" : "");
 
 const TOKEN_KEY = "mydiary-web:auth:token";
 
