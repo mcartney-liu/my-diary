@@ -99,16 +99,6 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             >
               🗑️
             </button>
-            <button
-              onClick={() => nav("/profile")}
-              title="我的"
-              className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95"
-            >
-              👤
-            </button>
-            <button onClick={() => nav("/editor")} className="btn-primary flex items-center gap-1.5 text-sm">
-              <span className="text-base leading-none">＋</span> 写日记
-            </button>
           </div>
         </div>
       </header>
@@ -282,10 +272,31 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
         ) : null;
       })()}
 
-      {/* 📱 底部固定操作栏 */}
-      <nav className="fixed bottom-0 inset-x-0 z-20 backdrop-blur-sm bg-[#faf6ef]/90 border-t border-paper-line">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-center">
-          <VoiceQuickEntry />
+      {/* 📱 底部固定 Tab Bar */}
+      <nav className="fixed bottom-0 inset-x-0 z-20 backdrop-blur-sm bg-[#faf6ef]/95 border-t border-paper-line">
+        <div className="max-w-3xl mx-auto px-4 py-2 flex items-center justify-between">
+          {/* 左边：我的 */}
+          <button
+            onClick={() => nav("/profile")}
+            className="flex flex-col items-center gap-0.5 px-4 py-2 rounded-xl text-paper-ink2 hover:text-paper-accent transition active:scale-95"
+          >
+            <span className="text-xl leading-none">👤</span>
+            <span className="text-[11px] font-medium">我的</span>
+          </button>
+
+          {/* 中间：AI 速记 */}
+          <div className="flex flex-col items-center gap-0.5">
+            <VoiceQuickEntry />
+          </div>
+
+          {/* 右边：写日记 */}
+          <button
+            onClick={() => nav("/editor")}
+            className="flex flex-col items-center gap-0.5 px-4 py-2 rounded-xl text-paper-ink2 hover:text-paper-accent transition active:scale-95"
+          >
+            <span className="text-xl leading-none">✏️</span>
+            <span className="text-[11px] font-medium">写日记</span>
+          </button>
         </div>
       </nav>
     </div>
