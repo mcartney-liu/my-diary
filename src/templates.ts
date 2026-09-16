@@ -32,7 +32,7 @@ function divider(): DiaryBlock {
 function check(content: string, checked = false): DiaryBlock {
   return { id: uid("b"), kind: "checkbox", content, checked };
 }
-function fi(direction: "expense" | "income", category: string, value = 0, content = ""): DiaryBlock {
+function fi(direction: "expense" | "income", category: string, value: number | undefined = undefined, content = ""): DiaryBlock {
   return { id: uid("f"), kind: "finance_item", content, direction, category, value };
 }
 function book(title: string, author = "", totalPages = 200, currentPage = 0): DiaryBlock {
@@ -61,8 +61,8 @@ export const TEMPLATES: DiaryTemplate[] = [
     description: "多条流水 + 分类 + 自动计算",
     defaultBlocks: [
       heading("💰 今日流水", 2),
-      fi("expense", "food", 0, ""),
-      fi("income", "salary", 0, ""),
+      fi("expense", "food", undefined, ""),
+      fi("income", "salary", undefined, ""),
       divider(),
       heading("备注", 3),
       tb(""),

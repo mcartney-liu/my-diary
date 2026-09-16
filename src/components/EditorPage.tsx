@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
@@ -723,7 +723,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       id: uid("f"),
       kind: "finance_item",
       content: "",       // 备注
-      value: 0,
+      value: undefined,  // 🔑 不预填 0，用 placeholder 提示，避免 05 问题
       direction,
       category: defaultCat,
     };
@@ -2348,7 +2348,11 @@ function FinanceItemRow({
           type="number"
           inputMode="decimal"
           value={block.value ?? ""}
-          onChange={(e) => onChange({ value: e.target.value ? Number(e.target.value) : 0 } as Partial<DiaryBlock>)}
+          onChange={(e) => {
+            const raw = e.target.value;
+            // 🔑 空字符串 → undefined（不预填 0），有值才转 Number
+            onChange({ value: raw === "" ? undefined : Number(raw) } as Partial<DiaryBlock>);
+          }}
           placeholder="0"
           className="w-16 bg-transparent outline-none text-lg font-bold text-paper-ink text-right min-w-0"
         />
