@@ -1,5 +1,2 @@
-# /api/* -> Pages Functions
-/api/*  200
-
-# SPA fallback
+﻿# SPA fallback
 /*  /index.html  200
