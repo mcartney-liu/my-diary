@@ -21,16 +21,17 @@
 html, body, #root { height: 100%; }
 
 /* === 全局字体（用户可在"我的 → 设置 → 字体样式"里切换） === */
-/* ⚠️ 注意：Kalam 必须放第一位！它覆盖 Latin（英文/数字），
+/* ⚠️ Tailwind preflight 会给 html 注入 fontFamily.sans（PingFang SC），
+   所以我们必须在 @tailwind 之后给 html 设手写字体覆盖它！
+   注意：Kalam 放第一位覆盖 Latin（英文/数字），
    Ma Shan Zheng 覆盖 CJK（中文/日文）。顺序反了 Latin 会 fallback 到印刷楷体 */
-/* hand: 全手写 — Kalam 覆盖 Latin，Ma Shan Zheng 覆盖 CJK */
-body[data-font="hand"]    { font-family: "Kalam", "Ma Shan Zheng", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif; }
-/* pen: 钢笔中文 — Ma Shan Zheng 优先，Latin fallback 楷体 */
-body[data-font="pen"]     { font-family: "Ma Shan Zheng", "Kalam", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif; }
-/* sans: 系统默认印刷体 */
-body[data-font="sans"]    { font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", system-ui, sans-serif; }
-/* 默认：全手写 */
-body                      { font-family: "Kalam", "Ma Shan Zheng", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif; }
+
+html[data-font="hand"],  body[data-font="hand"]  { font-family: "Kalam", "Ma Shan Zheng", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif; }
+html[data-font="pen"],   body[data-font="pen"]   { font-family: "Ma Shan Zheng", "Kalam", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif; }
+html[data-font="sans"],  body[data-font="sans"]  { font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", system-ui, sans-serif; }
+/* 默认：全手写 — 同时覆盖 html 和 body，双重保险 */
+html                       { font-family: "Kalam", "Ma Shan Zheng", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif; }
+body                       { font-family: "Kalam", "Ma Shan Zheng", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif; }
 
 body {
   margin: 0;

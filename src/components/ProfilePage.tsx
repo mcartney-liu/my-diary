@@ -49,9 +49,11 @@ export default function ProfilePage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // ===== 字体切换：fontSetting 变化 → localStorage + body[data-font] =====
+  // ===== 字体切换：fontSetting 变化 → localStorage + html/body[data-font] =====
+  // ⚠️ 必须同时设 html 和 body — Tailwind preflight 会给 html 注入 PingFang SC
   useEffect(() => {
     localStorage.setItem("mydiary_font", fontSetting);
+    document.documentElement.setAttribute("data-font", fontSetting);
     document.body.setAttribute("data-font", fontSetting);
   }, [fontSetting]);
 
