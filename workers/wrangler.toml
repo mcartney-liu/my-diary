@@ -1,11 +1,23 @@
-name = "mydiary-api"
+﻿name = "mydiary-api"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
 [vars]
-JWT_SECRET = "change-me-in-dashboard-use-32-chars-minimum"  # 部署后在 CF Dashboard 改
+JWT_SECRET = "change-me-in-dashboard-use-32-chars-minimum"
 
+# ====== 生产环境（默认） ======
 [[d1_databases]]
 binding = "DB"
 database_name = "mydiary-db"
 database_id = "ed7e7954-5f55-439c-a76a-228f1124512b"
+
+# ====== 测试环境 ======
+[env.dev]
+name = "mydiary-api-dev"
+[env.dev.vars]
+JWT_SECRET = "dev-secret-change-me-please-32chars!"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "mydiary-db-dev"
+database_id = "fb45cce8-c051-4f20-a560-ea2dc3cadb26"

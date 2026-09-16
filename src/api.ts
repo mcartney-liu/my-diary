@@ -1,11 +1,13 @@
-// Cloud API client — talks to Cloudflare Workers
+// Cloud API client — talks to Cloudflare Workers (via Pages Functions proxy on same domain)
 // 自动注入 Bearer token，token 存 localStorage
 
 import type { Diary } from "./types";
 
+// 默认相对路径 —— 走 Pages Functions (/functions/api.js) 同域代理
+// 开发环境或需要直连 Worker 时可设 VITE_API_BASE
 export const API_BASE =
   (import.meta as unknown as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE ??
-  "https://mydiary-api.mcartneyliu.workers.dev";
+  "";
 
 const TOKEN_KEY = "mydiary-web:auth:token";
 

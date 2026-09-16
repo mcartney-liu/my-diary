@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MyDiary API — Cloudflare Worker
  * Routes:
  *   POST   /api/auth/register    注册
@@ -12,18 +12,39 @@
  */
 import { hashPassword, verifyPassword, genSalt, signJWT, verifyJWT, authUser } from "./auth.js";
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+const ALLOWED_ORIGINS = [
+  "https://mydiary-web.pages.dev",
+  /\.mydiary-web\.pages\.dev$/,  // 允许所有 hash 快照域名
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5180",
+  "http://localhost:5181",
+  "http://localhost:5182",
+];
+
+function buildCors(request) {
+  const origin = request.headers.get("Origin") || "";
+  const allowOrigin = ALLOWED_ORIGINS.some(o =>
+    typeof o === "string" ? o === origin : o.test(origin)
+  ) ? origin : "*";
+
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Max-Age": "86400",  // iOS Safari: 缓存 preflight 24h
+    "Vary": "Origin",
+  };
+}
 
 export default {
   async fetch(request, env, ctx) {
     // CORS preflight
     if (request.method === "OPTIONS") {
-      return new Response("", { headers: CORS });
+      return new Response("", { headers: buildCors(request) });
     }
+    globalThis._curReq = request;  // 让 json() 能拿到 request
 
     const url = new URL(request.url);
     const path = url.pathname;
@@ -57,7 +78,8 @@ export default {
 
 // ====== helpers ======
 function json(obj, status = 200) {
-  return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...CORS } });
+  const cors = buildCors(globalThis._curReq || { headers: { get: () => null } });
+  return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...cors } });
 }
 function uuid() {
   return crypto.randomUUID();
@@ -246,3 +268,4 @@ async function handlePatchProfile(request, env, JWT_SECRET) {
 
   return json({ ok: true });
 }
+

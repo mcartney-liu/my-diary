@@ -67,19 +67,6 @@ export default function App() {
   const [offlineBanner, setOfflineBanner] = useState(false);
   const skipBackgroundSyncRef = useRef(false);
 
-  // 🛡️ 守卫：AuthProvider 还在验证 token → loading spinner
-  if (auth.loading) {
-    return (
-      <div className="min-h-screen bg-[#f5f0e8] flex items-center justify-center">
-        <div className="text-paper-ink2 text-sm">加载中...</div>
-      </div>
-    );
-  }
-  // 🛡️ 守卫：未登录 → LoginPage
-  if (!auth.loggedIn) {
-    return <LoginPage />;
-  }
-
   // 过滤：正常日记（未软删）和回收站（已软删）
   const diaries = allDiaries.filter((d) => !d.deletedAt);
   const deletedDiaries = allDiaries.filter((d) => !!d.deletedAt);
@@ -214,6 +201,18 @@ export default function App() {
       apiDelete(id).catch(() => {});
     }
   };
+
+  // 🛡️ 守卫（所有 Hook 必须在条件 return 之前已声明）
+  if (auth.loading) {
+    return (
+      <div className="min-h-screen bg-[#f5f0e8] flex items-center justify-center">
+        <div className="text-paper-ink2 text-sm">加载中...</div>
+      </div>
+    );
+  }
+  if (!auth.loggedIn) {
+    return <LoginPage />;
+  }
 
   if (loading) {
     return (
