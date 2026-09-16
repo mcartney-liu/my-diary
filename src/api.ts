@@ -114,7 +114,7 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
 
 // ====== Feedback ======
 export function submitFeedback(payload: { type?: string; title?: string; content: string; app_version?: string; device?: string }) {
-  return authedFetch(`${API_BASE}/api/feedback`, {
+  return request("/api/feedback", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ app_version: "0.1.0", ...payload }),
