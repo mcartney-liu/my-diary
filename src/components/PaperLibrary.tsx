@@ -58,6 +58,12 @@ export default function PaperLibrary() {
 
   return (
     <div className="space-y-4">
+      {/* 温暖说明 */}
+      <div className="text-[12px] text-paper-ink2 italic leading-relaxed px-1">
+        🎨 一张好的信纸，能让文字也变得温柔。建议上传浅色、低对比度的底图，这样写起字来才不费眼睛。
+        喜欢的信纸可以共享出去，让大家一起用你发现的美好。
+      </div>
+
       <div className="flex items-center justify-between">
         <div className="flex gap-1 p-1 bg-paper-surface rounded-xl border border-paper-line">
           <button

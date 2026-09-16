@@ -128,6 +128,12 @@ export default function TemplateLibrary() {
 
   return (
     <div className="space-y-4">
+      {/* 温暖说明 */}
+      <div className="text-[12px] text-paper-ink2 italic leading-relaxed px-1">
+        🌿 模板是你写作习惯的容器 —— 把常用的标题、待办、记账组合存下来，下次写日记一键套用。
+        喜欢的模板也可以共享出去，让更多人感受到你的节奏。
+      </div>
+
       {/* Tab bar */}
       <div className="flex items-center justify-between">
         <div className="flex gap-1 p-1 bg-paper-surface rounded-xl border border-paper-line">
