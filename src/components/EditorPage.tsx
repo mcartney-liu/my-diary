@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
-import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus } from "lucide-react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus, Pencil } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
-import { transcribeAudio, listTemplates, saveTemplate, deleteTemplate, type UserTemplate } from "../api";
+import { transcribeAudio, listTemplates, saveTemplate, updateTemplate, deleteTemplate, type UserTemplate } from "../api";
 import { polishTranscript, recommendBooks, kickoffBookNote, type BookRecommendation } from "../ai";
 import { fetchWeather, fetchLocation, fetchLocationAuto, type LocationResult } from "../weather";
 import { fetchNearbyPois, type Poi } from "../services/poi";
@@ -270,6 +270,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const [builderIcon, setBuilderIcon] = useState("📋");
   const [builderKinds, setBuilderKinds] = useState<string[]>([]);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<UserTemplate | null>(null);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
   const [saveToast, setSaveToast] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -382,7 +383,28 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     setShowTemplateMenu(false);
   }
 
-  // ===== 自定义模板 Builder =====
+  // ===== 模板 Builder =====
+  const COMPONENT_LABELS: Record<string, string> = {
+    heading: "标题", text: "文字", divider: "分割线", checkbox: "待办",
+    number: "数字", finance_item: "记账", quote: "摘抄", book: "读书笔记",
+  };
+
+  function blocksSummary(blocks: DiaryBlock[]): string {
+    // 去重 + 保留顺序
+    const seen = new Set<string>();
+    const types: string[] = [];
+    for (const b of blocks) {
+      if (!seen.has(b.kind)) {
+        seen.add(b.kind);
+        types.push(b.kind);
+      }
+    }
+    const labels = types.map((k) => COMPONENT_LABELS[k] || k);
+    if (labels.length === 0) return "空模板";
+    if (labels.length <= 3) return labels.join(" + ");
+    return labels.slice(0, 2).join(" + ") + ` +${labels.length - 2}`;
+  }
+
   const AVAILABLE_COMPONENTS = [
     { kind: "heading", label: "标题", icon: "📌" },
     { kind: "text", label: "文字", icon: "📝" },
@@ -406,7 +428,6 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
     setSavingTemplate(true);
     try {
-      // 根据勾选的组件生成初始 blocks
       const newBlocks: DiaryBlock[] = builderKinds.map((kind) => {
         const base = { id: uid("b"), kind } as DiaryBlock;
         switch (kind) {
@@ -422,21 +443,32 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
         }
       });
 
-      await saveTemplate({
-        name: builderName.trim(),
-        icon: builderIcon,
-        blocks: newBlocks,
-      });
+      if (editingTemplate) {
+        // 编辑模式 → 更新
+        await updateTemplate({
+          id: editingTemplate.id,
+          name: builderName.trim(),
+          icon: builderIcon,
+          blocks: newBlocks,
+        });
+      } else {
+        // 新建模式
+        await saveTemplate({
+          name: builderName.trim(),
+          icon: builderIcon,
+          blocks: newBlocks,
+        });
+      }
 
-      // 清空表单 & 关闭
+      // 清空
       setBuilderName("");
       setBuilderIcon("📋");
       setBuilderKinds([]);
+      setEditingTemplate(null);
       setShowCustomBuilder(false);
 
-      // 重新拉列表
       await loadMyTemplates();
-      alert("✅ 模板已保存！下次在模板选择里就能看到了");
+      alert(editingTemplate ? "✅ 模板已更新" : "✅ 模板已保存！下次在模板选择里就能看到了");
     } catch (e: any) {
       alert("保存失败: " + (e?.message || e));
     } finally {
@@ -2236,20 +2268,21 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                       还没有自定义模板，点下面按钮创建
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-2.5">
                       {myTemplates.map((tpl) => {
                         const selected = templateId === `custom-${tpl.id}`;
+                        const kindsFromBlocks = [...new Set(tpl.blocks.map((b) => b.kind))];
                         return (
-                          <div key={tpl.id} className="relative group">
+                          <div key={tpl.id} className="flex items-center gap-2 group">
                             <button
                               onClick={() => applyMyTemplate(tpl)}
-                              className={`w-full p-3 rounded-xl border-2 text-left transition ${
+                              className={`flex-1 p-3 rounded-xl border-2 text-left transition ${
                                 selected
                                   ? "border-violet-400 ring-2 ring-violet-200 bg-violet-50/50"
                                   : "border-paper-line hover:border-paper-ink2 hover:bg-paper-surface"
                               }`}
                             >
-                              <div className="flex items-center gap-2 mb-1">
+                              <div className="flex items-center gap-2 mb-0.5">
                                 <span className="text-xl">{tpl.icon}</span>
                                 <span className={`font-medium text-sm ${selected ? "text-violet-900" : "text-paper-ink"}`}>
                                   {tpl.name}
@@ -2257,15 +2290,33 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                                 {selected && <span className="ml-auto w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center">✓</span>}
                               </div>
                               <div className="text-[11px] text-paper-ink2 leading-tight">
-                                {tpl.blocks.length} 个组件
+                                {blocksSummary(tpl.blocks)}
                               </div>
-                              <span className="absolute top-1 right-1 text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">我</span>
                             </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); if (confirm(`删除模板"${tpl.name}"？`)) deleteMyTemplate(tpl.id); }}
-                              className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 text-white text-xs hidden group-hover:flex items-center justify-center hover:bg-red-600 shadow"
-                              title="删除"
-                            >×</button>
+                            {/* 操作按钮 — 右侧竖排，hover 时显现 */}
+                            <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition">
+                              <button
+                                title="编辑"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingTemplate(tpl);
+                                  setBuilderName(tpl.name);
+                                  setBuilderIcon(tpl.icon);
+                                  setBuilderKinds(kindsFromBlocks);
+                                  setShowCustomBuilder(true);
+                                  setShowTemplateMenu(false);
+                                }}
+                                className="w-8 h-8 rounded-lg bg-paper-surface border border-paper-line text-paper-ink2 hover:border-violet-300 hover:text-violet-500 hover:bg-violet-50 flex items-center justify-center transition"
+                              ><Pencil size={13} /></button>
+                              <button
+                                title="删除"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`删除模板"${tpl.name}"？`)) deleteMyTemplate(tpl.id);
+                                }}
+                                className="w-8 h-8 rounded-lg bg-paper-surface border border-paper-line text-paper-ink2 hover:border-red-200 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition"
+                              ><Trash2 size={13} /></button>
+                            </div>
                           </div>
                         );
                       })}
@@ -2297,9 +2348,9 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between px-5 py-3 border-b border-paper-line">
-                <h3 className="font-semibold text-paper-ink">✏️ 自定义模板</h3>
+                <h3 className="font-semibold text-paper-ink">✏️ {editingTemplate ? "编辑模板" : "自定义模板"}</h3>
                 <button
-                  onClick={() => { setShowCustomBuilder(false); setBuilderName(""); setBuilderKinds([]); }}
+                  onClick={() => { setShowCustomBuilder(false); setBuilderName(""); setBuilderKinds([]); setEditingTemplate(null); }}
                   className="w-8 h-8 rounded-full hover:bg-paper-surface flex items-center justify-center text-paper-ink2"
                 >✕</button>
               </div>
@@ -2383,7 +2434,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
               <div className="px-5 py-3 border-t border-paper-line flex gap-3">
                 <button
-                  onClick={() => { setShowCustomBuilder(false); setBuilderName(""); setBuilderKinds([]); }}
+                  onClick={() => { setShowCustomBuilder(false); setBuilderName(""); setBuilderKinds([]); setEditingTemplate(null); }}
                   className="flex-1 py-2.5 rounded-xl border border-paper-line text-paper-ink2 hover:bg-paper-surface text-sm"
                 >取消</button>
                 <button

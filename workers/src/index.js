@@ -72,6 +72,11 @@ export default {
       ["GET",    "/api/templates",       handleListTemplates],
       ["DELETE", "/api/templates",       handleDeleteTemplate],
       ["PATCH",  "/api/templates",       handleUpdateTemplate],
+      ["PATCH",  "/api/templates/share", handleShareTemplate],
+      ["POST",   "/api/papers",          handleSavePaper],
+      ["GET",    "/api/papers",          handleListPapers],
+      ["DELETE", "/api/papers",          handleDeletePaper],
+      ["PATCH",  "/api/papers/share",    handleSharePaper],
     ];
 
     for (const [method, p, handler] of routes) {
@@ -328,15 +333,18 @@ async function handleSaveTemplate(request, env, JWT_SECRET) {
   if (!name || !name.trim()) return json({ error: "name required" }, 400);
   if (!blocks.length) return json({ error: "blocks required" }, 400);
 
+  // 拿 author_name
+  const u = await env.DB.prepare("SELECT nickname FROM users WHERE id = ?").bind(user.uid).first();
   const now = Date.now();
   const id = uuid();
 
   await env.DB.prepare(
-    `INSERT INTO templates (id, user_id, name, icon, description, blocks, default_title, default_tags, wallpaper, show_lines, default_mood_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO templates (id, user_id, name, icon, description, blocks, default_title, default_tags, wallpaper, show_lines, default_mood_id, is_public, author_name, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
   ).bind(id, user.uid, name.trim(), icon, description,
      JSON.stringify(blocks), default_title, JSON.stringify(default_tags),
-     wallpaper, show_lines ? 1 : 0, default_mood_id, now, now).run();
+     wallpaper, show_lines ? 1 : 0, default_mood_id,
+     u?.nickname || user.uid.slice(0, 8), now, now).run();
 
   return json({ id, ok: true });
 }
@@ -345,9 +353,23 @@ async function handleListTemplates(request, env, JWT_SECRET) {
   const user = await authUser(request, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
 
-  const rows = await env.DB.prepare(
-    "SELECT * FROM templates WHERE user_id = ? ORDER BY updated_at DESC"
-  ).bind(user.uid).all();
+  const q = new URL(request.url).searchParams;
+  const scope = q.get("scope") || "mine"; // mine | public | all
+
+  let rows;
+  if (scope === "mine") {
+    rows = await env.DB.prepare(
+      "SELECT * FROM templates WHERE user_id = ? ORDER BY updated_at DESC"
+    ).bind(user.uid).all();
+  } else if (scope === "public") {
+    rows = await env.DB.prepare(
+      "SELECT * FROM templates WHERE is_public = 1 ORDER BY updated_at DESC LIMIT 100"
+    ).all();
+  } else {
+    rows = await env.DB.prepare(
+      "SELECT * FROM templates WHERE user_id = ? OR is_public = 1 ORDER BY updated_at DESC LIMIT 100"
+    ).bind(user.uid).all();
+  }
 
   const out = rows.results.map(r => ({
     id: r.id,
@@ -360,6 +382,10 @@ async function handleListTemplates(request, env, JWT_SECRET) {
     wallpaper: r.wallpaper,
     show_lines: r.show_lines === 1,
     default_mood_id: r.default_mood_id,
+    is_public: r.is_public === 1,
+    author_id: r.user_id,
+    author_name: r.author_name || "",
+    is_owner: r.user_id === user.uid,
     created_at: r.created_at,
     updated_at: r.updated_at,
   }));
@@ -412,6 +438,117 @@ async function handleUpdateTemplate(request, env, JWT_SECRET) {
   values.push(now, id, user.uid);
 
   await env.DB.prepare(`UPDATE templates SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`).bind(...values).run();
+  return json({ ok: true });
+}
+
+async function handleShareTemplate(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const body = await readBody(request);
+  const { id, is_public } = body;
+  if (!id) return json({ error: "id required" }, 400);
+
+  const u = await env.DB.prepare("SELECT nickname FROM users WHERE id = ?").bind(user.uid).first();
+  const now = Date.now();
+
+  await env.DB.prepare(
+    "UPDATE templates SET is_public = ?, author_name = COALESCE(author_name, ?), updated_at = ? WHERE id = ? AND user_id = ?"
+  ).bind(is_public ? 1 : 0, u?.nickname || "", now, id, user.uid).run();
+
+  return json({ ok: true });
+}
+
+// ====== Papers (信纸库) ======
+async function handleSavePaper(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const body = await readBody(request);
+  const { name, description = "", image_data, thumbnail = "", show_lines = 1 } = body;
+  if (!name || !name.trim()) return json({ error: "name required" }, 400);
+  if (!image_data) return json({ error: "image_data required" }, 400);
+
+  const u = await env.DB.prepare("SELECT nickname FROM users WHERE id = ?").bind(user.uid).first();
+  const now = Date.now();
+  const id = uuid();
+
+  await env.DB.prepare(
+    `INSERT INTO papers (id, user_id, name, description, image_data, thumbnail, show_lines, is_public, author_name, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+  ).bind(id, user.uid, name.trim(), description, image_data, thumbnail,
+     show_lines ? 1 : 0, u?.nickname || user.uid.slice(0, 8), now, now).run();
+
+  return json({ id, ok: true });
+}
+
+async function handleListPapers(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const q = new URL(request.url).searchParams;
+  const scope = q.get("scope") || "mine";
+
+  let rows;
+  if (scope === "mine") {
+    rows = await env.DB.prepare(
+      "SELECT * FROM papers WHERE user_id = ? ORDER BY updated_at DESC"
+    ).bind(user.uid).all();
+  } else if (scope === "public") {
+    rows = await env.DB.prepare(
+      "SELECT * FROM papers WHERE is_public = 1 ORDER BY updated_at DESC LIMIT 100"
+    ).all();
+  } else {
+    rows = await env.DB.prepare(
+      "SELECT * FROM papers WHERE user_id = ? OR is_public = 1 ORDER BY updated_at DESC LIMIT 100"
+    ).bind(user.uid).all();
+  }
+
+  const out = rows.results.map(r => ({
+    id: r.id,
+    name: r.name,
+    description: r.description,
+    image_data: r.image_data,
+    thumbnail: r.thumbnail,
+    show_lines: r.show_lines === 1,
+    is_public: r.is_public === 1,
+    author_id: r.user_id,
+    author_name: r.author_name || "",
+    is_owner: r.user_id === user.uid,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  }));
+
+  return json({ papers: out });
+}
+
+async function handleDeletePaper(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const q = new URL(request.url).searchParams;
+  const id = q.get("id");
+  if (!id) return json({ error: "id required" }, 400);
+
+  await env.DB.prepare("DELETE FROM papers WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+  return json({ ok: true });
+}
+
+async function handleSharePaper(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const body = await readBody(request);
+  const { id, is_public } = body;
+  if (!id) return json({ error: "id required" }, 400);
+
+  const u = await env.DB.prepare("SELECT nickname FROM users WHERE id = ?").bind(user.uid).first();
+  const now = Date.now();
+
+  await env.DB.prepare(
+    "UPDATE papers SET is_public = ?, author_name = COALESCE(author_name, ?), updated_at = ? WHERE id = ? AND user_id = ?"
+  ).bind(is_public ? 1 : 0, u?.nickname || "", now, id, user.uid).run();
+
   return json({ ok: true });
 }
 
