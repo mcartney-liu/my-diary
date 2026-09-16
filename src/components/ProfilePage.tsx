@@ -358,7 +358,7 @@ export default function ProfilePage() {
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-bold text-paper-accent">v0.2.0</span>
-                  <span className="text-paper-ink3 text-xs">2026-09-16</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月16日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
@@ -379,7 +379,7 @@ export default function ProfilePage() {
               <div className="border-t border-paper-line pt-4">
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-bold text-paper-ink3">v0.1.0</span>
-                  <span className="text-paper-ink3 text-xs">2026-09-10</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月10日</span>
                 </div>
                 <div className="space-y-1 text-paper-ink3 leading-relaxed text-xs">
                   <ul className="list-disc pl-5 space-y-1">

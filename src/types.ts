@@ -14,6 +14,7 @@ export interface DiaryBlock {
   kind: BlockKind;
   content: string;           // text: 文本 / image: dataURL / audio: dataURL / heading: 标题 / checkbox: 标签 / finance_item: 备注
   durationMs?: number;       // 仅 audio
+  deleted?: boolean;         // 软删除：划掉但还在，保存时才真删
   // === 扩展 kind 的可选字段 ===
   level?: 1 | 2 | 3;         // heading: 标题级别，默认 2
   label?: string;            // number: "支出" / "收入" 等

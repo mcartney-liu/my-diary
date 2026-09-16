@@ -309,6 +309,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   // 暂存切换模板时选中的目标模板
   const pendingTplRef = useRef<string | undefined>(undefined);
   const pendingCustomTplRef = useRef<UserTemplate | undefined>(undefined);
+  const pendingFocusIdRef = useRef<string | null>(null);  // addBlock 后需要自动 focus 的 block id
 
   // ===== 模板管理 =====
   async function loadMyTemplates() {
@@ -690,11 +691,11 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const updateBlock = (id: string, patch: Partial<DiaryBlock>) => {
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
   };
-  const removeBlock = (id: string) => {
-    setBlocks((prev) => {
-      const next = prev.filter((b) => b.id !== id);
-      return next.length ? next : [{ id: uid("b"), kind: "text" as const, content: "" }];
-    });
+  const markDeleted = (id: string) => {
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, deleted: true } : b)));
+  };
+  const restoreBlock = (id: string) => {
+    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, deleted: false } : b)));
   };
 
   // === 记账自动计算 ===
@@ -707,6 +708,28 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       else expense += it.value!;
     }
     return { expense, income, balance: income - expense, count: items.length };
+  }, [blocks]);
+
+  // addBlock 后自动 focus 新的 text block（iOS 键盘弹出来）
+  useEffect(() => {
+    const targetId = pendingFocusIdRef.current;
+    console.log("[focus] blocks changed, pendingFocusId:", targetId, "blocks count:", blocks.length);
+    if (!targetId) return;
+    // 在下一帧 DOM 渲染完后找 textarea focus
+    requestAnimationFrame(() => {
+      const sel = `[data-block-id="${targetId}"] textarea`;
+      console.log("[focus] selector:", sel);
+      const ta = document.querySelector<HTMLTextAreaElement>(sel);
+      console.log("[focus] found textarea?", !!ta);
+      if (ta) {
+        ta.focus();
+        console.log("[focus] focused! activeElement:", document.activeElement?.tagName);
+        // 光标移到末尾
+        const len = ta.value.length;
+        ta.setSelectionRange(len, len);
+      }
+      pendingFocusIdRef.current = null;
+    });
   }, [blocks]);
 
   // 本月汇总（所有已保存的 finance 模板日记）
@@ -925,11 +948,14 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   };
   const addBlock = (kind: DiaryBlock["kind"], content = "", durationMs?: number, autoText = true) => {
     const block: DiaryBlock = { id: uid(kind[0]), kind, content, durationMs };
+    // 记住要 focus 谁
+    pendingFocusIdRef.current = kind === "text" ? block.id : null;
     setBlocks((prev) => {
       // 非 text 块 + autoText=true → 自动在后面补一个空 text block
       // 确保用户永远有地方点（模仿 Notion/Word）
       if (kind !== "text" && autoText) {
         const emptyText: DiaryBlock = { id: uid("t"), kind: "text", content: "" };
+        pendingFocusIdRef.current = emptyText.id;  // focus 补的那个 text
         return [...prev, block, emptyText];
       }
       return [...prev, block];
@@ -1202,6 +1228,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     if (savingRef.current) return; // 防重复
     const now = Date.now();
     const cleaned = blocks.filter((b) => {
+      if (b.deleted) return false;  // 软删除的保存时真删
       if (b.kind === "text") return b.content.trim().length > 0;
       if (b.kind === "divider" || b.kind === "heading" || b.kind === "number" || b.kind === "checkbox" || b.kind === "finance_item" || b.kind === "book" || b.kind === "quote") return true;
       return !!b.content; // image/audio 需要有 dataURL
@@ -1687,15 +1714,28 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
           {blocks.map((b, idx) => (
           <SortableBlock id={b.id} key={b.id}>
-          <div className="px-4 md:px-6">
+          <div data-block-id={b.id} className={`relative px-4 md:px-6 ${b.deleted ? "opacity-60 pointer-events-none" : ""}`}>
+            {/* deleted 时：CSS line-through 盖在字上 + 右上角恢复按钮（可点）*/}
+            {b.deleted && (
+              <button
+                onClick={(e) => { e.stopPropagation(); restoreBlock(b.id); }}
+                className="absolute top-1 right-2 z-10 px-2 py-0.5 rounded-md bg-paper-surface border border-paper-line text-xs text-paper-accent hover:border-paper-accent active:scale-95 transition pointer-events-auto"
+                title="恢复"
+              >↩️ 恢复</button>
+            )}
             {b.kind === "text" && (
-              <TextBlock block={b} onChange={(c) => updateBlock(b.id, { content: c })} onRemove={() => removeBlock(b.id)} />
+              <TextBlock
+                block={b}
+                onChange={(c) => updateBlock(b.id, { content: c })}
+                onRemove={() => markDeleted(b.id)}
+                extraClass={b.deleted ? "line-through decoration-red-400 decoration-2" : ""}
+              />
             )}
             {b.kind === "image" && (
-              <GridSnap minRows={2}><ImageBlock block={b} onRemove={() => removeBlock(b.id)} /></GridSnap>
+              <GridSnap minRows={2}><ImageBlock block={b} onRemove={() => markDeleted(b.id)} /></GridSnap>
             )}
             {b.kind === "audio" && (
-              <GridSnap minRows={3}><AudioBlock block={b} onRemove={() => removeBlock(b.id)} /></GridSnap>
+              <GridSnap minRows={3}><AudioBlock block={b} onRemove={() => markDeleted(b.id)} /></GridSnap>
             )}
 
             {/* heading — 小标题，加粗 */}
@@ -1711,7 +1751,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                   } text-paper-ink`}
                 />
                 <button
-                  onClick={() => removeBlock(b.id)}
+                  onClick={() => markDeleted(b.id)}
                   className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
                   title="删除"
                 >×</button>
@@ -1732,7 +1772,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                   className="flex-1 bg-transparent outline-none text-lg text-paper-ink font-semibold min-w-0"
                 />
                 <button
-                  onClick={() => removeBlock(b.id)}
+                  onClick={() => markDeleted(b.id)}
                   className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
                   title="删除"
                 >×</button>
@@ -1744,7 +1784,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
               <div className="py-2 flex items-center gap-3 group">
                 <div className="flex-1 h-px border-t border-dashed border-paper-line" />
                 <button
-                  onClick={() => removeBlock(b.id)}
+                  onClick={() => markDeleted(b.id)}
                   className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
                   title="删除"
                 >×</button>
@@ -1776,7 +1816,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                   }`}
                 />
                 <button
-                  onClick={() => removeBlock(b.id)}
+                  onClick={() => markDeleted(b.id)}
                   className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
                   title="删除"
                 >×</button>
@@ -1788,7 +1828,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
               <FinanceItemRow
                 block={b}
                 onChange={(patch) => updateBlock(b.id, patch)}
-                onRemove={() => removeBlock(b.id)}
+                onRemove={() => markDeleted(b.id)}
               />
             )}
 
@@ -1849,7 +1889,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                       </div>
                     </div>
                     <button
-                      onClick={() => removeBlock(b.id)}
+                      onClick={() => markDeleted(b.id)}
                       className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition shrink-0"
                       title="删除"
                     >×</button>
@@ -1881,7 +1921,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                       title="页码"
                     />
                     <button
-                      onClick={() => removeBlock(b.id)}
+                      onClick={() => markDeleted(b.id)}
                       className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-xs transition"
                       title="删除"
                     >×</button>
@@ -1896,6 +1936,17 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           ))}
           </SortableContext>
           </DndContext>
+
+          {/* === 底部：继续书写按钮（始终可见） === */}
+          <div className="px-4 md:px-6 mt-2 mb-2">
+            <button
+              onClick={() => addBlock("text")}
+              className="w-full py-3 rounded-xl border-2 border-dashed border-paper-line hover:border-paper-accent/60 text-paper-ink3 hover:text-paper-accent transition flex items-center justify-center gap-2 text-sm"
+            >
+              <span className="text-lg leading-none">＋</span>
+              <span>继续书写...</span>
+            </button>
+          </div>
 
           {/* === 记账专属：汇总卡片 + 添加按钮（只在记账模板时显示） === */}
           {isFinanceTemplate && financeSummary.count > 0 && (
@@ -2228,13 +2279,16 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                             key={p.id}
                             onClick={() => { setWallpaper(p.image_data); if (p.show_lines !== undefined) setShowLines(p.show_lines); }}
                             className={`group relative aspect-[3/4] rounded-lg border-2 overflow-hidden transition ${
-                              selected ? "border-emerald-400 ring-2 ring-emerald-200" : "border-paper-line hover:border-paper-ink2"
+                              selected ? "border-violet-400 ring-2 ring-violet-200" : "border-paper-line hover:border-paper-ink2"
                             }`}
                             title={p.name}
                           >
                             <img src={p.thumbnail || p.image_data} alt={p.name} className="w-full h-full object-cover" />
-                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/50 to-transparent px-1 py-0.5">
-                              <div className="text-[9px] text-white truncate">{p.author_name ? `${p.name}·${p.author_name}` : p.name}</div>
+                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent px-2 py-1">
+                              <div className="text-[10px] text-white truncate font-medium">{p.name}</div>
+                              {p.author_name && (
+                                <div className="text-[9px] text-white/80 truncate">👤 by {p.author_name}</div>
+                              )}
                             </div>
                             {selected && (
                               <div className="absolute inset-0 flex items-start justify-end p-1 pointer-events-none">
@@ -2424,8 +2478,13 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                             </div>
                             <div className="text-[11px] text-paper-ink2 leading-snug">
                               {desc}
-                              {tpl.author_name && <span className="text-paper-ink3"> · {tpl.author_name}</span>}
                             </div>
+                            {tpl.author_name && (
+                              <div className="mt-1.5 flex items-center gap-1 text-[10px] text-paper-ink3">
+                                <span>👤</span>
+                                <span>by {tpl.author_name}</span>
+                              </div>
+                            )}
                           </button>
                         );
                       })}
@@ -2738,7 +2797,6 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           </div>
         )}
 
-        
       </div>
     );
   }

@@ -6,9 +6,10 @@ interface Props {
   block: DiaryBlock;
   onChange: (content: string) => void;
   onRemove: () => void;
+  extraClass?: string;
 }
 
-export default function TextBlock({ block, onChange, onRemove }: Props) {
+export default function TextBlock({ block, onChange, onRemove, extraClass = "" }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // iOS 中文输入法 composition 状态：true = 正在输入拼音候选，不要 setState
@@ -83,7 +84,7 @@ export default function TextBlock({ block, onChange, onRemove }: Props) {
         placeholder={empty ? "在此书写..." : ""}
         className={`w-full resize-none bg-transparent outline-none text-[17px] leading-8 font-hand text-paper-ink placeholder:text-paper-ink2/50 ${
           empty ? "min-h-[96px] py-1" : ""
-        }`}
+        } ${extraClass}`}
         style={{ minHeight: empty ? 96 : undefined, WebkitUserSelect: "text", touchAction: "manipulation" }}
       />
       {!empty && (
