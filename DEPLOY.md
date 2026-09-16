@@ -286,6 +286,54 @@ npm run dev                                             # localhost:5173 (Vite)
 | dev 数据和 prod 混用 | 两套 D1 完全隔离，数据不会串 |
 | 忘记 commit + push | 每次改完都 `git add -A && git commit && git push` |
 | 在 Cloudflare Dashboard 里手动改配置 | 所有改动走代码 + wrangler，保证可回滚 |
+| **修改已发布的旧版本 changelog** | **旧版本内容永远不动，只在顶部新增当前版本** |
+| **用 PowerShell `Set-Content` 写 JSON/TS 文件** | **会加 UTF-8 BOM，PostCSS/Node 读炸。用 `[System.IO.File]::WriteAllText($path, $c, (New-Object Text.UTF8Encoding $false))`** |
+
+### 📝 Changelog 维护铁律（v0.2.1 踩过的坑）
+
+**规则：已发布的版本记录 = 历史档案，永远只读。**
+
+```
+✅ 正确：每次发版只在最顶部新增一个版本块，旧版本原样保留
+❌ 错误：把 v0.2.0 的详细内容压成灰字摘要、删掉条目、改写措辞
+
+为什么？
+- 用户点「关于 → 更新记录」是来看看历史版本都改了啥
+- 已经对外展示过的旧版本突然变了 → 信息不可信
+- 如果想精简旧版本视觉层级 → 用 CSS（字号、颜色），不是改内容
+```
+
+**两个地方要同步更新（必须一致）：**
+
+| 位置 | 文件 | 说明 |
+|------|------|------|
+| App 内弹窗 | `src/components/ProfilePage.tsx` | 用户点「关于 → 版本」弹出的 changelog |
+| Git 仓库 | `CHANGELOG.md` | 根目录的版本记录文件 |
+
+**版本号三处对齐：**
+
+| 位置 | 文件 |
+|------|------|
+| `package.json` | `"version": "0.2.1"` |
+| `vite.config.ts` | `__APP_VERSION__: JSON.stringify("0.2.1")` |
+| changelog 弹窗 | `<span>v{__APP_VERSION__}</span>` ← 用动态变量，不要硬编码！ |
+
+---
+
+## 🧾 发版 Checklist（每次 release 必须走完）
+
+```
+□ 1. CHANGELOG.md 最顶部新增当前版本块（旧版本不动）
+□ 2. ProfilePage.tsx changelog 弹窗最顶部新增当前版本块（旧版本不动）
+□ 3. package.json version 号 +1
+□ 4. vite.config.ts __APP_VERSION__ 同步 +1
+□ 5. npm run build → 无报错
+□ 6. git add -A && git commit -m "release: vX.X.X — 描述"
+□ 7. wrangler pages deploy dist --project-name mydiary-web-dev → dev 测
+□ 8. 用户在 dev 环境确认 OK
+□ 9. wrangler pages deploy dist --project-name mydiary-web → 推生产
+□ 10. git push origin main
+```
 
 ---
 
