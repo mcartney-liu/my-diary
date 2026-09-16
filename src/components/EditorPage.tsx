@@ -2345,7 +2345,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                   </div>
                 </div>
 
-                {/* ===== 我的模板 ===== */}
+                {/* ===== 我的模板（网格卡片，和官方一致） ===== */}
                 {(() => {
                   const owned = myTemplates.filter((t) => t.is_owner);
                   return (
@@ -2359,53 +2359,54 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                         还没有自定义模板，去「我的 → 模板库」创建吧
                       </div>
                     ) : (
-                      <div className="flex flex-col gap-2.5">
+                      <div className="grid grid-cols-2 gap-3">
                         {owned.map((tpl) => {
                           const selected = templateId === `custom-${tpl.id}`;
-                          const kindsFromBlocks = [...new Set(tpl.blocks.map((b) => b.kind))];
+                          const desc = tpl.description?.trim() || blocksSummary(tpl.blocks);
                           return (
-                            <div key={tpl.id} className="flex items-center gap-2 group">
+                            <div key={tpl.id} className="relative group">
                               <button
                                 onClick={() => applyMyTemplate(tpl)}
-                                className={`flex-1 p-3 rounded-xl border-2 text-left transition ${
+                                className={`w-full text-left p-3 rounded-xl border-2 transition ${
                                   selected
                                     ? "border-violet-400 ring-2 ring-violet-200 bg-violet-50/50"
                                     : "border-paper-line hover:border-paper-ink2 hover:bg-paper-surface"
                                 }`}
                               >
-                                <div className="flex items-center gap-2 mb-0.5">
-                                  <span className="text-xl">{tpl.icon}</span>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-2xl">{tpl.icon}</span>
                                   <span className={`font-medium text-sm ${selected ? "text-violet-900" : "text-paper-ink"}`}>
                                     {tpl.name}
                                   </span>
                                   {selected && <span className="ml-auto w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center">✓</span>}
                                 </div>
-                                <div className="text-[11px] text-paper-ink2 leading-tight">
-                                  {blocksSummary(tpl.blocks)}
+                                <div className="text-[11px] text-paper-ink2 leading-snug">
+                                  {desc}
                                 </div>
                               </button>
-                              <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition">
+                              {/* hover 浮现的操作按钮 */}
+                              <div className="absolute -top-1 -right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition z-10">
                                 <button
                                   title="编辑"
                                   onClick={(e) => {
-                                    e.stopPropagation();
+                                    e.stopPropagation(); e.preventDefault();
                                     setEditingTemplate(tpl);
                                     setBuilderName(tpl.name);
                                     setBuilderIcon(tpl.icon);
-                                    setBuilderKinds(kindsFromBlocks);
+                                    setBuilderKinds([...new Set(tpl.blocks.map((b) => b.kind))]);
                                     setShowCustomBuilder(true);
                                     setShowTemplateMenu(false);
                                   }}
-                                  className="w-8 h-8 rounded-lg bg-paper-surface border border-paper-line text-paper-ink2 hover:border-violet-300 hover:text-violet-500 hover:bg-violet-50 flex items-center justify-center transition"
-                                ><Pencil size={13} /></button>
+                                  className="w-6 h-6 rounded-full bg-paper-card border border-paper-line text-paper-ink2 hover:border-violet-300 hover:text-violet-500 flex items-center justify-center shadow"
+                                ><Pencil size={10} /></button>
                                 <button
                                   title="删除"
                                   onClick={(e) => {
-                                    e.stopPropagation();
+                                    e.stopPropagation(); e.preventDefault();
                                     if (confirm(`删除模板"${tpl.name}"？`)) deleteMyTemplate(tpl.id);
                                   }}
-                                  className="w-8 h-8 rounded-lg bg-paper-surface border border-paper-line text-paper-ink2 hover:border-red-200 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition"
-                                ><Trash2 size={13} /></button>
+                                  className="w-6 h-6 rounded-full bg-paper-card border border-paper-line text-paper-ink2 hover:border-red-200 hover:text-red-500 flex items-center justify-center shadow"
+                                ><Trash2 size={10} /></button>
                               </div>
                             </div>
                           );
@@ -2416,36 +2417,37 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                   );
                 })()}
 
-                {/* ===== 共享模板 ===== */}
+                {/* ===== 共享模板（网格卡片） ===== */}
                 {(() => {
                   const shared = myTemplates.filter((t) => !t.is_owner);
                   if (shared.length === 0) return null;
                   return (
                   <div>
                     <div className="text-xs font-medium text-paper-ink3 mb-2">🌐 共享模板</div>
-                    <div className="flex flex-col gap-2.5">
+                    <div className="grid grid-cols-2 gap-3">
                       {shared.map((tpl) => {
                         const selected = templateId === `custom-${tpl.id}`;
+                        const desc = tpl.description?.trim() || blocksSummary(tpl.blocks);
                         return (
                           <button
                             key={tpl.id}
                             onClick={() => applyMyTemplate(tpl)}
-                            className={`w-full p-3 rounded-xl border-2 text-left transition ${
+                            className={`w-full text-left p-3 rounded-xl border-2 transition ${
                               selected
                                 ? "border-emerald-400 ring-2 ring-emerald-200 bg-emerald-50/50"
                                 : "border-paper-line hover:border-paper-ink2 hover:bg-paper-surface"
                             }`}
                           >
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <span className="text-xl">{tpl.icon}</span>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-2xl">{tpl.icon}</span>
                               <span className={`font-medium text-sm ${selected ? "text-emerald-900" : "text-paper-ink"}`}>
                                 {tpl.name}
                               </span>
                               {selected && <span className="ml-auto w-5 h-5 rounded-full bg-emerald-500 text-white text-xs flex items-center justify-center">✓</span>}
                             </div>
-                            <div className="text-[11px] text-paper-ink2 leading-tight flex items-center gap-2">
-                              <span>{blocksSummary(tpl.blocks)}</span>
-                              {tpl.author_name && <span className="text-paper-ink3">· 由 {tpl.author_name} 发布</span>}
+                            <div className="text-[11px] text-paper-ink2 leading-snug">
+                              {desc}
+                              {tpl.author_name && <span className="text-paper-ink3"> · {tpl.author_name}</span>}
                             </div>
                           </button>
                         );
