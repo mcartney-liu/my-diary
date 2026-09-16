@@ -1,5 +1,26 @@
 ﻿# MyDiary — 部署与环境指南
 
+> 📍 **这份文档是最高准则。所有部署操作必须照此执行。**
+
+---
+
+## ⚡ 3 秒速查（最重要的规则）
+
+```
+你/同事访问的固定地址：
+  生产：https://mydiary-web.pages.dev        ← 永远不变，发给同事这个
+  测试：https://oil-liberty-word-journal.trycloudflare.com  ← 当前隧道地址
+
+改代码后的流程：
+  改前端 → 本地 dev + 隧道测 → 你说 OK → wrangler pages deploy
+  改后端 → wrangler deploy --env dev → 隧道测 → 你说 OK → wrangler deploy
+  改 D1  → dev D1 跑 SQL 测 → prod D1 跑 SQL
+
+每次改完都要：git add -A && git commit && git push
+```
+
+---
+
 ## 🗺️ 架构总览
 
 ```
@@ -7,7 +28,7 @@
 │                        开发 & 测试                                   │
 │                                                                     │
 │  localhost:5173 (npm run dev)                                       │
-│  trycloudflare.com (cloudflared tunnel → localhost:5173)            │
+│  oil-liberty-word-journal.trycloudflare.com (cloudflared 隧道)      │
 │       │                                                             │
 │       └── vite proxy ──► mydiary-api-dev.mcartneyliu.workers.dev    │
 │                             + mydiary-db-dev (干净数据库)            │
@@ -79,14 +100,13 @@ wrangler.toml 里 `[env.dev]` 块是 dev 配置，无 `[env.xxx]` 是 prod 配�
 ```bash
 # 1. 本地测
 npm run dev          # 起 localhost:5173，自动连 dev Worker
-# 隧道：cloudflared tunnel --url http://localhost:5173
-# iPhone 连隧道测
+# 隧道已经开着了，直接 iPhone 连 https://oil-liberty-word-journal.trycloudflare.com
 
-# 2. 测 OK → 部署生产前端
+# 2. 测 OK（你说 OK）→ 部署生产前端
 npm run build
 wrangler pages deploy dist --project-name mydiary-web
 
-# 3. commit + push
+# 3. commit + push（每次改完都要做）
 git add -A && git commit -m "feat: xxx" && git push
 ```
 
@@ -104,14 +124,12 @@ cd workers
 # 1. 先部署到 dev Worker（不影响生产！）
 wrangler deploy --env dev
 
-# 2. 本地 + 隧道测（已经连 dev Worker 了）
-npm run dev
-# iPhone 测
+# 2. 隧道 + iPhone 测（vite proxy 已经连 dev Worker 了）
 
-# 3. 测 OK → 部署生产 Worker
+# 3. 测 OK（你说 OK）→ 部署生产 Worker
 wrangler deploy
 
-# 4. commit + push（在 workers/ 或项目根）
+# 4. commit + push
 cd ..
 git add -A && git commit -m "feat(worker): xxx" && git push
 ```
@@ -128,17 +146,14 @@ git add -A && git commit -m "feat(worker): xxx" && git push
 # 1. 先部署 dev Worker
 cd workers && wrangler deploy --env dev && cd ..
 
-# 2. 前端 build + 本地测
-npm run dev
+# 2. 隧道 + iPhone 整体测
 
-# 3. 隧道 + iPhone 整体测
-
-# 4. 测 OK → 生产 Worker + 生产前端
+# 3. 测 OK → 生产 Worker + 生产前端
 cd workers && wrangler deploy && cd ..
 npm run build
 wrangler pages deploy dist --project-name mydiary-web
 
-# 5. commit + push
+# 4. commit + push
 git add -A && git commit -m "feat: xxx (frontend + worker)" && git push
 ```
 
@@ -174,6 +189,7 @@ wrangler deploy
 | 改完前端直接 deploy 不本地测 | 先 localhost + 隧道测 |
 | 手动操作 prod D1 改数据 | 要改先改 dev D1，验证 SQL 正确再跑 prod |
 | dev 数据和 prod 混用 | 两套 D1 完全隔离，数据不会串 |
+| 忘记 commit + push | 每次改完都 `git add -A && git commit && git push` |
 
 ---
 
@@ -195,7 +211,7 @@ wrangler d1 execute mydiary-db --remote --file=xxx.sql      # prod D1 跑 SQL
 wrangler d1 list                                               # 看所有 D1
 
 # === 隧道 ===
-cloudflared tunnel --url http://localhost:5173   # 快速隧道 (每次地址变)
+cloudflared tunnel --url http://localhost:5173   # 快速隧道 (挂了重开)
 
 # === Git ===
 git status                               # 看改了啥
@@ -210,13 +226,13 @@ git push origin main                     # push 到 GitHub
 | 用途 | URL | 备注 |
 |---|---|---|
 | **测试隧道（当前）** | **https://oil-liberty-word-journal.trycloudflare.com** | ✅ 你测代码用这个 |
-| 生产前端 | **https://mydiary-web.pages.dev** | 发给同事这个 |
+| **生产前端（固定）** | **https://mydiary-web.pages.dev** | 发给同事这个，永远不变 |
 | 生产 Worker | https://mydiary-api.mcartneyliu.workers.dev | 前端不直连，通过 Pages Functions 走同域 |
 | Dev Worker | https://mydiary-api-dev.mcartneyliu.workers.dev | 本地/dev 隧道用 |
 | GitHub | https://github.com/mcartney-liu/my-diary | 代码仓库 |
 
 > ⚠️ trycloudflare.com 是 Quick Tunnel（免费无账号），cloudflared 挂了重启后地址会变。
-> 如果隧道挂了，我重新跑 cloudflared tunnel --url http://localhost:5173 拿新地址。
+> 如果隧道挂了，我重新跑 `cloudflared tunnel --url http://localhost:5173` 拿新地址。
 
 ---
 
@@ -230,5 +246,17 @@ git push origin main                     # push 到 GitHub
 
 ---
 
-**记住：改后端 = 先 dev 测，再 prod。改前端 = 本地测了就 deploy 就行。**
+## 📝 与 AI 协作时的关键词
 
+你跟我说以下任何一句，我就知道该做什么：
+
+| 你说 | 我做 |
+|---|---|
+| "改一下 xxx" | 改代码 → dev Worker（如果改了后端）→ 隧道测 |
+| "测一下" / "部署一下" | 你确认 OK → prod Worker（如果改了后端）→ pages deploy |
+| "隧道地址" | 给你当前 trycloudflare.com 地址 |
+| "挂了" / "隧道挂了" | 重新开 cloudflared，给你新地址 |
+
+---
+
+**核心铁律：改后端先 dev 测，改前端本地测了就 deploy。每次 commit + push。**
