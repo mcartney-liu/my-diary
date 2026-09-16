@@ -206,3 +206,48 @@ export function sharePaper(id: string, is_public: boolean) {
     method: "PATCH", body: JSON.stringify({ id, is_public }),
   });
 }
+
+// ====== Milestones ======
+export type MilestoneType = "fixed" | "start" | "countdown";
+
+export interface Milestone {
+  id: string;
+  type: MilestoneType;
+  target_mm?: number | null;
+  target_dd?: number | null;
+  start_date?: string | null;
+  target_date?: string | null;
+  icon: string;
+  title: string;
+  description: string;
+  diary_id?: string | null;
+  auto_created: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export function saveMilestone(payload: {
+  type: MilestoneType;
+  target_mm?: number; target_dd?: number;
+  start_date?: string; target_date?: string;
+  icon?: string; title: string; description?: string;
+  diary_id?: string; auto_created?: boolean;
+}) {
+  return request<{ id: string; ok: boolean }>("/api/milestones", {
+    method: "POST", body: JSON.stringify(payload),
+  });
+}
+
+export function listMilestones() {
+  return request<{ milestones: Milestone[] }>("/api/milestones");
+}
+
+export function deleteMilestone(id: string) {
+  return request<{ ok: boolean }>(`/api/milestones?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function updateMilestone(patch: Partial<Milestone> & { id: string }) {
+  return request<{ ok: boolean }>("/api/milestones", {
+    method: "PATCH", body: JSON.stringify(patch),
+  });
+}

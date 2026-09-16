@@ -5,6 +5,7 @@ import { getProfile, patchProfile, submitFeedback, type ProfileStats } from "../
 import { polishFeedback, getAiProvider } from "../ai";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
+import MilestoneLibrary from "./MilestoneLibrary";
 
 declare const __APP_VERSION__: string;
 
@@ -23,7 +24,7 @@ export default function ProfilePage() {
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState("");
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "templates" | "papers">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "templates" | "papers" | "milestones">("profile");
 
   // 反馈弹窗
   const [showFeedback, setShowFeedback] = useState(false);
@@ -253,6 +254,7 @@ export default function ProfilePage() {
             { k: "profile", label: "👤 个人" },
             { k: "templates", label: "📚 模板库" },
             { k: "papers", label: "🎨 信纸库" },
+            { k: "milestones", label: "📅 纪念日" },
           ].map((t) => (
             <button
               key={t.k}
@@ -303,6 +305,12 @@ export default function ProfilePage() {
         {activeTab === "papers" && (
           <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
             <PaperLibrary />
+          </section>
+        )}
+
+        {activeTab === "milestones" && (
+          <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
+            <MilestoneLibrary />
           </section>
         )}
 

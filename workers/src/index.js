@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MyDiary API — Cloudflare Worker
  * Routes:
  *   POST   /api/auth/register    注册
@@ -15,12 +15,18 @@
  *   GET    /api/templates        我的模板列表
  *   DELETE /api/templates        删除模板
  *   PATCH  /api/templates        更新模板
+ *   POST   /api/milestones       保存纪念日
+ *   GET    /api/milestones        我的纪念日列表
+ *   DELETE /api/milestones        删除纪念日
+ *   PATCH  /api/milestones        更新纪念日
  */
 import { hashPassword, verifyPassword, genSalt, signJWT, verifyJWT, authUser } from "./auth.js";
 
 const ALLOWED_ORIGINS = [
   "https://mydiary-web.pages.dev",
-  /\.mydiary-web\.pages\.dev$/,  // 允许所有 hash 快照域名
+  /\.mydiary-web\.pages\.dev$/,  // 允许所有 prod hash 快照域名
+  "https://mydiary-web-dev.pages.dev",
+  /\.mydiary-web-dev\.pages\.dev$/,  // 允许所有 dev hash 快照域名
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5180",
@@ -77,6 +83,10 @@ export default {
       ["GET",    "/api/papers",          handleListPapers],
       ["DELETE", "/api/papers",          handleDeletePaper],
       ["PATCH",  "/api/papers/share",    handleSharePaper],
+      ["POST",   "/api/milestones",      handleSaveMilestone],
+      ["GET",    "/api/milestones",      handleListMilestones],
+      ["DELETE", "/api/milestones",      handleDeleteMilestone],
+      ["PATCH",  "/api/milestones",      handleUpdateMilestone],
     ];
 
     for (const [method, p, handler] of routes) {
@@ -549,6 +559,98 @@ async function handleSharePaper(request, env, JWT_SECRET) {
     "UPDATE papers SET is_public = ?, author_name = COALESCE(author_name, ?), updated_at = ? WHERE id = ? AND user_id = ?"
   ).bind(is_public ? 1 : 0, u?.nickname || "", now, id, user.uid).run();
 
+  return json({ ok: true });
+}
+
+// ====== Milestones (纪念日) ======
+async function handleSaveMilestone(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const body = await readBody(request);
+  const { type, target_mm, target_dd, start_date, target_date, icon = "🎯", title, description = "", diary_id, auto_created = 0 } = body;
+  if (!title || !title.trim()) return json({ error: "title required" }, 400);
+  if (!["fixed", "start", "countdown"].includes(type)) return json({ error: "type must be fixed|start|countdown" }, 400);
+
+  const now = Date.now();
+  const id = uuid();
+
+  await env.DB.prepare(
+    `INSERT INTO milestones (id, user_id, type, target_mm, target_dd, start_date, target_date, icon, title, description, diary_id, auto_created, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, user.uid, type,
+     target_mm ?? null, target_dd ?? null, start_date ?? null, target_date ?? null,
+     icon, title.trim(), description, diary_id || null, auto_created ? 1 : 0, now, now).run();
+
+  return json({ id, ok: true });
+}
+
+async function handleListMilestones(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const rows = await env.DB.prepare(
+    "SELECT * FROM milestones WHERE user_id = ? ORDER BY updated_at DESC"
+  ).bind(user.uid).all();
+
+  const out = rows.results.map(r => ({
+    id: r.id,
+    type: r.type,
+    target_mm: r.target_mm,
+    target_dd: r.target_dd,
+    start_date: r.start_date,
+    target_date: r.target_date,
+    icon: r.icon,
+    title: r.title,
+    description: r.description,
+    diary_id: r.diary_id,
+    auto_created: r.auto_created === 1,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  }));
+
+  return json({ milestones: out });
+}
+
+async function handleDeleteMilestone(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const q = new URL(request.url).searchParams;
+  const id = q.get("id");
+  if (!id) return json({ error: "id required" }, 400);
+
+  await env.DB.prepare("DELETE FROM milestones WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+  return json({ ok: true });
+}
+
+async function handleUpdateMilestone(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const body = await readBody(request);
+  const { id } = body;
+  if (!id) return json({ error: "id required" }, 400);
+
+  const existing = await env.DB.prepare("SELECT id FROM milestones WHERE id = ? AND user_id = ?").bind(id, user.uid).first();
+  if (!existing) return json({ error: "not found" }, 404);
+
+  const now = Date.now();
+  const fields = [];
+  const values = [];
+  const allowed = ["type", "target_mm", "target_dd", "start_date", "target_date", "icon", "title", "description", "diary_id"];
+  for (const key of allowed) {
+    if (body[key] !== undefined) {
+      fields.push(`${key} = ?`);
+      values.push(body[key]);
+    }
+  }
+  if (!fields.length) return json({ ok: true });
+
+  fields.push("updated_at = ?");
+  values.push(now, id, user.uid);
+
+  await env.DB.prepare(`UPDATE milestones SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`).bind(...values).run();
   return json({ ok: true });
 }
 
