@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AI Service — 统一大模型入口
  *
  * 架构：
@@ -273,8 +273,10 @@ ${rawText || "(无内容)"}
                           .replace(/value\s*[:：][^,，。;；]+[,，。;；]*/gi, "")
                           .replace(/checked\s*[:：][^,，。;；]+[,，。;；]*/gi, "")
                           .trim() || result.title,
-      // 🔑 mood/tags 兜底：AI 可能没返回，补默认值
-      mood: (result.mood === "happy" || result.mood === "calm" || result.mood === "sad" || result.mood === "angry" || result.mood === "anxious") ? result.mood : "calm",
+      // 🔑 mood/tags 兜底：AI 可能没返回或返回无效值 → 先用关键词匹配，不行才 calm
+      mood: VALID_MOODS.includes(result.mood as MoodId)
+        ? result.mood as MoodId
+        : detectMoodByKeywords(rawText),
       tags: result.tags?.length ? result.tags : (({ travel:["旅行"], finance:["记账"], reading:["阅读"], plan:["计划"], health:["健康"], gratitude:["感恩"], sports:["运动"], diary:["日记"] } as Record<string, string[]>)[ctx.templateId] ?? ["日记"]),
     };
   } catch (e) {
@@ -283,6 +285,31 @@ ${rawText || "(无内容)"}
     return ruleBasedPolish(rawText, ctx);
   }
 }
+
+/**
+ * 🧮 纯算法情绪检测 — 关键词匹配，稳定可靠，零成本
+ * AI 路径失败或 mood 格式不对时的兜底
+ */
+export function detectMoodByKeywords(text: string): MoodId {
+  if (!text?.trim()) return "calm";
+  const moodKeywords: Record<MoodId, string[]> = {
+    happy:   ["开心","高兴","快乐","爽","棒","好","喜欢","爱","期待","兴奋","幸福","棒极了","哈哈","嘻嘻","nice","happy"],
+    sad:     ["难过","伤心","哭","泪","失落","沮丧","郁闷","委屈","唉","sad"],
+    angry:   ["生气","愤怒","烦","讨厌","气人","可恶","该死","气死"],
+    anxious: ["焦虑","紧张","担心","害怕","不安","慌","压力","怕","anxious"],
+    calm:    ["平静","放松","舒服","悠闲","享受","静静"],
+  };
+  let bestMood: MoodId = "calm";
+  let bestScore = 0;
+  for (const [m, kws] of Object.entries(moodKeywords)) {
+    let score = 0;
+    for (const kw of kws) if (text.includes(kw)) score += 1;
+    if (score > bestScore) { bestScore = score; bestMood = m as MoodId; }
+  }
+  return bestMood;
+}
+
+const VALID_MOODS: MoodId[] = ["happy", "calm", "sad", "angry", "anxious"];
 
 /**
  * 规则降级 — AI 挂了时用，毫秒级返回合理的 blocks + title
@@ -362,21 +389,8 @@ function ruleBasedPolish(rawText: string, ctx: PolishContext): PolishResult {
   else if (text) blocks.push({ kind: "text", content: text });
   else blocks.push({ kind: "text", content: "今天的 " + tplName });
 
-    // 🔑 情绪关键词检测（简单但够用）
-  const moodKeywords: Record<string, string[]> = {
-    happy: ["开心", "高兴", "快乐", "爽", "棒", "好", "喜欢", "爱", "期待", "兴奋", "幸福", "棒极了"],
-    sad: ["难过", "伤心", "哭", "泪", "失落", "沮丧", "郁闷", "委屈", "伤心"],
-    angry: ["生气", "愤怒", "烦", "讨厌", "气人", "可恶", "该死"],
-    anxious: ["焦虑", "紧张", "担心", "害怕", "不安", "慌", "压力"],
-    calm: ["平静", "放松", "舒服", "悠闲", "享受", "静静"],
-  };
-  let detectedMood: MoodId = "calm"; // 默认 calm
-  let bestScore = 0;
-  for (const [m, kws] of Object.entries(moodKeywords)) {
-    let score = 0;
-    for (const kw of kws) if (text.includes(kw)) score += 1;
-    if (score > bestScore) { bestScore = score; detectedMood = m as MoodId; }
-  }
+    // 🔑 情绪检测 → 调统一的 detectMoodByKeywords（已抽到函数外）
+  const detectedMood = detectMoodByKeywords(text);
 
   // 🔑 默认 tags（基于模板）
   const defaultTags: Record<string, string[]> = {
