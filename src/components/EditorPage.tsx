@@ -344,6 +344,15 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   }
 
   function applyOfficialTemplate(tplId: string) {
+    const hasContent = blocks.some(
+      (b) => b.kind === "text" ? b.content.trim().length > 0 : !!b.content
+    );
+    if (hasContent) {
+      pendingTplRef.current = tplId;
+      pendingCustomTplRef.current = undefined;
+      setConfirmSwitchTpl(true);
+      return;
+    }
     doApplyOfficial(tplId);
   }
 
@@ -362,6 +371,15 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   }
 
   function applyMyTemplate(tpl: UserTemplate) {
+    const hasContent = blocks.some(
+      (b) => b.kind === "text" ? b.content.trim().length > 0 : !!b.content
+    );
+    if (hasContent) {
+      pendingCustomTplRef.current = tpl;
+      pendingTplRef.current = undefined;
+      setConfirmSwitchTpl(true);
+      return;
+    }
     doApplyMy(tpl);
   }
 
@@ -2230,27 +2248,6 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                   </div>
                   );
                 })()}
-
-                {/* 自定义图片 */}
-                <div>
-                  <div className="text-xs text-paper-ink2 mb-3">自定义</div>
-                  <button
-                    onClick={() => wallpaperInputRef.current?.click()}
-                    className="w-full flex items-center gap-3 p-3 rounded-xl border border-dashed border-paper-line hover:border-paper-ink2 hover:bg-paper-surface transition text-paper-ink"
-                  >
-                    <div className="w-10 h-10 rounded-lg bg-paper-surface border border-paper-line flex items-center justify-center text-lg">📷</div>
-                    <div className="text-left">
-                      <div className="text-sm font-medium">从相册选一张图片</div>
-                      <div className="text-xs text-paper-ink2">选上面留白的图，方便写字</div>
-                    </div>
-                  </button>
-                  {wallpaper && matchPreset(wallpaper) === null && (
-                    <button
-                      onClick={() => setWallpaper(undefined)}
-                      className="mt-2 w-full text-center text-xs text-paper-ink3 hover:text-red-500 py-1"
-                    >🗑 移除自定义壁纸，恢复默认</button>
-                  )}
-                </div>
 
                 {/* 横线开关 */}
                 <div className="flex items-center justify-between p-3 rounded-xl bg-paper-surface border border-paper-line">
