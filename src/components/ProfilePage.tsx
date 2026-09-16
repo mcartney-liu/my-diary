@@ -280,7 +280,7 @@ export default function ProfilePage() {
           <MenuItem icon="🎨" label="主题色（即将上线）" disabled />
           <MenuItem icon="🔔" label="每日提醒（即将上线）" disabled />
           <MenuItem icon="📤" label="导出数据（即将上线）" disabled />
-          <MenuItem icon="🖋️" label="字体样式" hint={fontSetting === "hand" ? "钢笔手写" : fontSetting === "kalam" ? "英文手写" : "系统默认"} onClick={() => setShowFontPicker(true)} />
+          <MenuItem icon="🖋️" label="字体样式" hint={fontSetting === "hand" ? "全手写" : fontSetting === "pen" ? "钢笔中文" : "系统默认"} onClick={() => setShowFontPicker(true)} />
           <MenuItem icon="🔐" label="修改密码" onClick={() => alert("功能开发中...")} />
         </section>
 
@@ -505,15 +505,15 @@ export default function ProfilePage() {
 
             <div className="p-5 space-y-3">
               {[
-                { key: "hand",  label: "钢笔手写", desc: "中文手写风格", sample: "今天天气真不错～" },
-                { key: "kalam", label: "英文手写", desc: "Kalam 手写体",  sample: "Hello, my diary." },
-                { key: "sans",  label: "系统默认", desc: "简洁干净",     sample: "今天天气真不错～" },
+                { key: "hand", label: "全手写（推荐）", desc: "中文钢笔 + 英文手写", sample: "MyDiary 2026 ✨ 今天天气不错～" },
+                { key: "pen",  label: "钢笔中文",       desc: "中文手写，英文印刷", sample: "MyDiary 2026 ✨ 今天天气不错～" },
+                { key: "sans", label: "系统默认",       desc: "简洁印刷体",       sample: "MyDiary 2026 ✨ 今天天气不错～" },
               ].map(o => {
                 const active = fontSetting === o.key;
                 const fontFamily =
-                  o.key === "hand"  ? `"Ma Shan Zheng", "KaiTi", "楷体", system-ui, sans-serif` :
-                  o.key === "kalam" ? `"Kalam", "Ma Shan Zheng", "KaiTi", "楷体", system-ui, sans-serif` :
-                                      `"PingFang SC", "Microsoft YaHei", system-ui, sans-serif`;
+                  o.key === "hand" ? `"Kalam", "Ma Shan Zheng", "楷体", "KaiTi", system-ui, sans-serif` :
+                  o.key === "pen"  ? `"Ma Shan Zheng", "Kalam", "楷体", "KaiTi", system-ui, sans-serif` :
+                                     `"PingFang SC", "Microsoft YaHei", system-ui, sans-serif`;
                 return (
                   <button
                     key={o.key}

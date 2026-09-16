@@ -6,7 +6,7 @@ import "./index.css";
 
 // 🖋️ 启动时立即恢复用户选择的字体（避免首屏闪烁）
 const savedFont = localStorage.getItem("mydiary_font");
-if (savedFont && ["hand", "kalam", "sans"].includes(savedFont)) {
+if (savedFont && ["hand", "pen", "sans"].includes(savedFont)) {
   document.body.setAttribute("data-font", savedFont);
 }
 

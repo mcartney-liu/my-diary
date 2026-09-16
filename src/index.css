@@ -21,11 +21,16 @@
 html, body, #root { height: 100%; }
 
 /* === 全局字体（用户可在"我的 → 设置 → 字体样式"里切换） === */
-body[data-font="hand"]    { font-family: "Ma Shan Zheng", "KaiTi", "STKaiti", "楷体", system-ui, sans-serif; }
-body[data-font="kalam"]   { font-family: "Kalam", "Ma Shan Zheng", "KaiTi", "楷体", system-ui, sans-serif; }
+/* ⚠️ 注意：Kalam 必须放第一位！它覆盖 Latin（英文/数字），
+   Ma Shan Zheng 覆盖 CJK（中文/日文）。顺序反了 Latin 会 fallback 到印刷楷体 */
+/* hand: 全手写 — Kalam 覆盖 Latin，Ma Shan Zheng 覆盖 CJK */
+body[data-font="hand"]    { font-family: "Kalam", "Ma Shan Zheng", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif; }
+/* pen: 钢笔中文 — Ma Shan Zheng 优先，Latin fallback 楷体 */
+body[data-font="pen"]     { font-family: "Ma Shan Zheng", "Kalam", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif; }
+/* sans: 系统默认印刷体 */
 body[data-font="sans"]    { font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", system-ui, sans-serif; }
-/* 默认：钢笔手写 */
-body                      { font-family: "Ma Shan Zheng", "KaiTi", "STKaiti", "楷体", system-ui, sans-serif; }
+/* 默认：全手写 */
+body                      { font-family: "Kalam", "Ma Shan Zheng", "楷体", "KaiTi", "STKaiti", system-ui, sans-serif; }
 
 body {
   margin: 0;
