@@ -2160,14 +2160,14 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                             if (p.isPattern) setShowLines(false);
                           }}
                           className={`group relative aspect-[3/4] rounded-lg border-2 overflow-hidden transition ${
-                            selected ? "border-sky-400 ring-2 ring-sky-200" : "border-paper-line hover:border-paper-ink2"
+                            selected ? "border-violet-400 ring-2 ring-violet-200" : "border-paper-line hover:border-paper-ink2"
                           }`}
                           title={p.name}
                         >
                           <img src={p.thumbnail} alt={p.name} className="w-full h-full object-cover" />
                           {selected && (
                             <div className="absolute inset-0 flex items-start justify-end p-1 pointer-events-none">
-                              <span className="w-5 h-5 rounded-full bg-sky-500 text-white text-xs flex items-center justify-center shadow">✓</span>
+                              <span className="w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center shadow">✓</span>
                             </div>
                           )}
                         </button>
@@ -2194,7 +2194,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                             key={p.id}
                             onClick={() => { setWallpaper(p.image_data); if (p.show_lines !== undefined) setShowLines(p.show_lines); }}
                             className={`group relative aspect-[3/4] rounded-lg border-2 overflow-hidden transition ${
-                              selected ? "border-sky-400 ring-2 ring-sky-200" : "border-paper-line hover:border-paper-ink2"
+                              selected ? "border-violet-400 ring-2 ring-violet-200" : "border-paper-line hover:border-paper-ink2"
                             }`}
                             title={p.name}
                           >
@@ -2204,7 +2204,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                             </div>
                             {selected && (
                               <div className="absolute inset-0 flex items-start justify-end p-1 pointer-events-none">
-                                <span className="w-5 h-5 rounded-full bg-sky-500 text-white text-xs flex items-center justify-center shadow">✓</span>
+                                <span className="w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center shadow">✓</span>
                               </div>
                             )}
                           </button>
@@ -2240,7 +2240,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                             </div>
                             {selected && (
                               <div className="absolute inset-0 flex items-start justify-end p-1 pointer-events-none">
-                                <span className="w-5 h-5 rounded-full bg-emerald-500 text-white text-xs flex items-center justify-center shadow">✓</span>
+                                <span className="w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center shadow">✓</span>
                               </div>
                             )}
                           </button>
@@ -2434,16 +2434,16 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                             onClick={() => applyMyTemplate(tpl)}
                             className={`w-full text-left p-3 rounded-xl border-2 transition ${
                               selected
-                                ? "border-emerald-400 ring-2 ring-emerald-200 bg-emerald-50/50"
+                                ? "border-violet-400 ring-2 ring-violet-200 bg-violet-50/50"
                                 : "border-paper-line hover:border-paper-ink2 hover:bg-paper-surface"
                             }`}
                           >
                             <div className="flex items-center gap-2 mb-1">
                               <span className="text-2xl">{tpl.icon}</span>
-                              <span className={`font-medium text-sm ${selected ? "text-emerald-900" : "text-paper-ink"}`}>
+                              <span className={`font-medium text-sm ${selected ? "text-violet-900" : "text-paper-ink"}`}>
                                 {tpl.name}
                               </span>
-                              {selected && <span className="ml-auto w-5 h-5 rounded-full bg-emerald-500 text-white text-xs flex items-center justify-center">✓</span>}
+                              {selected && <span className="ml-auto w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center">✓</span>}
                             </div>
                             <div className="text-[11px] text-paper-ink2 leading-snug">
                               {desc}
