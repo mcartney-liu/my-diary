@@ -1,0 +1,11 @@
+name = "mydiary-api"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+JWT_SECRET = "change-me-in-dashboard-use-32-chars-minimum"  # 部署后在 CF Dashboard 改
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mydiary-db"
+database_id = "ed7e7954-5f55-439c-a76a-228f1124512b"
