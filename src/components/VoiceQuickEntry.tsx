@@ -108,6 +108,7 @@ export default function VoiceQuickEntry() {
   };
 
   const [isAiPolishing, setIsAiPolishing] = useState(false); // 🔑 确认后 AI 润色 loading
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false); // 🔑 手动换模板面板
 
   const confirmAndGo = async () => {
     if (!result) return;
@@ -145,6 +146,7 @@ export default function VoiceQuickEntry() {
     setTypedText("");
     setResult(null);
     setError(null);
+    setShowTemplatePicker(false); // 🔑 重置模板选择面板
     setPhase("idle");
     setElapsed(0);
   };
@@ -313,12 +315,63 @@ export default function VoiceQuickEntry() {
                   <div>
                     <div className="font-semibold text-paper-ink text-lg">{matchedTemplate.name}</div>
                     <div className="text-xs text-paper-ink2">{matchedTemplate.description}</div>
-                    <div className="text-xs text-paper-ink mt-1">🤖 {result.reason}</div>
+                    {/* 🔑 reason: AI 自动推荐时显示，手动换的就不显示 AI 理由 */}
+                    {!result.reason.startsWith("你手动") && (
+                      <div className="text-xs text-paper-ink mt-1">🤖 {result.reason}</div>
+                    )}
                   </div>
                 </div>
-                <div className="bg-paper-surface rounded-xl border border-paper-line p-2 text-xs text-paper-ink2 max-h-20 overflow-y-auto">
-                  你说: {result.transcript.slice(0, 100)}{result.transcript.length > 100 ? "..." : ""}
+
+                {/* 🔑 文字可编辑 —— 改 AI 识别错的地方 */}
+                <div className="space-y-1">
+                  <div className="text-[11px] text-paper-ink3 flex items-center justify-between">
+                    <span>你说（可编辑）</span>
+                    {result.transcript.length > 100 && (
+                      <span>{result.transcript.length} 字</span>
+                    )}
+                  </div>
+                  <textarea
+                    value={result.transcript}
+                    onChange={(e) => setResult(prev => prev && { ...prev, transcript: e.target.value })}
+                    rows={Math.min(3, Math.max(2, Math.ceil(result.transcript.length / 30)))}
+                    className="w-full bg-paper-surface rounded-xl border border-paper-line p-2 text-sm text-paper-ink resize-none focus:outline-none focus:border-paper-accent min-h-[40px] max-h-28"
+                  />
                 </div>
+
+                {/* 🔑 换模板面板 —— 点击"🔀 换个模板"展开 */}
+                {showTemplatePicker && (
+                  <div className="bg-paper-surface rounded-xl border border-paper-line p-2">
+                    <div className="text-[11px] text-paper-ink3 mb-2 px-1">选择模板</div>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {TEMPLATES.map(tpl => {
+                        const selected = tpl.id === result.templateId;
+                        return (
+                          <button
+                            key={tpl.id}
+                            onClick={() => {
+                              setResult(prev => prev && {
+                                ...prev,
+                                templateId: tpl.id,
+                                reason: `你手动选择了 ${tpl.name}`,
+                              });
+                              setShowTemplatePicker(false);
+                            }}
+                            className={`py-2 rounded-lg text-center transition active:scale-95 ${
+                              selected
+                                ? "bg-paper-accent/15 border border-paper-accent text-paper-ink"
+                                : "bg-paper-bg border border-paper-line text-paper-ink2 hover:bg-paper-line/30"
+                            }`}
+                          >
+                            <div className="text-xl leading-none">{tpl.icon}</div>
+                            <div className="text-[10px] mt-0.5 truncate">{tpl.name}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 按钮区 —— 加了"🔀 换个模板" */}
                 <div className="flex gap-2 pt-1">
                   <button
                     onClick={cancel}
@@ -327,10 +380,20 @@ export default function VoiceQuickEntry() {
                     重新输入
                   </button>
                   <button
+                    onClick={() => setShowTemplatePicker(v => !v)}
+                    className={`flex-1 py-2.5 rounded-xl border text-sm transition ${
+                      showTemplatePicker
+                        ? "bg-paper-accent/15 border-paper-accent text-paper-ink"
+                        : "border-paper-line text-paper-ink2 hover:bg-paper-surface"
+                    }`}
+                  >
+                    🔀 换模板
+                  </button>
+                  <button
                     onClick={confirmAndGo}
                     className="flex-[2] py-2.5 rounded-xl bg-paper-surface border border-paper-accent text-paper-ink text-sm font-medium hover:bg-paper-accent/10 active:scale-95"
                   >
-                    ✨ 用这个模板，AI 帮我写
+                    ✨ 用这个模板
                   </button>
                 </div>
               </>
