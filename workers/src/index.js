@@ -9,6 +9,8 @@
  *   DELETE /api/diaries/:id      删除一篇日记
  *   GET    /api/profile          个人资料
  *   PATCH  /api/profile          更新个人资料
+ *   POST   /api/feedback         提交反馈（需登录）
+ *   GET    /api/admin/feedbacks  查看所有反馈（管理员 key）
  */
 import { hashPassword, verifyPassword, genSalt, signJWT, verifyJWT, authUser } from "./auth.js";
 
@@ -60,6 +62,8 @@ export default {
       ["DELETE", "/api/diaries",        handleDeleteDiary],
       ["GET",    "/api/profile",        handleGetProfile],
       ["PATCH",  "/api/profile",        handlePatchProfile],
+      ["POST",   "/api/feedback",       handleSubmitFeedback],
+      ["GET",    "/api/admin/feedbacks", handleListFeedbacks],
     ];
 
     for (const [method, p, handler] of routes) {
@@ -267,5 +271,42 @@ async function handlePatchProfile(request, env, JWT_SECRET) {
   }
 
   return json({ ok: true });
+}
+
+// ====== Feedback ======
+async function handleSubmitFeedback(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const body = await readBody(request);
+  const { type = "suggestion", title = "", content, app_version = "0.1.0", device = "" } = body;
+  if (!content || !content.trim()) return json({ error: "content required" }, 400);
+  if (content.length > 2000) return json({ error: "content too long (max 2000 chars)" }, 400);
+
+  const now = Date.now();
+  const id = uuid();
+
+  await env.DB.prepare(
+    `INSERT INTO feedbacks (id, user_id, type, title, content, app_version, device, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, user.uid, type, title, content.trim(), app_version, device, now).run();
+
+  return json({ id, ok: true });
+}
+
+async function handleListFeedbacks(request, env) {
+  const q = new URL(request.url).searchParams;
+  const key = q.get("key") || request.headers.get("X-Admin-Key");
+  const ADMIN_KEY = env.ADMIN_KEY || "dev-admin";
+  if (key !== ADMIN_KEY) return json({ error: "forbidden" }, 403);
+
+  const limit = Math.min(parseInt(q.get("limit") || "50"), 200);
+  const rows = await env.DB.prepare(
+    `SELECT f.*, u.email, u.nickname FROM feedbacks f
+     JOIN users u ON f.user_id = u.id
+     ORDER BY f.created_at DESC LIMIT ?`
+  ).bind(limit).all();
+
+  return json({ feedbacks: rows.results });
 }
 

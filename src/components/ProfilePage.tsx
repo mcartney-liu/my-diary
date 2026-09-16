@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
-import { getProfile, patchProfile, type ProfileStats } from "../api";
+import { getProfile, patchProfile, submitFeedback, type ProfileStats } from "../api";
 
 interface ProfileData {
   user: { id: string; email: string; nickname?: string; avatar?: string };
@@ -19,6 +19,14 @@ export default function ProfilePage() {
   const [nicknameInput, setNicknameInput] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // 反馈弹窗
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [fbType, setFbType] = useState("suggestion");
+  const [fbTitle, setFbTitle] = useState("");
+  const [fbContent, setFbContent] = useState("");
+  const [fbSubmitting, setFbSubmitting] = useState(false);
+  const [fbSent, setFbSent] = useState(false);
+
   useEffect(() => {
     getProfile()
       .then(r => setData(r))
@@ -35,6 +43,26 @@ export default function ProfilePage() {
   const startEditNickname = () => {
     setNicknameInput(data?.user.nickname || "");
     setEditingNickname(true);
+  };
+
+  const submitFeedbackNow = async () => {
+    if (!fbContent.trim()) return;
+    setFbSubmitting(true);
+    try {
+      await submitFeedback({ type: fbType, title: fbTitle, content: fbContent });
+      setFbSent(true);
+      setTimeout(() => {
+        setShowFeedback(false);
+        setFbSent(false);
+        setFbTitle("");
+        setFbContent("");
+        setFbType("suggestion");
+      }, 1500);
+    } catch (e: any) {
+      alert("提交失败: " + (e.message || "网络错误，请稍后再试"));
+    } finally {
+      setFbSubmitting(false);
+    }
   };
 
   const saveNickname = async () => {
@@ -165,7 +193,7 @@ export default function ProfilePage() {
         <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 overflow-hidden">
           <h3 className="text-paper-ink2 text-xs font-medium tracking-wider uppercase px-5 pt-4 pb-2">💬 关于</h3>
           <MenuItem icon="ℹ️" label="版本 v0.1.0" disabled />
-          <MenuItem icon="❤️" label="反馈与建议" onClick={() => alert("感谢反馈！")} />
+          <MenuItem icon="❤️" label="反馈与建议" onClick={() => setShowFeedback(true)} />
         </section>
 
         {/* 退出登录 */}
@@ -180,6 +208,99 @@ export default function ProfilePage() {
           MyDiary · 纸风格日记 · Powered by Cloudflare
         </p>
       </main>
+
+      {/* 📮 反馈弹窗 */}
+      {showFeedback && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !fbSubmitting && setShowFeedback(false)}>
+          <div
+            className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-slide-up"
+            onClick={e => e.stopPropagation()}
+          >
+            {fbSent ? (
+              <div className="p-8 text-center">
+                <div className="text-5xl mb-3">🎉</div>
+                <div className="text-paper-ink font-semibold text-lg">提交成功！</div>
+                <div className="text-paper-ink2 text-sm mt-1">感谢你的反馈，我会认真看的～</div>
+              </div>
+            ) : (
+              <>
+                <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
+                  <h3 className="text-paper-ink font-semibold text-lg">💬 反馈与建议</h3>
+                  <button
+                    onClick={() => !fbSubmitting && setShowFeedback(false)}
+                    disabled={fbSubmitting}
+                    className="text-paper-ink3 hover:text-paper-ink text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-paper-surface transition disabled:opacity-30"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="p-5 space-y-4">
+                  {/* 类型选择 */}
+                  <div>
+                    <label className="text-paper-ink2 text-xs font-medium">类型</label>
+                    <div className="flex gap-2 mt-1.5">
+                      {[
+                        { v: "suggestion", label: "💡 建议" },
+                        { v: "bug",        label: "🐛 Bug" },
+                        { v: "other",      label: "📝 其他" },
+                      ].map(o => (
+                        <button
+                          key={o.v}
+                          onClick={() => setFbType(o.v)}
+                          className={[
+                            "px-3 py-1.5 rounded-full text-sm border transition",
+                            fbType === o.v
+                              ? "bg-paper-ink text-paper-bg border-paper-ink"
+                              : "bg-paper-surface text-paper-ink2 border-paper-line hover:border-paper-ink3",
+                          ].join(" ")}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 标题（可选） */}
+                  <div>
+                    <label className="text-paper-ink2 text-xs font-medium">标题（可选）</label>
+                    <input
+                      value={fbTitle}
+                      onChange={e => setFbTitle(e.target.value)}
+                      maxLength={50}
+                      placeholder="简短描述一下..."
+                      className="w-full mt-1.5 px-3 py-2 rounded-lg border border-paper-line bg-paper-surface text-paper-ink focus:outline-none focus:border-paper-accent"
+                    />
+                  </div>
+
+                  {/* 内容 */}
+                  <div>
+                    <label className="text-paper-ink2 text-xs font-medium">详细描述</label>
+                    <textarea
+                      value={fbContent}
+                      onChange={e => setFbContent(e.target.value)}
+                      maxLength={2000}
+                      rows={5}
+                      placeholder="遇到了什么问题？或者有什么好想法？"
+                      className="w-full mt-1.5 px-3 py-2 rounded-lg border border-paper-line bg-paper-surface text-paper-ink focus:outline-none focus:border-paper-accent resize-none"
+                    />
+                    <div className="text-right text-paper-ink3 text-xs mt-1">{fbContent.length}/2000</div>
+                  </div>
+
+                  {/* 提交按钮 */}
+                  <button
+                    onClick={submitFeedbackNow}
+                    disabled={!fbContent.trim() || fbSubmitting}
+                    className="w-full py-3 rounded-card bg-paper-ink text-paper-bg font-medium hover:bg-paper-ink/90 transition active:scale-[0.98] disabled:opacity-40"
+                  >
+                    {fbSubmitting ? "提交中..." : "提交反馈"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
