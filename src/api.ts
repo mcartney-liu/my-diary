@@ -127,6 +127,7 @@ export interface UserTemplate {
   name: string;
   icon: string;
   description: string;
+  keywords: string;
   blocks: Diary["blocks"];
   default_title: string;
   default_tags: string[];
@@ -142,7 +143,7 @@ export interface UserTemplate {
 }
 
 export function saveTemplate(payload: {
-  name: string; icon?: string; description?: string;
+  name: string; icon?: string; description?: string; keywords?: string;
   blocks: Diary["blocks"]; default_title?: string; default_tags?: string[];
   wallpaper?: string; show_lines?: boolean; default_mood_id?: string;
 }) {

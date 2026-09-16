@@ -339,7 +339,7 @@ async function handleSaveTemplate(request, env, JWT_SECRET) {
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
-  const { name, icon = "📋", description = "", blocks = [], default_title = "", default_tags = [], wallpaper = "", show_lines = 1, default_mood_id = "" } = body;
+  const { name, icon = "📋", description = "", keywords = "", blocks = [], default_title = "", default_tags = [], wallpaper = "", show_lines = 1, default_mood_id = "" } = body;
   if (!name || !name.trim()) return json({ error: "name required" }, 400);
   if (!blocks.length) return json({ error: "blocks required" }, 400);
 
@@ -349,9 +349,9 @@ async function handleSaveTemplate(request, env, JWT_SECRET) {
   const id = uuid();
 
   await env.DB.prepare(
-    `INSERT INTO templates (id, user_id, name, icon, description, blocks, default_title, default_tags, wallpaper, show_lines, default_mood_id, is_public, author_name, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
-  ).bind(id, user.uid, name.trim(), icon, description,
+    `INSERT INTO templates (id, user_id, name, icon, description, keywords, blocks, default_title, default_tags, wallpaper, show_lines, default_mood_id, is_public, author_name, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
+  ).bind(id, user.uid, name.trim(), icon, description, keywords,
      JSON.stringify(blocks), default_title, JSON.stringify(default_tags),
      wallpaper, show_lines ? 1 : 0, default_mood_id,
      u?.nickname || user.uid.slice(0, 8), now, now).run();
@@ -386,6 +386,7 @@ async function handleListTemplates(request, env, JWT_SECRET) {
     name: r.name,
     icon: r.icon,
     description: r.description,
+    keywords: r.keywords || "",
     blocks: JSON.parse(r.blocks || "[]"),
     default_title: r.default_title,
     default_tags: JSON.parse(r.default_tags || "[]"),
@@ -429,7 +430,7 @@ async function handleUpdateTemplate(request, env, JWT_SECRET) {
   const now = Date.now();
   const fields = [];
   const values = [];
-  const allowed = ["name", "icon", "description", "blocks", "default_title", "default_tags", "wallpaper", "show_lines", "default_mood_id"];
+  const allowed = ["name", "icon", "description", "keywords", "blocks", "default_title", "default_tags", "wallpaper", "show_lines", "default_mood_id"];
   for (const key of allowed) {
     if (body[key] !== undefined) {
       fields.push(`${key} = ?`);

@@ -1,8 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mic, Bot, Loader2, Sparkles, PenLine } from "lucide-react";
 import { detectTemplate, polishTranscript } from "../ai";
 import { TEMPLATES } from "../templates";
+import { listTemplates, type UserTemplate } from "../api";
 
 type Phase = "idle" | "menu" | "recording" | "input" | "processing" | "match";
 
@@ -28,6 +29,16 @@ export default function VoiceQuickEntry() {
   const recRef = useRef<any>(null);
   const timerRef = useRef<number | null>(null);
   const finalTextRef = useRef("");
+
+  // ⭐ 用户自建模板（AI 快记也要能匹配）
+  const [userTemplates, setUserTemplates] = useState<UserTemplate[]>([]);
+
+  useEffect(() => {
+    // 组件挂载时拉一次用户模板
+    listTemplates("mine").then(res => {
+      setUserTemplates(res.templates || []);
+    }).catch(() => {});
+  }, []);
 
   const stopTimer = () => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
@@ -80,7 +91,10 @@ export default function VoiceQuickEntry() {
     setPhase("processing");
     setError(null);
     try {
-      const det = await detectTemplate(text);
+      // ⭐ 传用户模板给 AI，让它能从 8 官方 + N 用户自建里一起匹配
+      const det = await detectTemplate(text, undefined,
+        userTemplates.map(t => ({ id: t.id, name: t.name, keywords: t.keywords, description: t.description }))
+      );
       setResult({ templateId: det.templateId, reason: det.reason, transcript: text });
       setPhase("match");
     } catch (e) {
@@ -157,7 +171,11 @@ export default function VoiceQuickEntry() {
     return `${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
   };
 
-  const matchedTemplate = result ? TEMPLATES.find(t => t.id === result.templateId) : null;
+  // ⭐ 匹配结果可能是官方模板也可能是用户模板
+  const matchedTemplate = result
+    ? TEMPLATES.find(t => t.id === result.templateId)
+      || userTemplates.find(t => t.id === result.templateId)
+    : null;
 
   // 底部按钮样式
   const btnBase = "px-3 py-2 rounded-xl border text-sm transition active:scale-95 select-none flex items-center gap-2";
@@ -340,34 +358,70 @@ export default function VoiceQuickEntry() {
 
                 {/* 🔑 换模板面板 —— 点击"🔀 换个模板"展开 */}
                 {showTemplatePicker && (
-                  <div className="bg-paper-surface rounded-xl border border-paper-line p-2">
-                    <div className="text-[11px] text-paper-ink3 mb-2 px-1">选择模板</div>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {TEMPLATES.map(tpl => {
-                        const selected = tpl.id === result.templateId;
-                        return (
-                          <button
-                            key={tpl.id}
-                            onClick={() => {
-                              setResult(prev => prev && {
-                                ...prev,
-                                templateId: tpl.id,
-                                reason: `你手动选择了 ${tpl.name}`,
-                              });
-                              setShowTemplatePicker(false);
-                            }}
-                            className={`py-2 rounded-lg text-center transition active:scale-95 ${
-                              selected
-                                ? "bg-paper-accent/15 border border-paper-accent text-paper-ink"
-                                : "bg-paper-bg border border-paper-line text-paper-ink2 hover:bg-paper-line/30"
-                            }`}
-                          >
-                            <div className="text-xl leading-none">{tpl.icon}</div>
-                            <div className="text-[10px] mt-0.5 truncate">{tpl.name}</div>
-                          </button>
-                        );
-                      })}
+                  <div className="bg-paper-surface rounded-xl border border-paper-line p-2 space-y-3">
+                    {/* 系统模板 */}
+                    <div>
+                      <div className="text-[11px] text-paper-ink3 mb-1 px-1">📦 系统模板</div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {TEMPLATES.map(tpl => {
+                          const selected = tpl.id === result.templateId;
+                          return (
+                            <button
+                              key={tpl.id}
+                              onClick={() => {
+                                setResult(prev => prev && {
+                                  ...prev,
+                                  templateId: tpl.id,
+                                  reason: `你手动选择了 ${tpl.name}`,
+                                });
+                                setShowTemplatePicker(false);
+                              }}
+                              className={`py-2 rounded-lg text-center transition active:scale-95 ${
+                                selected
+                                  ? "bg-paper-accent/15 border border-paper-accent text-paper-ink"
+                                  : "bg-paper-bg border border-paper-line text-paper-ink2 hover:bg-paper-line/30"
+                              }`}
+                            >
+                              <div className="text-xl leading-none">{tpl.icon}</div>
+                              <div className="text-[10px] mt-0.5 truncate">{tpl.name}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
+
+                    {/* 用户模板（如果有的话） */}
+                    {userTemplates.length > 0 && (
+                      <div>
+                        <div className="text-[11px] text-paper-ink3 mb-1 px-1">🌿 我的模板</div>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {userTemplates.map(tpl => {
+                            const selected = tpl.id === result.templateId;
+                            return (
+                              <button
+                                key={tpl.id}
+                                onClick={() => {
+                                  setResult(prev => prev && {
+                                    ...prev,
+                                    templateId: tpl.id,
+                                    reason: `你手动选择了 ${tpl.name}`,
+                                  });
+                                  setShowTemplatePicker(false);
+                                }}
+                                className={`py-2 rounded-lg text-center transition active:scale-95 ${
+                                  selected
+                                    ? "bg-paper-accent/15 border border-paper-accent text-paper-ink"
+                                    : "bg-paper-bg border border-paper-line text-paper-ink2 hover:bg-paper-line/30"
+                                }`}
+                              >
+                                <div className="text-xl leading-none">{tpl.icon || "📋"}</div>
+                                <div className="text-[10px] mt-0.5 truncate">{tpl.name}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

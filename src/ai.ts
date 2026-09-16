@@ -665,38 +665,57 @@ function quickRuleMatch(text: string): DetectResult | null {
 
 export async function detectTemplate(
   rawText: string,
-  provider?: AiProvider | null
+  provider?: AiProvider | null,
+  userTemplates?: { id: string; name: string; keywords?: string; description?: string }[]
 ): Promise<DetectResult> {
   const ruleResult = quickRuleMatch(rawText);
-  if (ruleResult) {
-    console.info("[ai] 🎯 规则匹配:", ruleResult.templateId, ruleResult.reason);
+  // ⭐ 规则匹配只匹配 8 个官方模板（用户模板没有标准 keywords 数组，规则匹配不准）
+  // 但如果规则匹配到了 diary（默认），我们再让 AI 同时看用户模板
+  if (ruleResult && ruleResult.templateId !== "diary") {
+    console.info("[ai] 🎯 官方模板规则匹配:", ruleResult.templateId, ruleResult.reason);
     return ruleResult;
   }
 
   const p = provider ?? getAiProvider();
   if (!p) {
+    // 没有 AI 就只靠规则匹配
+    if (ruleResult) return ruleResult;
     return { templateId: "diary", confidence: 0.3, reason: "未配置 AI，默认日记" };
   }
 
-  const tplList = ALL_TEMPLATES.map(t => `- "${t.id}" (${t.name}): ${t.keywords.slice(0, 3).join("/")}`).join("\n");
+  // ⭐ 拼模板列表：官方 8 个 + 用户自建模板
+  const systemTplList = ALL_TEMPLATES.map(t => `- "${t.id}" (${t.name}): ${t.keywords.slice(0, 3).join("/")}`).join("\n");
+
+  let userTplList = "";
+  if (userTemplates?.length) {
+    userTplList = "\n你的模板:\n" + userTemplates
+      .map(t => `- "${t.id}" (${t.name}): ${(t.keywords || t.description || "").slice(0, 60)}`)
+      .join("\n");
+  }
+
+  const allValidIds = ALL_TEMPLATES.map(t => t.id).concat(userTemplates?.map(t => t.id) || []);
 
   const raw = await callChatCompletion(p, [
     { role: "system", content: `你是一个日记模板分类器。根据用户说的话，判断最适合的日记模板。
 可选模板:
-${tplList}
+═ 系统模板 ═
+${systemTplList}
+${userTplList}
 
-严格返回 JSON: {"templateId": "xxx", "confidence": 0.0-1.0, "reason": "一句话解释"}` },
+严格返回 JSON: {"templateId": "xxx", "confidence": 0.0-1.0, "reason": "一句话解释"}
+
+用户模板的 id 是类似 "tpl_abc123" 的字符串。如果没有合适的就返回 "diary"。` },
     { role: "user", content: rawText },
   ], 0.3);
 
   try {
     const json = extractJson(raw);
     const r = JSON.parse(json) as DetectResult;
-    const validIds = ALL_TEMPLATES.map(t => t.id);
-    if (!validIds.includes(r.templateId)) {
+    if (!allValidIds.includes(r.templateId)) {
       return { templateId: "diary", confidence: 0.3, reason: "AI 返回无效模板，默认日记" };
     }
-    console.info("[ai] 🎯 AI 匹配:", r.templateId, r.reason);
+    const who = userTemplates?.some(t => t.id === r.templateId) ? "用户模板" : "系统模板";
+    console.info(`[ai] 🎯 AI 匹配(${who}):`, r.templateId, r.reason);
     return { templateId: r.templateId, confidence: r.confidence ?? 0.7, reason: r.reason ?? "" };
   } catch (e) {
     console.warn("[ai] detectTemplate 解析失败，默认 diary:", e);
