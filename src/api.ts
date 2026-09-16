@@ -120,3 +120,41 @@ export function submitFeedback(payload: { type?: string; title?: string; content
     body: JSON.stringify({ app_version: "0.1.0", ...payload }),
   });
 }
+
+// ====== Templates ======
+export interface UserTemplate {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+  blocks: Diary["blocks"];
+  default_title: string;
+  default_tags: string[];
+  wallpaper: string;
+  show_lines: boolean;
+  default_mood_id: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export function saveTemplate(payload: {
+  name: string; icon?: string; description?: string;
+  blocks: Diary["blocks"]; default_title?: string; default_tags?: string[];
+  wallpaper?: string; show_lines?: boolean; default_mood_id?: string;
+}) {
+  return request<{ id: string; ok: boolean }>("/api/templates", {
+    method: "POST", body: JSON.stringify(payload),
+  });
+}
+
+export function listTemplates() {
+  return request<{ templates: UserTemplate[] }>("/api/templates");
+}
+
+export function deleteTemplate(id: string) {
+  return request<{ ok: boolean }>(`/api/templates?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function updateTemplate(patch: Partial<UserTemplate> & { id: string }) {
+  return request<{ ok: boolean }>("/api/templates", { method: "PATCH", body: JSON.stringify(patch) });
+}

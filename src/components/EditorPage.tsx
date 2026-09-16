@@ -3,7 +3,7 @@ import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, File
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
-import { transcribeAudio } from "../api";
+import { transcribeAudio, listTemplates, saveTemplate, deleteTemplate, type UserTemplate } from "../api";
 import { polishTranscript, recommendBooks, kickoffBookNote, type BookRecommendation } from "../ai";
 import { fetchWeather, fetchLocation, fetchLocationAuto, type LocationResult } from "../weather";
 import { fetchNearbyPois, type Poi } from "../services/poi";
@@ -263,6 +263,13 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const [showWallpaperMenu, setShowWallpaperMenu] = useState(false);
   const [templateId, setTemplateId] = useState<string | undefined>(initialDiary?.templateId ?? initialTemplateId);
   const [showTemplateMenu, setShowTemplateMenu] = useState(false);
+  const [myTemplates, setMyTemplates] = useState<UserTemplate[]>([]);
+  const [loadingMyTemplates, setLoadingMyTemplates] = useState(false);
+  const [showCustomBuilder, setShowCustomBuilder] = useState(false);
+  const [builderName, setBuilderName] = useState("");
+  const [builderIcon, setBuilderIcon] = useState("📋");
+  const [builderKinds, setBuilderKinds] = useState<string[]>([]);
+  const [savingTemplate, setSavingTemplate] = useState(false);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
   const [saveToast, setSaveToast] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -298,6 +305,144 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const [confirmSwitchTpl, setConfirmSwitchTpl] = useState(false);
   // 暂存切换模板时选中的目标模板
   const pendingTplRef = useRef<string | undefined>(undefined);
+  const pendingCustomTplRef = useRef<UserTemplate | undefined>(undefined);
+
+  // ===== 模板管理 =====
+  async function loadMyTemplates() {
+    setLoadingMyTemplates(true);
+    try {
+      const data = await listTemplates();
+      setMyTemplates(data.templates);
+    } catch {
+      // 登录过期或网络错误，静默
+    } finally {
+      setLoadingMyTemplates(false);
+    }
+  }
+
+  async function deleteMyTemplate(id: string) {
+    try {
+      await deleteTemplate(id);
+      setMyTemplates((prev) => prev.filter((t) => t.id !== id));
+    } catch {
+      alert("删除失败");
+    }
+  }
+
+  function applyOfficialTemplate(tplId: string) {
+    const tpl = templateById(tplId);
+    if (!tpl) return;
+    const hasContent = blocks.some(
+      (b) => b.kind === "text" ? b.content.trim().length > 0 : !!b.content
+    );
+    if (hasContent) {
+      pendingTplRef.current = tplId;
+      pendingCustomTplRef.current = undefined;
+      setConfirmSwitchTpl(true);
+      return;
+    }
+    doApplyOfficial(tplId);
+  }
+
+  function doApplyOfficial(tplId: string) {
+    const tpl = templateById(tplId);
+    if (!tpl) return;
+    setTemplateId(tpl.id);
+    setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
+    if (tpl.defaultTitle) setTitle(tpl.defaultTitle);
+    if (tpl.defaultMoodId) setMoodId(tpl.defaultMoodId);
+    if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
+    else if (tpl.id === "diary") setWallpaper(undefined);
+    if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
+    if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
+    setShowTemplateMenu(false);
+  }
+
+  function applyMyTemplate(tpl: UserTemplate) {
+    const hasContent = blocks.some(
+      (b) => b.kind === "text" ? b.content.trim().length > 0 : !!b.content
+    );
+    if (hasContent) {
+      pendingCustomTplRef.current = tpl;
+      pendingTplRef.current = undefined;
+      setConfirmSwitchTpl(true);
+      return;
+    }
+    doApplyMy(tpl);
+  }
+
+  function doApplyMy(tpl: UserTemplate) {
+    setTemplateId(`custom-${tpl.id}`);
+    setBlocks(tpl.blocks.map((b) => ({ ...b })));
+    if (tpl.default_title) setTitle(tpl.default_title);
+    if (tpl.default_mood_id) setMoodId(tpl.default_mood_id as MoodId);
+    if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
+    if (tpl.show_lines !== undefined) setShowLines(tpl.show_lines);
+    if (tpl.default_tags?.length) setTags([...tpl.default_tags]);
+    setShowTemplateMenu(false);
+  }
+
+  // ===== 自定义模板 Builder =====
+  const AVAILABLE_COMPONENTS = [
+    { kind: "heading", label: "标题", icon: "📌" },
+    { kind: "text", label: "文字", icon: "📝" },
+    { kind: "divider", label: "分割线", icon: "➖" },
+    { kind: "checkbox", label: "待办", icon: "☑️" },
+    { kind: "number", label: "数字", icon: "🔢" },
+    { kind: "finance_item", label: "记账", icon: "💰" },
+    { kind: "quote", label: "摘抄", icon: "📖" },
+    { kind: "book", label: "读书笔记", icon: "📚" },
+  ];
+
+  function toggleKind(kind: string) {
+    setBuilderKinds((prev) =>
+      prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind]
+    );
+  }
+
+  async function handleSaveBuilder() {
+    if (!builderName.trim()) { alert("请输入模板名称"); return; }
+    if (builderKinds.length === 0) { alert("至少选一个组件"); return; }
+
+    setSavingTemplate(true);
+    try {
+      // 根据勾选的组件生成初始 blocks
+      const newBlocks: DiaryBlock[] = builderKinds.map((kind) => {
+        const base = { id: uid("b"), kind } as DiaryBlock;
+        switch (kind) {
+          case "heading": return { ...base, content: "标题", level: 2 };
+          case "text": return { ...base, content: "" };
+          case "divider": return { ...base, content: "" };
+          case "checkbox": return { ...base, content: "待办事项", checked: false };
+          case "number": return { ...base, content: "", label: "数值", unit: "", value: undefined };
+          case "finance_item": return { ...base, content: "", direction: "expense", category: "", value: undefined };
+          case "quote": return { ...base, content: "摘抄内容", pageNumber: undefined };
+          case "book": return { ...base, content: "选择一本书", author: "", totalPages: 200, currentPage: 0, bookId: "" };
+          default: return { ...base, content: "" };
+        }
+      });
+
+      await saveTemplate({
+        name: builderName.trim(),
+        icon: builderIcon,
+        blocks: newBlocks,
+      });
+
+      // 清空表单 & 关闭
+      setBuilderName("");
+      setBuilderIcon("📋");
+      setBuilderKinds([]);
+      setShowCustomBuilder(false);
+
+      // 重新拉列表
+      await loadMyTemplates();
+      alert("✅ 模板已保存！下次在模板选择里就能看到了");
+    } catch (e: any) {
+      alert("保存失败: " + (e?.message || e));
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
 
   // 添加标签（支持逗号/分号/空格分隔批量）
   const addTag = () => {
@@ -1913,7 +2058,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
             {/* 模板按钮 */}
             <button
-              onClick={() => setShowTemplateMenu(true)}
+              onClick={() => { setShowTemplateMenu(true); void loadMyTemplates(); }}
               className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink hover:bg-paper-line/50 transition active:scale-95"
               title="选择模板"
             >
@@ -2047,53 +2192,208 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                   aria-label="关闭"
                 >✕</button>
               </div>
-              <div className="flex-1 overflow-y-auto px-5 py-4">
-                <div className="grid grid-cols-2 gap-3">
-                  {TEMPLATES.map((tpl) => {
-                    const selected = templateId === tpl.id || (!templateId && tpl.id === "diary");
-                    return (
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                {/* ===== 官方模板 ===== */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-medium text-paper-ink3">📚 官方模板</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {TEMPLATES.map((tpl) => {
+                      const selected = templateId === tpl.id || (!templateId && tpl.id === "diary");
+                      return (
+                        <button
+                          key={tpl.id}
+                          onClick={() => applyOfficialTemplate(tpl.id)}
+                          className={`p-3 rounded-xl border-2 text-left transition ${
+                            selected
+                              ? "border-violet-400 ring-2 ring-violet-200 bg-violet-50/50"
+                              : "border-paper-line hover:border-paper-ink2 hover:bg-paper-surface"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xl">{tpl.icon}</span>
+                            <span className={`font-medium text-sm ${selected ? "text-violet-900" : "text-paper-ink"}`}>
+                              {tpl.name}
+                            </span>
+                            {selected && <span className="ml-auto w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center">✓</span>}
+                          </div>
+                          <div className="text-[11px] text-paper-ink2 leading-tight">{tpl.description}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* ===== 我的模板 ===== */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-paper-ink3">👤 我的模板</span>
+                    {loadingMyTemplates && <Loader2 size={12} className="animate-spin text-paper-ink3" />}
+                  </div>
+                  {myTemplates.length === 0 && !loadingMyTemplates ? (
+                    <div className="text-center py-6 text-[12px] text-paper-ink3 italic">
+                      还没有自定义模板，点下面按钮创建
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3">
+                      {myTemplates.map((tpl) => {
+                        const selected = templateId === `custom-${tpl.id}`;
+                        return (
+                          <div key={tpl.id} className="relative group">
+                            <button
+                              onClick={() => applyMyTemplate(tpl)}
+                              className={`w-full p-3 rounded-xl border-2 text-left transition ${
+                                selected
+                                  ? "border-violet-400 ring-2 ring-violet-200 bg-violet-50/50"
+                                  : "border-paper-line hover:border-paper-ink2 hover:bg-paper-surface"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xl">{tpl.icon}</span>
+                                <span className={`font-medium text-sm ${selected ? "text-violet-900" : "text-paper-ink"}`}>
+                                  {tpl.name}
+                                </span>
+                                {selected && <span className="ml-auto w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center">✓</span>}
+                              </div>
+                              <div className="text-[11px] text-paper-ink2 leading-tight">
+                                {tpl.blocks.length} 个组件
+                              </div>
+                              <span className="absolute top-1 right-1 text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">我</span>
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); if (confirm(`删除模板"${tpl.name}"？`)) deleteMyTemplate(tpl.id); }}
+                              className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 text-white text-xs hidden group-hover:flex items-center justify-center hover:bg-red-600 shadow"
+                              title="删除"
+                            >×</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* ===== 自定义模板入口 ===== */}
+                <div className="pt-2">
+                  <button
+                    onClick={() => { setShowTemplateMenu(false); setShowCustomBuilder(true); void loadMyTemplates(); }}
+                    className="w-full py-3 rounded-xl border-2 border-dashed border-paper-line text-paper-ink2 hover:border-violet-300 hover:text-violet-600 hover:bg-violet-50/30 transition flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Plus size={16} />
+                    自定义模板（选组件组合）
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ===== 自定义模板 Builder ===== */}
+        {showCustomBuilder && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={() => setShowCustomBuilder(false)}>
+            <div className="absolute inset-0 bg-black/40 animate-[fade-in_0.2s]" />
+            <div
+              className="relative w-full max-w-md max-h-[85vh] bg-paper-card rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-[drawer-up_0.28s_ease-out]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-5 py-3 border-b border-paper-line">
+                <h3 className="font-semibold text-paper-ink">✏️ 自定义模板</h3>
+                <button
+                  onClick={() => { setShowCustomBuilder(false); setBuilderName(""); setBuilderKinds([]); }}
+                  className="w-8 h-8 rounded-full hover:bg-paper-surface flex items-center justify-center text-paper-ink2"
+                >✕</button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+                {/* 模板名称 */}
+                <div>
+                  <label className="text-xs font-medium text-paper-ink3 mb-1 block">模板名称</label>
+                  <input
+                    value={builderName}
+                    onChange={(e) => setBuilderName(e.target.value)}
+                    placeholder="比如：每周复盘"
+                    className="w-full px-3 py-2 rounded-xl border border-paper-line bg-paper-surface text-sm focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-200"
+                    maxLength={20}
+                  />
+                </div>
+
+                {/* 模板图标 */}
+                <div>
+                  <label className="text-xs font-medium text-paper-ink3 mb-1 block">图标</label>
+                  <div className="flex flex-wrap gap-2">
+                    {["📋", "🎯", "💼", "🏃", "📖", "✈️", "🧘", "💡", "🎨", "🍱"].map((ic) => (
                       <button
-                        key={tpl.id}
-                        onClick={() => {
-                          const hasContent = blocks.some(
-                            (b) => b.kind === "text" ? b.content.trim().length > 0 : !!b.content
-                          );
-                          if (hasContent) {
-                            pendingTplRef.current = tpl.id;
-                            setConfirmSwitchTpl(true);
-                            return;
-                          }
-                          setTemplateId(tpl.id);
-                           setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
-                           if (tpl.defaultTitle) setTitle(tpl.defaultTitle);
-                           if (tpl.defaultMoodId) setMoodId(tpl.defaultMoodId);
-                           if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
-                           else if (tpl.id === "diary") setWallpaper(undefined);
-                           if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
-                           if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
-                          setShowTemplateMenu(false);
-                        }}
-                        className={`p-3 rounded-xl border-2 text-left transition ${
-                          selected
-                            ? "border-violet-400 ring-2 ring-violet-200 bg-violet-50/50"
-                            : "border-paper-line hover:border-paper-ink2 hover:bg-paper-surface"
+                        key={ic}
+                        onClick={() => setBuilderIcon(ic)}
+                        className={`w-9 h-9 rounded-lg text-lg flex items-center justify-center transition ${
+                          builderIcon === ic
+                            ? "bg-violet-100 border-2 border-violet-400"
+                            : "bg-paper-surface border border-paper-line hover:border-paper-ink2"
                         }`}
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xl">{tpl.icon}</span>
-                          <span className={`font-medium text-sm ${selected ? "text-violet-900" : "text-paper-ink"}`}>
-                            {tpl.name}
-                          </span>
-                          {selected && <span className="ml-auto w-5 h-5 rounded-full bg-violet-500 text-white text-xs flex items-center justify-center">✓</span>}
-                        </div>
-                        <div className="text-[11px] text-paper-ink2 leading-tight">{tpl.description}</div>
-                      </button>
-                    );
-                  })}
+                      >{ic}</button>
+                    ))}
+                  </div>
                 </div>
-                <div className="mt-4 px-1 text-[11px] text-paper-ink3 italic">
-                  模板 = 初始文案 + 专属信纸 + 默认标签，换模板会替换当前内容
+
+                {/* 组件选择 */}
+                <div>
+                  <label className="text-xs font-medium text-paper-ink3 mb-2 block">
+                    选择组件（勾选后按顺序组合）
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {AVAILABLE_COMPONENTS.map((comp) => {
+                      const checked = builderKinds.includes(comp.kind);
+                      return (
+                        <button
+                          key={comp.kind}
+                          onClick={() => toggleKind(comp.kind)}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition text-left ${
+                            checked
+                              ? "bg-violet-50 border-violet-400 text-violet-800"
+                              : "bg-paper-surface border-paper-line text-paper-ink hover:border-paper-ink2"
+                          }`}
+                        >
+                          <span className="text-base">{comp.icon}</span>
+                          <span>{comp.label}</span>
+                          {checked && <span className="ml-auto text-violet-500">✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+
+                {/* 预览 */}
+                {builderKinds.length > 0 && (
+                  <div className="rounded-xl border border-paper-line bg-paper-surface/50 p-3">
+                    <div className="text-[11px] text-paper-ink3 mb-2">📐 预览结构：</div>
+                    <div className="space-y-1 text-[12px]">
+                      {builderKinds.map((k, i) => {
+                        const comp = AVAILABLE_COMPONENTS.find((c) => c.kind === k);
+                        return (
+                          <div key={i} className="flex items-center gap-2 text-paper-ink2">
+                            <span className="text-paper-ink3">{i + 1}.</span>
+                            <span>{comp?.icon} {comp?.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-5 py-3 border-t border-paper-line flex gap-3">
+                <button
+                  onClick={() => { setShowCustomBuilder(false); setBuilderName(""); setBuilderKinds([]); }}
+                  className="flex-1 py-2.5 rounded-xl border border-paper-line text-paper-ink2 hover:bg-paper-surface text-sm"
+                >取消</button>
+                <button
+                  onClick={handleSaveBuilder}
+                  disabled={savingTemplate}
+                  className="flex-1 py-2.5 rounded-xl bg-violet-500 text-white text-sm font-medium hover:bg-violet-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {savingTemplate && <Loader2 size={14} className="animate-spin" />}
+                  保存模板
+                </button>
               </div>
             </div>
           </div>
@@ -2132,18 +2432,15 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           cancelText="取消"
           onConfirm={() => {
             setConfirmSwitchTpl(false);
+            // 先检查是不是自定义模板
+            const customTpl = pendingCustomTplRef.current;
+            if (customTpl) {
+              doApplyMy(customTpl);
+              return;
+            }
             const tplId = pendingTplRef.current;
             if (!tplId) return;
-            const tpl = templateById(tplId);
-            if (!tpl) return;
-            setTemplateId(tpl.id);
-            setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
-            if (tpl.defaultTitle) setTitle(tpl.defaultTitle);
-            if (tpl.defaultMoodId) setMoodId(tpl.defaultMoodId);
-            if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
-            else if (tpl.id === "diary") setWallpaper(undefined);
-            if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
-            if (tpl.defaultTags) setTags(tpl.defaultTags);
+            doApplyOfficial(tplId);
           }}
           onCancel={() => setConfirmSwitchTpl(false)}
         />

@@ -11,6 +11,10 @@
  *   PATCH  /api/profile          更新个人资料
  *   POST   /api/feedback         提交反馈（需登录）
  *   GET    /api/admin/feedbacks  查看所有反馈（管理员 key）
+ *   POST   /api/templates        保存自定义模板
+ *   GET    /api/templates        我的模板列表
+ *   DELETE /api/templates        删除模板
+ *   PATCH  /api/templates        更新模板
  */
 import { hashPassword, verifyPassword, genSalt, signJWT, verifyJWT, authUser } from "./auth.js";
 
@@ -64,6 +68,10 @@ export default {
       ["PATCH",  "/api/profile",        handlePatchProfile],
       ["POST",   "/api/feedback",       handleSubmitFeedback],
       ["GET",    "/api/admin/feedbacks", handleListFeedbacks],
+      ["POST",   "/api/templates",      handleSaveTemplate],
+      ["GET",    "/api/templates",       handleListTemplates],
+      ["DELETE", "/api/templates",       handleDeleteTemplate],
+      ["PATCH",  "/api/templates",       handleUpdateTemplate],
     ];
 
     for (const [method, p, handler] of routes) {
@@ -308,5 +316,102 @@ async function handleListFeedbacks(request, env) {
   ).bind(limit).all();
 
   return json({ feedbacks: rows.results });
+}
+
+// ====== Templates ======
+async function handleSaveTemplate(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const body = await readBody(request);
+  const { name, icon = "📋", description = "", blocks = [], default_title = "", default_tags = [], wallpaper = "", show_lines = 1, default_mood_id = "" } = body;
+  if (!name || !name.trim()) return json({ error: "name required" }, 400);
+  if (!blocks.length) return json({ error: "blocks required" }, 400);
+
+  const now = Date.now();
+  const id = uuid();
+
+  await env.DB.prepare(
+    `INSERT INTO templates (id, user_id, name, icon, description, blocks, default_title, default_tags, wallpaper, show_lines, default_mood_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, user.uid, name.trim(), icon, description,
+     JSON.stringify(blocks), default_title, JSON.stringify(default_tags),
+     wallpaper, show_lines ? 1 : 0, default_mood_id, now, now).run();
+
+  return json({ id, ok: true });
+}
+
+async function handleListTemplates(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const rows = await env.DB.prepare(
+    "SELECT * FROM templates WHERE user_id = ? ORDER BY updated_at DESC"
+  ).bind(user.uid).all();
+
+  const out = rows.results.map(r => ({
+    id: r.id,
+    name: r.name,
+    icon: r.icon,
+    description: r.description,
+    blocks: JSON.parse(r.blocks || "[]"),
+    default_title: r.default_title,
+    default_tags: JSON.parse(r.default_tags || "[]"),
+    wallpaper: r.wallpaper,
+    show_lines: r.show_lines === 1,
+    default_mood_id: r.default_mood_id,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+  }));
+
+  return json({ templates: out });
+}
+
+async function handleDeleteTemplate(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const q = new URL(request.url).searchParams;
+  const id = q.get("id");
+  if (!id) return json({ error: "id required" }, 400);
+
+  await env.DB.prepare("DELETE FROM templates WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+  return json({ ok: true });
+}
+
+async function handleUpdateTemplate(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const body = await readBody(request);
+  const { id } = body;
+  if (!id) return json({ error: "id required" }, 400);
+
+  const existing = await env.DB.prepare("SELECT id FROM templates WHERE id = ? AND user_id = ?").bind(id, user.uid).first();
+  if (!existing) return json({ error: "not found" }, 404);
+
+  const now = Date.now();
+  const fields = [];
+  const values = [];
+  const allowed = ["name", "icon", "description", "blocks", "default_title", "default_tags", "wallpaper", "show_lines", "default_mood_id"];
+  for (const key of allowed) {
+    if (body[key] !== undefined) {
+      fields.push(`${key} = ?`);
+      if (key === "blocks" || key === "default_tags") {
+        values.push(JSON.stringify(body[key]));
+      } else if (key === "show_lines") {
+        values.push(body[key] ? 1 : 0);
+      } else {
+        values.push(body[key]);
+      }
+    }
+  }
+  if (!fields.length) return json({ ok: true });
+
+  fields.push("updated_at = ?");
+  values.push(now, id, user.uid);
+
+  await env.DB.prepare(`UPDATE templates SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`).bind(...values).run();
+  return json({ ok: true });
 }
 
