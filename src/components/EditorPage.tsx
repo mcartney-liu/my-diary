@@ -545,6 +545,58 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     typeof window !== "undefined" &&
     ("webkitSpeechRecognition" in window || "SpeechRecognition" in window)
   );
+  // 🧠 重连 hack 用的 ref
+  const userStoppedSpeechRef = useRef(false);     // 用户主动停的？（用来区分"用户点停止"vs"Chrome 自己断了"）
+  const speechRestartTimerRef = useRef<number | null>(null); // 重连防抖 timer
+
+  // 🧠 创建 SpeechRecognition + 自动重连逻辑
+  const createSpeechRecognition = () => {
+    const SR = (window as any).webkitSpeechRecognition ?? (window as any).SpeechRecognition;
+    const rec = new SR();
+    rec.lang = "zh-CN";
+    rec.continuous = true;
+    rec.interimResults = true;
+
+    rec.onresult = (e: any) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) speechFinalRef.current += res[0].transcript;
+        else interim += res[0].transcript;
+      }
+      setSpeechInterim(interim);
+    };
+
+    // 🧠 onend: 如果不是用户主动停的 → 自动重启
+    rec.onend = () => {
+      if (userStoppedSpeechRef.current) return; // 用户主动停的，不重连
+      console.warn("[mydiary] SpeechRecognition onend — 自动重启...");
+      // 防抖：300ms 后重连（避免连续 onend 风暴）
+      if (speechRestartTimerRef.current) clearTimeout(speechRestartTimerRef.current);
+      speechRestartTimerRef.current = window.setTimeout(() => {
+        if (speechRecRef.current === rec && !userStoppedSpeechRef.current) {
+          try { rec.start(); } catch (e) { console.warn("[mydiary] restart failed:", e); }
+        }
+      }, 300);
+    };
+
+    // 🧠 onerror: network / aborted 都重启；no-speech 忽略
+    rec.onerror = (e: any) => {
+      console.warn("[mydiary] speechRec error:", e.error);
+      if (userStoppedSpeechRef.current) return;
+      if (e.error === "no-speech") return; // 没人说话，不重连
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") return; // 权限问题，重连也没用
+      // network / aborted / audio-capture 等 → 重启
+      if (speechRestartTimerRef.current) clearTimeout(speechRestartTimerRef.current);
+      speechRestartTimerRef.current = window.setTimeout(() => {
+        if (speechRecRef.current === rec && !userStoppedSpeechRef.current) {
+          try { rec.start(); } catch (err) { console.warn("[mydiary] restart after error failed:", err); }
+        }
+      }, 500);
+    };
+
+    return rec;
+  };
   // 弹窗里可编辑的转写文字（初始值来自 pendingSpeechTextRef）
   const [editableTranscript, setEditableTranscript] = useState("");
 
@@ -1069,6 +1121,8 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const startRecording = async () => {
     speechFinalRef.current = "";
     setSpeechInterim("");
+    userStoppedSpeechRef.current = false; // 🧠 重置：告诉重连逻辑"现在不是用户主动停的"
+    if (speechRestartTimerRef.current) { clearTimeout(speechRestartTimerRef.current); speechRestartTimerRef.current = null; }
 
     // 1) 申请麦克风权限
     let stream: MediaStream;
@@ -1080,25 +1134,15 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       return;
     }
 
-    // 2) Web Speech API 实时转写（支持就用它，PM-OS 同款）
+    // 2) Web Speech API 实时转写（支持就用它 + 🧠 自动重连 hack）
     if (speechSupported) {
-      const SR = (window as any).webkitSpeechRecognition ?? (window as any).SpeechRecognition;
-      const rec = new SR();
-      rec.lang = "zh-CN";
-      rec.continuous = true;
-      rec.interimResults = true;
-      rec.onresult = (e: any) => {
-        let interim = "";
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const res = e.results[i];
-          if (res.isFinal) speechFinalRef.current += res[0].transcript;
-          else interim += res[0].transcript;
-        }
-        setSpeechInterim(interim);
-      };
-      rec.onerror = (e: any) => console.warn("[mydiary] speechRec:", e.error);
-      rec.start();
+      const rec = createSpeechRecognition();
       speechRecRef.current = rec;
+      try {
+        rec.start();
+      } catch (e) {
+        console.warn("[mydiary] speechRec start failed:", e);
+      }
     }
 
     // 3) 同时录一份音频做备份
@@ -1138,6 +1182,10 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
   const stopRecording = () => {
     const speechText = (speechFinalRef.current.trim() + " " + speechInterim.trim()).trim();
+
+    // 🧠 告诉重连逻辑：这是用户主动停的，不要自动重启
+    userStoppedSpeechRef.current = true;
+    if (speechRestartTimerRef.current) { clearTimeout(speechRestartTimerRef.current); speechRestartTimerRef.current = null; }
 
     // 停 Web Speech
     try { speechRecRef.current?.stop(); } catch {}
