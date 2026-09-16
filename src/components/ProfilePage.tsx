@@ -475,22 +475,30 @@ export default function ProfilePage() {
                 </div>
               </div>
 
-              {/* === v0.2.0 === */}
+              {/* === v0.2.0 === 恢复原始完整内容 === */}
               <div className="border-t border-paper-line pt-4">
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-ink3">v0.2.0</span>
+                  <span className="font-bold text-paper-ink">v0.2.0</span>
                   <span className="text-paper-ink3 text-xs">2026年09月16日</span>
                 </div>
-                <div className="space-y-1 text-paper-ink3 leading-relaxed text-xs">
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">🎉 新功能</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>📚 模板共享 / 🎨 信纸共享</li>
-                    <li>👤 全新「我的」页面 3 个 Tab</li>
-                    <li>💬 反馈与建议 → 提交到 D1</li>
+                    <li>📚 模板共享 — 创建 / 编辑 / 共享自定义模板</li>
+                    <li>🎨 信纸共享 — 上传信纸 / 一键共享</li>
+                    <li>👤 全新「我的」页面 — 3 个 Tab</li>
+                    <li>💬 反馈与建议 — 直接提交到 D1</li>
+                  </ul>
+                  <div><b className="text-paper-ink">🔧 改进</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>模板切换有内容时弹确认框</li>
+                    <li>选中色统一紫色 (violet)</li>
+                    <li>Drawer 精简，编辑/删除统一去「我的」</li>
                   </ul>
                 </div>
               </div>
 
-              {/* === v0.1.0 === */}
+              {/* === v0.1.0 === 恢复原始完整内容 === */}
               <div className="border-t border-paper-line pt-4">
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-bold text-paper-ink3">v0.1.0</span>
@@ -500,7 +508,8 @@ export default function ProfilePage() {
                   <ul className="list-disc pl-5 space-y-1">
                     <li>邮箱注册/登录 + JWT 鉴权</li>
                     <li>日记 CRUD + 云端同步</li>
-                    <li>10 种 Block 组件 + 8 个官方模板</li>
+                    <li>10 种 Block 组件</li>
+                    <li>8 个官方模板</li>
                   </ul>
                 </div>
               </div>
