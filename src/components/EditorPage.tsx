@@ -344,17 +344,6 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   }
 
   function applyOfficialTemplate(tplId: string) {
-    const tpl = templateById(tplId);
-    if (!tpl) return;
-    const hasContent = blocks.some(
-      (b) => b.kind === "text" ? b.content.trim().length > 0 : !!b.content
-    );
-    if (hasContent) {
-      pendingTplRef.current = tplId;
-      pendingCustomTplRef.current = undefined;
-      setConfirmSwitchTpl(true);
-      return;
-    }
     doApplyOfficial(tplId);
   }
 
@@ -373,15 +362,6 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   }
 
   function applyMyTemplate(tpl: UserTemplate) {
-    const hasContent = blocks.some(
-      (b) => b.kind === "text" ? b.content.trim().length > 0 : !!b.content
-    );
-    if (hasContent) {
-      pendingCustomTplRef.current = tpl;
-      pendingTplRef.current = undefined;
-      setConfirmSwitchTpl(true);
-      return;
-    }
     doApplyMy(tpl);
   }
 
