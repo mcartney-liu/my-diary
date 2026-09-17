@@ -53,13 +53,14 @@ export default function CapsulePage({ diaries }: Props) {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-4 space-y-6">
+        <p className="text-xs text-paper-ink3">
+          把日记写好、锁上，等到未来某天再打开——给过去的自己留个惊喜
+        </p>
+
         {sorted.length === 0 ? (
-          <div className="py-16 text-center">
+          <div className="py-12 text-center">
             <div className="text-5xl mb-3">🫧</div>
             <p className="text-paper-ink2">还没有时间胶囊</p>
-            <p className="text-xs text-paper-ink3 mt-1">
-              写日记时选「时间胶囊」，就能把它锁进未来
-            </p>
           </div>
         ) : (
           <>

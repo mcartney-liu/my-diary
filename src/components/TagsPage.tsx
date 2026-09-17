@@ -55,14 +55,17 @@ export default function TagsPage({ diaries }: Props) {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-4 space-y-5">
+        <p className="text-xs text-paper-ink3">
+          给日记打上标签，按主题检索——比如 #健身 #旅行 #读书笔记
+        </p>
+
         {/* 标签云 */}
         {selected === null && (
           <>
             {tagStats.length === 0 && untagged.length === diaries.length && (
-              <div className="py-16 text-center">
+              <div className="py-12 text-center">
                 <div className="text-5xl mb-3">🏷️</div>
                 <p className="text-paper-ink2">还没有任何标签</p>
-                <p className="text-xs text-paper-ink3 mt-1">编辑日记时点 🏷️ 按钮添加标签</p>
               </div>
             )}
 

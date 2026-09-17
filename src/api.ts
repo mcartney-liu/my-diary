@@ -1,4 +1,4 @@
-// Cloud API client — talks to Cloudflare Workers
+﻿// Cloud API client — talks to Cloudflare Workers
 // 开发环境: 直连 dev Worker 绝对地址 (绕开 Vite proxy —— Node.js 在本 Windows 上连不了海外 HTTPS)
 // 生产环境: 相对路径走 Pages Functions 同域代理 (绕开 iPhone Safari 对 workers.dev 的封锁)
 
@@ -74,6 +74,8 @@ export function upsertDiary(d: Diary) {
   return request<{ id: string }>("/api/diaries", { method: "POST", body: JSON.stringify({
     id: d.id, date: d.date, template_id: d.templateId, title: d.title,
     mood_id: d.moodId, tags: d.tags, weather: d.weather, blocks: d.blocks,
+    milestone_info: d.milestoneInfo, // ⭐ milestone 模板专用
+    plan_info: d.planInfo, // ⭐ plan 模板专用
   })});
 }
 export function deleteDiary(id: string) {
@@ -127,7 +129,6 @@ export interface UserTemplate {
   name: string;
   icon: string;
   description: string;
-  keywords: string;
   blocks: Diary["blocks"];
   default_title: string;
   default_tags: string[];
@@ -143,7 +144,7 @@ export interface UserTemplate {
 }
 
 export function saveTemplate(payload: {
-  name: string; icon?: string; description?: string; keywords?: string;
+  name: string; icon?: string; description?: string;
   blocks: Diary["blocks"]; default_title?: string; default_tags?: string[];
   wallpaper?: string; show_lines?: boolean; default_mood_id?: string;
 }) {
@@ -249,6 +250,47 @@ export function deleteMilestone(id: string) {
 
 export function updateMilestone(patch: Partial<Milestone> & { id: string }) {
   return request<{ ok: boolean }>("/api/milestones", {
+    method: "PATCH", body: JSON.stringify(patch),
+  });
+}
+
+// ====== Plans ======
+export type PlanStatus = "pending" | "completed" | "overdue";
+
+export interface Plan {
+  id: string;
+  target_date?: string | null;
+  status: PlanStatus;
+  icon: string;
+  title: string;
+  description: string;
+  diary_id?: string | null;
+  auto_created: boolean;
+  created_at: number;
+  updated_at: number;
+  days_until?: number | null;
+}
+
+export function savePlan(payload: {
+  target_date?: string; status?: PlanStatus;
+  icon?: string; title: string; description?: string;
+  diary_id?: string; auto_created?: boolean;
+}) {
+  return request<{ id: string; ok: boolean }>("/api/plans", {
+    method: "POST", body: JSON.stringify(payload),
+  });
+}
+
+export function listPlans() {
+  return request<{ plans: Plan[] }>("/api/plans");
+}
+
+export function deletePlan(id: string) {
+  return request<{ ok: boolean }>(`/api/plans?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function updatePlan(patch: Partial<Plan> & { id: string }) {
+  return request<{ ok: boolean }>("/api/plans", {
     method: "PATCH", body: JSON.stringify(patch),
   });
 }

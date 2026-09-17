@@ -60,6 +60,25 @@ export interface Diary {
   deletedAt?: number;        // 软删时间戳，undefined 表示未删除
   wallpaper?: string;        // 壁纸图片 dataURL（undefined=默认米白色）
   showLines?: boolean;       // 是否显示横线（默认 true）
+  // ⭐ milestone 模板专用：保存时传给 Worker，自动双写到 milestones 子表
+  milestoneInfo?: {
+    type: "fixed" | "start" | "countdown";
+    target_mm?: number;
+    target_dd?: number;
+    start_date?: string;
+    target_date?: string;
+    title?: string;
+    icon?: string;
+    description?: string;
+  };
+  // ⭐ plan 模板专用：保存时传给 Worker，自动双写到 plans 子表
+  planInfo?: {
+    target_date?: string;
+    status?: "pending" | "completed" | "overdue";
+    title?: string;
+    icon?: string;
+    description?: string;
+  };
   createdAt: number;
   updatedAt: number;
 }

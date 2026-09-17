@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { Loader2, Pencil, Trash2, Share2, Plus } from "lucide-react";
 import type { DiaryBlock } from "../types";
 import { uid } from "../types";
@@ -43,7 +43,6 @@ export default function TemplateLibrary() {
   const [bName, setBName] = useState("");
   const [bIcon, setBIcon] = useState("📋");
   const [bDesc, setBDesc] = useState("");
-  const [bKeywords, setBKeywords] = useState("");
   const [bKinds, setBKinds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -61,13 +60,13 @@ export default function TemplateLibrary() {
 
   function openNew() {
     setEditingId(null);
-    setBName(""); setBIcon("📋"); setBDesc(""); setBKeywords(""); setBKinds([]);
+    setBName(""); setBIcon("📋"); setBDesc(""); setBKinds([]);
     setShowBuilder(true);
   }
 
   function openEdit(t: UserTemplate) {
     setEditingId(t.id);
-    setBName(t.name); setBIcon(t.icon); setBDesc(t.description || ""); setBKeywords(t.keywords || "");
+    setBName(t.name); setBIcon(t.icon); setBDesc(t.description || "");
     setBKinds([...new Set(t.blocks.map((b) => b.kind))]);
     setShowBuilder(true);
   }
@@ -92,9 +91,9 @@ export default function TemplateLibrary() {
         }
       });
       if (editingId) {
-        await updateTemplate({ id: editingId, name: bName.trim(), icon: bIcon, description: bDesc.trim(), keywords: bKeywords.trim(), blocks: newBlocks });
+        await updateTemplate({ id: editingId, name: bName.trim(), icon: bIcon, description: bDesc.trim(), blocks: newBlocks });
       } else {
-        await saveTemplate({ name: bName.trim(), icon: bIcon, description: bDesc.trim(), keywords: bKeywords.trim(), blocks: newBlocks });
+        await saveTemplate({ name: bName.trim(), icon: bIcon, description: bDesc.trim(), blocks: newBlocks });
       }
       setShowBuilder(false);
       await load();
@@ -196,7 +195,7 @@ export default function TemplateLibrary() {
               <div>
                 <label className="text-xs font-medium text-paper-ink3 mb-1 block">图标</label>
                 <div className="flex flex-wrap gap-2">
-                  {["📋","🎯","💼","🏃","📖","✈️","🧘","💡","🎨","🍱"].map((ic) => (
+                  {["📋","🎈","💼","🏃","📖","✈️","🧘","💡","🎨","🍱"].map((ic) => (
                     <button key={ic} onClick={() => setBIcon(ic)}
                       className={`w-9 h-9 rounded-lg text-lg flex items-center justify-center transition ${bIcon === ic ? "bg-violet-100 border-2 border-violet-400" : "bg-paper-surface border border-paper-line"}`}
                     >{ic}</button>
@@ -205,20 +204,13 @@ export default function TemplateLibrary() {
               </div>
 
               <div>
-                <label className="text-xs font-medium text-paper-ink3 mb-1 block">描述（显示在卡片下方，让别人一眼看懂这个模板是干嘛的）</label>
-                <input value={bDesc} onChange={(e) => setBDesc(e.target.value)} placeholder="比如：每周复盘 · 3 件好事 + 3 件待改进" maxLength={40}
-                  className="w-full px-3 py-2 rounded-xl border border-paper-line bg-paper-surface text-sm focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-200" />
-              </div>
-
-              <div>
                 <label className="text-xs font-medium text-paper-ink3 mb-1 block">
-                  ⭐ 模板含义 / 关键词（AI 快记用你说的话来匹配，写得越详细越准）
+                  描述 / 模板含义（AI 快记靠你写的话来匹配这个模板，写得越详细越准）
                 </label>
-                <textarea value={bKeywords} onChange={(e) => setBKeywords(e.target.value)}
-                  placeholder="比如：恋爱中的特殊日子、纪念日、约会、礼物、吵架、和好、去的地方&#10;（50-100 字最佳，不要太长）"
-                  rows={2} maxLength={150}
+                <textarea value={bDesc} onChange={(e) => setBDesc(e.target.value)}
+                  placeholder="比如：每周复盘 · 3 件好事 + 3 件待改进&#10;或者：恋爱中的特殊日子、纪念日、约会、礼物、吵架、和好..."
+                  rows={2} maxLength={120}
                   className="w-full px-3 py-2 rounded-xl border border-paper-line bg-paper-surface text-sm resize-none focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-200" />
-                <div className="text-[10px] text-paper-ink3 mt-0.5">{bKeywords.length}/150</div>
               </div>
 
               <div>

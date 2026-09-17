@@ -33,25 +33,31 @@ export interface AiMessage {
 async function callChatCompletion(
   provider: AiProvider,
   messages: AiMessage[],
-  temperature = 0.7
+  temperature = 0.7,
+  responseFormat: "json_object" | "text" = "json_object"
 ): Promise<string> {
   // 🔑 8 秒超时 — 手机网络差时不能无限等
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15000);
 
   try {
+    const body: any = {
+      model: provider.model,
+      messages,
+      temperature,
+    };
+    // 🔑 只有需要 JSON 的 skill 才加 response_format
+    if (responseFormat === "json_object") {
+      body.response_format = { type: "json_object" };
+    }
+
     const res = await fetch(provider.endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${provider.apiKey}`,
       },
-      body: JSON.stringify({
-        model: provider.model,
-        messages,
-        temperature,
-        response_format: { type: "json_object" },
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
     if (!res.ok) {
@@ -463,7 +469,7 @@ const TEMPLATE_NAMES: Record<string, string> = {
   reading: "读书",
   travel: "旅行",
   sports: "运动",
-  plan: "每日计划",
+  plan: "计划",
   gratitude: "感恩日记",
   health: "健康记录",
 };
@@ -617,9 +623,10 @@ const ALL_TEMPLATES: { id: string; name: string; keywords: string[] }[] = [
   { id: "travel", name: "旅行", keywords: ["去哪", "旅游", "旅行", "景点", "门票", "坐车", "酒店", "赶路", "出发", "到达", "飞机", "火车", "高铁", "机票", "民宿", "攻略", "拍照", "打卡", "返程", "游玩"] },
   { id: "reading", name: "读书", keywords: ["读了", "这本书", "作者", "章节", "摘抄", "读后感", "推荐", "看书", "阅读", "学到", "书摘", "名著", "小说"] },
   { id: "sports", name: "运动", keywords: ["跑", "公里", "运动", "健身", "打球", "游泳", "步数", "锻炼", "拉伸", "瑜伽", "骑行", "网球", "足球", "篮球", "健身房", "减肥"] },
-  { id: "plan", name: "计划", keywords: ["今天要做", "todo", "计划", "任务", "清单", "必须", "目标", "安排", "日程", "提醒", "待办", "这周", "明天", "准备"] },
+  { id: "plan", name: "计划", keywords: ["今天要做", "todo", "计划", "任务", "清单", "必须", "目标", "安排", "日程", "提醒", "待办", "这周", "明天", "准备", "开庭", "仲裁", "预约", "面试", "考试", "截止", "提交", "期限", "deadline", "due", "开会", "会议", "报告", "答辩", "体检", "发布", "上线", "截止日", "到期", "要去", "将", "将会", "定于", "定于"] },
   { id: "gratitude", name: "感恩", keywords: ["感恩", "感谢", "谢谢", "让我感动", "温暖", "幸福", "感激", "幸运", "好人", "帮我"] },
   { id: "health", name: "健康", keywords: ["睡了", "体重", "生病", "不舒服", "头疼", "吃药", "发烧", "健康", "失眠", "熬夜", "咳嗽", "拉肚子", "体检", "看病", "医院"] },
+  { id: "milestone", name: "纪念日", keywords: ["纪念日", "生日", "周年", "在一起", "认识", "相恋", "结婚", "相爱", "开始", "倒计时", "还有", "还有几天", "还有多少天", "期待", "期盼", "约定", "重要日子", "特殊日子", "值得纪念", "第几天", "多少天了"] },
 ];
 
 export interface DetectResult {
@@ -628,7 +635,7 @@ export interface DetectResult {
   reason: string;
 }
 
-function quickRuleMatch(text: string): DetectResult | null {
+export function quickRuleMatch(text: string): DetectResult | null {
   const lower = text.toLowerCase();
   let bestId = "diary";
   let bestScore = 0;
@@ -653,6 +660,38 @@ function quickRuleMatch(text: string): DetectResult | null {
     }
   }
 
+  // ⭐ 强制 plan：有未来日期 + 计划/事件词 → 优先 plan（除非有 milestone 关键词）
+  const milestoneKws = ["纪念日", "生日", "周年", "相恋", "结婚", "在一起", "相爱"];
+  const hasMilestone = milestoneKws.some(k => lower.includes(k.toLowerCase()));
+  if (!hasMilestone) {
+    const futureKws = ["开庭", "仲裁", "预约", "面试", "考试", "截止", "deadline", "会议", "开会", "报告", "答辩", "体检", "发布", "上线", "提交", "期限", "到期", "将", "将会", "定于", "要去", "准备", "安排", "计划", "任务", "目标"];
+    const hasFuturePlanKw = futureKws.some(k => lower.includes(k.toLowerCase()));
+    // 检测未来日期：MM月DD日 在今天之后
+    const mdRe = /(\d{1,2})\s*月\s*(\d{1,2})\s*日/g;
+    let hasFutureDate = false;
+    const today = new Date();
+    let m: RegExpExecArray | null;
+    while ((m = mdRe.exec(text)) !== null) {
+      const md = new Date(today.getFullYear(), parseInt(m[1]) - 1, parseInt(m[2]));
+      if (md.getTime() > today.getTime()) { hasFutureDate = true; break; }
+      // 今年过了？试试明年
+      md.setFullYear(today.getFullYear() + 1);
+      if (md.getTime() > today.getTime()) { hasFutureDate = true; break; }
+    }
+    // 中文相对时间
+    const relMap: Record<string, number> = { "明天": 1, "后天": 2, "大后天": 3, "下周": 7, "这周": 3, "下个月": 30 };
+    for (const k of Object.keys(relMap)) {
+      if (lower.includes(k)) { hasFutureDate = true; break; }
+    }
+    if (hasFutureDate && hasFuturePlanKw) {
+      return {
+        templateId: "plan",
+        confidence: 0.9,
+        reason: `未来事件: 检测到未来日期 + 计划词`,
+      };
+    }
+  }
+
   if (bestScore >= 1) {
     return {
       templateId: bestId,
@@ -666,7 +705,7 @@ function quickRuleMatch(text: string): DetectResult | null {
 export async function detectTemplate(
   rawText: string,
   provider?: AiProvider | null,
-  userTemplates?: { id: string; name: string; keywords?: string; description?: string }[]
+  userTemplates?: { id: string; name: string; description?: string }[]
 ): Promise<DetectResult> {
   const ruleResult = quickRuleMatch(rawText);
   // ⭐ 规则匹配只匹配 8 个官方模板（用户模板没有标准 keywords 数组，规则匹配不准）
@@ -689,7 +728,7 @@ export async function detectTemplate(
   let userTplList = "";
   if (userTemplates?.length) {
     userTplList = "\n你的模板:\n" + userTemplates
-      .map(t => `- "${t.id}" (${t.name}): ${(t.keywords || t.description || "").slice(0, 60)}`)
+      .map(t => `- "${t.id}" (${t.name}): ${(t.description || "").slice(0, 60)}`)
       .join("\n");
   }
 
@@ -723,6 +762,263 @@ ${userTplList}
   }
 }
 
+// ====== 纪念日：AI 推断类型 + 日期 ======
+export type MilestoneType = "fixed" | "start" | "countdown";
+
+export interface MilestoneInference {
+  type: MilestoneType;
+  target_mm?: number;      // fixed 用
+  target_dd?: number;       // fixed 用
+  start_date?: string;      // start 用 YYYY-MM-DD
+  target_date?: string;     // countdown 用 YYYY-MM-DD
+  title: string;            // AI 给的标题
+  icon?: string;
+  description?: string;
+  reason: string;           // 为什么这么推断
+}
+
+/**
+ * 当模板是 milestone 时，调用这个让 AI 从语义里推断：
+ * - "7月7日是和小希在一起的日子" → fixed, mm=7, dd=7
+ * - "2024年5月11日认识小希，已经 800 天了" → start, start_date="2024-05-11"
+ * - "还有 10 天就考试了" → countdown, target_date 算出来
+ * - "每年 6 月 15 日是我妈生日" → fixed, mm=6, dd=15
+ */
+// 从文本里用正则挖日期（兜底，比 AI 更稳）
+function extractDateFromText(text: string, today: Date): {
+  start_date?: string; target_date?: string; target_mm?: number; target_dd?: number;
+  isStart?: boolean; isFixed?: boolean; isCountdown?: boolean;
+} {
+  const result: any = {};
+  const lower = text.toLowerCase();
+
+  // 1. YYYY-MM-DD / YYYY 年 MM 月 DD 日 → 提取完整日期（允许空格分隔）
+  const fullDate = text.match(/(\d{4})\s*[年\-\/\.]\s*(\d{1,2})\s*[月\-\/\.]\s*(\d{1,2})/);
+  // 2. MM 月 DD 日 / MM-DD → 只有月日（每年固定）
+  const mmddDate = text.match(/(\d{1,2})\s*[月\-\/]\s*(\d{1,2})日?/);
+  // 3. 基数词日期：五月一日 / 五月十五
+  const cnDate = text.match(/([一二三四五六七八九十]{1,3})月([一二三四五六七八九十]{1,3})日?/);
+  const cnNum: Record<string, number> = { "一":1,"二":2,"三":3,"四":4,"五":5,"六":6,"七":7,"八":8,"九":9, "十":10,"十一":11,"十二":12,"十三":13,"十四":14,"十五":15,"十六":16,"十七":17,"十八":18,"十九":19,"二十":20,"二十一":21,"二十二":22,"二十三":23,"二十四":24,"二十五":25,"二十六":26,"二十七":27,"二十八":28,"二十九":29,"三十":30,"三十一":31 };
+  // 4. "X 天前" / "X 天了" / "X 天" 开头的 → 可以从今天反推 start_date
+  const daysAgo = text.match(/(\d+)\s*天\s*(?:前|了|之前)/);
+  const daysCountdown = text.match(/(?:还有|还有)\s*(\d+)\s*天/);
+  // 5. 中文相对时间词
+  const relativeMap: Record<string, number> = { "前天": -2, "昨天": -1, "昨日": -1, "今天": 0, "今日": 0, "明天": 1, "明日": 1, "后天": 2 };
+  const relativeMatch = text.match(/(前天|昨天|昨日|今天|今日|明天|明日|后天)/);
+  const isToday = relativeMatch?.[1] === "今天" || relativeMatch?.[1] === "今日";
+  if (fullDate) {
+    const y = parseInt(fullDate[1]);
+    const m = parseInt(fullDate[2]);
+    const d = parseInt(fullDate[3]);
+    // "今天是 XXXX 年 XX 月 XX 日" — 只有当日期真的等于今天时才算
+    const textIsToday = isToday && y === today.getFullYear() && m === today.getMonth() + 1 && d === today.getDate();
+    if (textIsToday) {
+      result.target_date = today.toISOString().slice(0, 10);
+      result.isCountdown = true;
+    } else if (lower.includes("认识") || lower.includes("在一起") || lower.includes("交往") || lower.includes("开始") || lower.includes("养猫") || lower.includes("养") || lower.includes("成立")) {
+      // 有具体年月日 + 有"从某天开始算"的语义 → start
+      result.start_date = `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      result.isStart = true;
+    } else if (lower.includes("还有") || lower.includes("倒计时") || lower.includes("距离")) {
+      result.target_date = `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      result.isCountdown = true;
+    } else {
+      // 有具体年月日，但是"每年的这天" → fixed
+      result.target_mm = m; result.target_dd = d;
+      result.isFixed = true;
+    }
+  } else if (mmddDate && !fullDate) {
+    // 只有月日 → 每年固定
+    result.target_mm = parseInt(mmddDate[1]);
+    result.target_dd = parseInt(mmddDate[2]);
+    result.isFixed = true;
+  } else if (cnDate) {
+    // 中文月日
+    result.target_mm = cnNum[cnDate[1]];
+    result.target_dd = cnNum[cnDate[2]];
+    if (result.target_mm && result.target_dd) {
+      result.isFixed = true;
+    }
+  }
+
+  // ⭐ 处理中文相对时间词：前天/昨天/明天/后天
+  if (relativeMatch && Object.keys(result).length === 0) {
+    const delta = relativeMap[relativeMatch[1]];
+    if (delta !== undefined) {
+      const target = new Date(today.getTime() + delta * 86400000);
+      result.target_date = target.toISOString().slice(0, 10);
+      result.target_mm = target.getMonth() + 1;
+      result.target_dd = target.getDate();
+      if (delta < 0) {
+        // 已过去的日子 → start 类型（已经过了 |delta| 天）
+        result.isStart = true;
+        result.start_date = result.target_date;
+      } else if (delta === 0) {
+        // 就是今天
+        result.isCountdown = true;
+        result.isFixed = true;
+      } else {
+        // 将来的日子
+        result.isCountdown = true;
+      }
+    }
+  }
+
+  // ⭐ 最终兜底：如果文本里有"今天"但没有任何数字日期线索 → 今天就是目标日
+  // 典型场景："今天我们过结婚纪念日" → target_date = 今天, 同时 target_mm/dd = 今天的月日
+  if (Object.keys(result).length === 0 && isToday) {
+    result.target_date = today.toISOString().slice(0, 10);
+    result.target_mm = today.getMonth() + 1;
+    result.target_dd = today.getDate();
+    result.isCountdown = true;
+    result.isFixed = true; // 同时标记 fixed，因为是今天的月日
+  }
+
+  // 补充：如果有 "X 天" + "今天" → start_date = 今天 - X 天
+  if (daysAgo && !result.start_date) {
+    const days = parseInt(daysAgo[1]);
+    const past = new Date(today.getTime() - days * 86400000);
+    result.start_date = past.toISOString().slice(0, 10);
+    result.isStart = true;
+  }
+  // 补充：如果有 "还有 X 天" → target_date = 今天 + X 天
+  if (daysCountdown && !result.target_date) {
+    const days = parseInt(daysCountdown[1]);
+    const future = new Date(today.getTime() + days * 86400000);
+    result.target_date = future.toISOString().slice(0, 10);
+    result.isCountdown = true;
+  }
+
+  return result;
+}
+
+export async function inferMilestoneInfo(
+  text: string,
+  provider?: AiProvider | null
+): Promise<MilestoneInference | null> {
+  const p = provider ?? getAiProvider();
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const year = today.getFullYear();
+
+  // 规则匹配先跑 — 稳准狠，不依赖 AI
+  const ruleHit = extractDateFromText(text, today);
+
+  if (!p) {
+    // 没 AI → 用规则结果
+    const ruleType = ruleHit.isFixed ? "fixed" : ruleHit.isStart ? "start" : ruleHit.isCountdown ? "countdown" : "countdown";
+    const result: MilestoneInference = {
+      type: ruleType,
+      title: text.slice(0, 12),
+      icon: "🎯",
+      description: "",
+      reason: "规则匹配（未配置 AI）",
+    };
+    if (ruleHit.target_mm) result.target_mm = ruleHit.target_mm;
+    if (ruleHit.target_dd) result.target_dd = ruleHit.target_dd;
+    if (ruleHit.start_date) result.start_date = ruleHit.start_date;
+    if (ruleHit.target_date) result.target_date = ruleHit.target_date;
+    return result;
+  }
+
+  const raw = await callChatCompletion(p, [
+    {
+      role: "system",
+      content: `你是一个纪念日信息提取器。今天是 ${todayStr}（${year}年）。
+从用户的描述里提取纪念日的类型、日期和标题。
+
+⚠️ 核心原则：日期尽量从文本里挖，挖不到才留 null。
+
+三种类型：
+- "fixed": 每年固定月日重复（生日、恋爱周年、结婚纪念日、每年的 X 月 X 日）→ target_mm + target_dd
+- "start": 从某天开始算"多少天了"（认识 X 天、在一起 X 天、养猫 X 天、公司成立 X 年）→ start_date（起始日期）
+- "countdown": 距离某个具体日期还有几天（考试、放假、婚礼、生日派对）→ target_date（目标日期）
+
+日期提取策略（按优先级）：
+1. 文本里有 "2025年5月1日" / "2025-05-01" / "2025/5/1" → 完整提取
+2. 文本里有 "5月1日" / "5-1" / "5/1" → 提取月和日（每年 fixed）
+3. 文本里有 "三天前" / "500天了" / "还有14天" → 从今天反推日期
+4. 文本里有 "今天" → 日期就用今天 ${todayStr}
+5. 实在没有日期 → 对应字段留 null（但 type 要选对）
+
+严格返回 JSON（不要 markdown，不要解释）:
+{
+  "type": "fixed" | "start" | "countdown",
+  "target_mm": 数字或 null,
+  "target_dd": 数字或 null,
+  "start_date": "YYYY-MM-DD" 或 null,
+  "target_date": "YYYY-MM-DD" 或 null,
+  "title": "8字内具体标题",
+  "icon": "emoji",
+  "description": "一句话",
+  "reason": "为什么这么推断"
+}`,
+    },
+    { role: "user", content: text },
+  ], 0.2);
+
+  try {
+    const json = extractJson(raw);
+    const r = JSON.parse(json) as any;
+    let type = r.type as MilestoneType;
+    if (!["fixed", "start", "countdown"].includes(type)) type = "countdown";
+
+    // 规则匹配兜底：AI 返回的日期是 null，但规则能挖出来 → 用规则的
+    if (type === "fixed" && (!r.target_mm || !r.target_dd)) {
+      if (ruleHit.target_mm && ruleHit.target_dd) {
+        r.target_mm = ruleHit.target_mm; r.target_dd = ruleHit.target_dd;
+      }
+    }
+    if (type === "start" && !r.start_date) {
+      if (ruleHit.start_date) r.start_date = ruleHit.start_date;
+    }
+    if (type === "countdown" && !r.target_date) {
+      if (ruleHit.target_date) r.target_date = ruleHit.target_date;
+    }
+
+    const result: MilestoneInference = {
+      type,
+      title: (r.title || text.slice(0, 12)).replace(/"/g, ""),
+      icon: r.icon || "🎯",
+      description: r.description || "",
+      reason: r.reason || "",
+    };
+
+    if (type === "fixed") {
+      const mm = Number(r.target_mm);
+      const dd = Number(r.target_dd);
+      if (mm >= 1 && mm <= 12) result.target_mm = mm;
+      if (dd >= 1 && dd <= 31) result.target_dd = dd;
+    } else if (type === "start") {
+      if (typeof r.start_date === "string" && /\d{4}-\d{2}-\d{2}/.test(r.start_date)) {
+        result.start_date = r.start_date;
+      }
+    } else {
+      if (typeof r.target_date === "string" && /\d{4}-\d{2}-\d{2}/.test(r.target_date)) {
+        result.target_date = r.target_date;
+      }
+    }
+
+    console.log("[ai] inferMilestoneInfo 规则匹配:", ruleHit, "AI 原始:", JSON.stringify(r).slice(0, 200));
+    return result;
+  } catch (e) {
+    console.warn("[ai] inferMilestoneInfo 解析失败:", e, "raw:", raw);
+    // 解析失败也别放弃，用规则兜底
+    if (ruleHit.isFixed || ruleHit.isStart || ruleHit.isCountdown) {
+      const ruleType = ruleHit.isFixed ? "fixed" : ruleHit.isStart ? "start" : "countdown";
+      const result: MilestoneInference = {
+        type: ruleType, title: text.slice(0, 12), icon: "🎯", description: "", reason: "规则匹配（AI 解析失败）",
+      };
+      if (ruleHit.target_mm) result.target_mm = ruleHit.target_mm;
+      if (ruleHit.target_dd) result.target_dd = ruleHit.target_dd;
+      if (ruleHit.start_date) result.start_date = ruleHit.start_date;
+      if (ruleHit.target_date) result.target_date = ruleHit.target_date;
+      return result;
+    }
+    return null;
+  }
+}
+
 import type { Diary } from "./types";
 
 // 模板默认标题（这些要过滤掉，不用它们）
@@ -731,7 +1027,7 @@ const DEFAULT_TITLES = ["今日日记","旅行日记","今日记账","运动日�
 export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<string | null> {
   if (!dayDiaries?.length) return null;
 
-  const cacheKey = 'mydiary.summary.' + date;
+  const cacheKey = 'mydiary.summary.v2.' + date;
   const cached = localStorage.getItem(cacheKey);
   // 过滤所有可能有问题的缓存：错误、模板标题复述、太短
   const badPatterns = ['reason', 'error', '旅行日记', '今日记账', '今日日记', '运动日记', '读书笔记', '感恩日记', '健康日记', '计划日记'];
@@ -800,7 +1096,7 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
     const raw = await callChatCompletion(p, [
       { role: 'system', content: '你是诗意的日记摘要助手。根据一天的日记内容，写一句精美的总结。要求：一句话，20-28字，有画面感，用点文艺的词，提炼感受不要罗列事件，开头可以用emoji，不要加引号不要解释绝对不要返回JSON。示例：☀️ 羽毛球拍挥舞的下午，汗水和快乐一起落地；🌙 一碗梅菜扣肉的暖，足以撑起平凡的傍晚；🌸 故宫红墙下的脚步，踏过六百年的春风。不要写成原始正文复述，不要只是"旅行日记"这种空标题。' },
       { role: 'user', content: parts.join('\n') },
-    ], 0.7);
+    ], 0.7, "text");
     let clean = raw.trim();
     // 去掉前后引号和常见包裹符号
     clean = clean.replace(/^[\s"'\x60]*/, '').replace(/[\s"'\x60]*$/, '');

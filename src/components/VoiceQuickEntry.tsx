@@ -93,7 +93,7 @@ export default function VoiceQuickEntry() {
     try {
       // ⭐ 传用户模板给 AI，让它能从 8 官方 + N 用户自建里一起匹配
       const det = await detectTemplate(text, undefined,
-        userTemplates.map(t => ({ id: t.id, name: t.name, keywords: t.keywords, description: t.description }))
+        userTemplates.map(t => ({ id: t.id, name: t.name, description: t.description }))
       );
       setResult({ templateId: det.templateId, reason: det.reason, transcript: text });
       setPhase("match");

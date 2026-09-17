@@ -5,7 +5,6 @@ import { getProfile, patchProfile, submitFeedback, type ProfileStats } from "../
 import { polishFeedback, getAiProvider } from "../ai";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
-import MilestoneLibrary from "./MilestoneLibrary";
 
 declare const __APP_VERSION__: string;
 
@@ -24,7 +23,7 @@ export default function ProfilePage() {
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState("");
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "templates" | "papers" | "milestones">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "templates" | "papers">("profile");
 
   // 反馈弹窗
   const [showFeedback, setShowFeedback] = useState(false);
@@ -34,6 +33,7 @@ export default function ProfilePage() {
   const [fbContent, setFbContent] = useState("");
   const [fontSetting, setFontSetting] = useState(localStorage.getItem("mydiary_font") || "hand");
   const [showFontPicker, setShowFontPicker] = useState(false);
+  const [showSettings, setShowSettings] = useState(false); // ⭐ 齿轮弹出菜单
   const [fbSubmitting, setFbSubmitting] = useState(false);
   const [fbSent, setFbSent] = useState(false);
   // 语音录入
@@ -198,7 +198,90 @@ export default function ProfilePage() {
           >
             ← 返回
           </button>
-          <h1 className="text-paper-ink font-semibold text-lg tracking-wide">我的</h1>
+          <h1 className="text-paper-ink font-semibold text-lg tracking-wide flex-1">我的</h1>
+          {/* ⭐ 右上角齿轮按钮 */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSettings(v => !v)}
+              title="设置"
+              className={`px-2.5 py-1.5 rounded-full border text-sm transition active:scale-95 ${
+                showSettings
+                  ? "border-paper-accent bg-paper-accent/10 text-paper-ink"
+                  : "border-paper-line bg-paper-surface hover:bg-paper-line/50 text-paper-ink"
+              }`}
+            >
+              ⚙️
+            </button>
+
+            {/* ⭐ 设置弹出菜单 */}
+            {showSettings && (
+              <>
+                {/* 背景遮罩（点击关闭） */}
+                <div className="fixed inset-0 z-30" onClick={() => setShowSettings(false)} />
+                {/* 菜单面板 */}
+                <div className="absolute right-0 top-full mt-2 w-64 bg-paper-card rounded-card shadow-card border border-paper-line/80 overflow-hidden z-40 animate-fade-up">
+                  {/* 设置区 */}
+                  <div className="px-4 pt-3 pb-1 text-[10px] font-medium tracking-wider uppercase text-paper-ink3">⚙️ 设置</div>
+                  <button
+                    onClick={() => { setShowSettings(false); setShowFontPicker(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink hover:bg-paper-surface transition"
+                  >
+                    <span>🖋️</span>
+                    <span className="flex-1 text-left">字体样式</span>
+                    <span className="text-xs text-paper-ink2">
+                      {fontSetting === "hand" ? "全手写" : fontSetting === "pen" ? "钢笔中文" : "系统默认"}
+                    </span>
+                    <span className="text-paper-ink3">›</span>
+                  </button>
+                  <button disabled className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink3 cursor-not-allowed">
+                    <span>🎨</span>
+                    <span className="flex-1 text-left">主题色</span>
+                    <span className="text-[10px]">即将上线</span>
+                  </button>
+                  <button disabled className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink3 cursor-not-allowed">
+                    <span>🔔</span>
+                    <span className="flex-1 text-left">每日提醒</span>
+                    <span className="text-[10px]">即将上线</span>
+                  </button>
+                  <button disabled className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink3 cursor-not-allowed">
+                    <span>📤</span>
+                    <span className="flex-1 text-left">导出数据</span>
+                    <span className="text-[10px]">即将上线</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowSettings(false); alert("功能开发中..."); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink hover:bg-paper-surface transition"
+                  >
+                    <span>🔐</span>
+                    <span className="flex-1 text-left">修改密码</span>
+                    <span className="text-paper-ink3">›</span>
+                  </button>
+
+                  {/* 分隔线 */}
+                  <div className="border-t border-paper-line/60 my-1" />
+
+                  {/* 关于区 */}
+                  <div className="px-4 pt-2 pb-1 text-[10px] font-medium tracking-wider uppercase text-paper-ink3">💬 关于</div>
+                  <button
+                    onClick={() => { setShowSettings(false); setShowChangelog(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink hover:bg-paper-surface transition"
+                  >
+                    <span>ℹ️</span>
+                    <span className="flex-1 text-left">版本 v{__APP_VERSION__}</span>
+                    <span className="text-xs text-paper-accent">更新记录</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowSettings(false); setShowFeedback(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink hover:bg-paper-surface transition"
+                  >
+                    <span>❤️</span>
+                    <span className="flex-1 text-left">反馈与建议</span>
+                    <span className="text-paper-ink3">›</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -254,7 +337,6 @@ export default function ProfilePage() {
             { k: "profile", label: "👤 个人" },
             { k: "templates", label: "📚 模板库" },
             { k: "papers", label: "🎨 信纸库" },
-            { k: "milestones", label: "📅 纪念日" },
           ].map((t) => (
             <button
               key={t.k}
@@ -277,23 +359,7 @@ export default function ProfilePage() {
             <StatTile label="累计字数" value={formatNumber(stats.total_words)} />
           </div>
         </section>
-
-        {/* 设置（以后扩展） */}
-        <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 overflow-hidden">
-          <h3 className="text-paper-ink2 text-xs font-medium tracking-wider uppercase px-5 pt-4 pb-2">⚙️ 设置</h3>
-          <MenuItem icon="🎨" label="主题色（即将上线）" disabled />
-          <MenuItem icon="🔔" label="每日提醒（即将上线）" disabled />
-          <MenuItem icon="📤" label="导出数据（即将上线）" disabled />
-          <MenuItem icon="🖋️" label="字体样式" hint={fontSetting === "hand" ? "全手写" : fontSetting === "pen" ? "钢笔中文" : "系统默认"} onClick={() => setShowFontPicker(true)} />
-          <MenuItem icon="🔐" label="修改密码" onClick={() => alert("功能开发中...")} />
-        </section>
-
-        {/* 关于 */}
-        <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 overflow-hidden">
-          <h3 className="text-paper-ink2 text-xs font-medium tracking-wider uppercase px-5 pt-4 pb-2">💬 关于</h3>
-          <MenuItem icon="ℹ️" label={`版本 v${__APP_VERSION__} · 点击看更新记录`} onClick={() => setShowChangelog(true)} />
-          <MenuItem icon="❤️" label="反馈与建议" onClick={() => setShowFeedback(true)} />
-        </section>
+        {/* ⭐ 设置和关于已移到右上角齿轮按钮 */}
         </>)}
 
         {activeTab === "templates" && (
@@ -305,12 +371,6 @@ export default function ProfilePage() {
         {activeTab === "papers" && (
           <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
             <PaperLibrary />
-          </section>
-        )}
-
-        {activeTab === "milestones" && (
-          <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
-            <MilestoneLibrary />
           </section>
         )}
 
@@ -602,24 +662,6 @@ function StatTile({ label, value, suffix }: { label: string; value: string; suff
       </div>
       <div className="text-paper-ink3 text-xs mt-1">{label}</div>
     </div>
-  );
-}
-
-function MenuItem({ icon, label, hint, onClick, disabled }: { icon: string; label: string; hint?: string; onClick?: () => void; disabled?: boolean }) {
-  return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      className={[
-        "w-full flex items-center gap-3 px-5 py-3.5 text-left transition",
-        disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-paper-surface active:bg-paper-line/30",
-      ].join(" ")}
-    >
-      <span className="text-lg">{icon}</span>
-      <span className="flex-1 text-paper-ink">{label}</span>
-      {hint && <span className="text-paper-ink3 text-sm">{hint}</span>}
-      {!disabled && <span className="text-paper-ink3 text-sm">›</span>}
-    </button>
   );
 }
 

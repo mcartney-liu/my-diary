@@ -150,11 +150,11 @@ export const TEMPLATES: DiaryTemplate[] = [
   },
   {
     id: "plan",
-    name: "每日计划",
+    name: "计划",
     icon: "🎯",
-    description: "必做 3 件 + 可选",
+    description: "今日待办 + 未来安排",
     defaultBlocks: [
-      heading("🎯 今日目标", 2),
+      heading("🎯 目标", 2),
       heading("✅ 必做 3 件", 3),
       check(""),
       check(""),
@@ -167,7 +167,7 @@ export const TEMPLATES: DiaryTemplate[] = [
       heading("⏰ 备注", 3),
       tb(""),
     ],
-    defaultTitle: "🎯 今日计划",
+    defaultTitle: "🎯 计划",
     defaultMoodId: "calm",
     showLines: false,
     defaultTags: ["计划"],
@@ -217,6 +217,27 @@ export const TEMPLATES: DiaryTemplate[] = [
     showLines: false,
     defaultTags: ["健康"],
     wallpaper: "/papers/sage-journal.jpg",
+  },
+  {
+    id: "milestone",
+    name: "纪念日",
+    icon: "🎈",
+    description: "倒计时 / 多少天了",
+    defaultBlocks: [
+      // heading 的 content 会被 EditorPage 自动更新成 "还有 N 天" / "已经 N 天了"
+      heading("🎈 纪念日", 1),
+      divider(),
+      heading("📝 今天的故事", 2),
+      tb(""),
+      divider(),
+      heading("💝 想说的话", 2),
+      tb("感谢、愿望、或者想告诉未来的自己什么..."),
+    ],
+    defaultTitle: "🎈 纪念日",
+    defaultMoodId: "happy",
+    showLines: false,
+    defaultTags: ["纪念日"],
+    wallpaper: "/papers/rose-petals.jpg",
   },
 ];
 

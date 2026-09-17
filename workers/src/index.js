@@ -87,6 +87,10 @@ export default {
       ["GET",    "/api/milestones",      handleListMilestones],
       ["DELETE", "/api/milestones",      handleDeleteMilestone],
       ["PATCH",  "/api/milestones",      handleUpdateMilestone],
+      ["POST",   "/api/plans",           handleSavePlan],
+      ["GET",    "/api/plans",           handleListPlans],
+      ["DELETE", "/api/plans",           handleDeletePlan],
+      ["PATCH",  "/api/plans",           handleUpdatePlan],
     ];
 
     for (const [method, p, handler] of routes) {
@@ -189,39 +193,136 @@ async function handleListDiaries(request, env, JWT_SECRET) {
 }
 
 async function handleSaveDiary(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRET);
-  if (!user) return json({ error: "unauthorized" }, 401);
+  try {
+    const user = await authUser(request, JWT_SECRET);
+    if (!user) return json({ error: "unauthorized" }, 401);
 
-  const body = await readBody(request);
-  const { id, date, template_id, title, mood_id, tags, weather, blocks } = body;
-  if (!date) return json({ error: "date required" }, 400);
+    const body = await readBody(request);
+    const { id, date, template_id, title, mood_id, tags, weather, blocks, milestone_info, plan_info } = body;
+    if (!date) return json({ error: "date required" }, 400);
 
-  const now = Date.now();
-  const blocksJson = JSON.stringify(blocks || []);
-  const tagsJson = JSON.stringify(tags || []);
+    const now = Date.now();
+    const blocksJson = JSON.stringify(blocks || []);
+    const tagsJson = JSON.stringify(tags || []);
+    let tplId = template_id || "diary";
+    console.log("[handleSaveDiary] 📥 template_id:", tplId, "milestone_info:", milestone_info ? JSON.stringify(milestone_info) : "(无)");
 
-  // Upsert by user_id + date (唯一约束)
-  const existing = id
-    ? await env.DB.prepare("SELECT id FROM diaries WHERE id = ? AND user_id = ?").bind(id, user.uid).first()
-    : await env.DB.prepare("SELECT id FROM diaries WHERE user_id = ? AND date = ?").bind(user.uid, date).first();
+    // Upsert 策略：
+    // 1. 有前端传的 id → 按 id 查（编辑已有日记）
+    // 2. 是 milestone 模板 + 没有前端 id → 直接 INSERT（一个人可以同一天写多个纪念日）
+    // 3. 普通日记 → 按 user_id + date 唯一（每天一篇）
+    let existing = null;
+    if (id) {
+      existing = await env.DB.prepare("SELECT id FROM diaries WHERE id = ? AND user_id = ?").bind(id, user.uid).first();
+    } else if (tplId !== "milestone" && tplId !== "plan") {
+      existing = await env.DB.prepare("SELECT id FROM diaries WHERE user_id = ? AND date = ?").bind(user.uid, date).first();
+    }
 
-  let diaryId = existing?.id;
-  if (existing) {
-    await env.DB.prepare(
-      `UPDATE diaries SET date=?, template_id=?, title=?, mood_id=?, tags=?, weather=?, blocks=?, updated_at=?
-       WHERE id=? AND user_id=?`
-    ).bind(date, template_id || "diary", title || "", mood_id || "calm", tagsJson,
-           weather ? JSON.stringify(weather) : null, blocksJson, now, existing.id, user.uid).run();
-  } else {
-    diaryId = uuid();
-    await env.DB.prepare(
-      `INSERT INTO diaries (id, user_id, date, template_id, title, mood_id, tags, weather, blocks, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(diaryId, user.uid, date, template_id || "diary", title || "", mood_id || "calm",
-           tagsJson, weather ? JSON.stringify(weather) : null, blocksJson, now, now).run();
+    let diaryId = existing?.id;
+    if (existing) {
+      await env.DB.prepare(
+        `UPDATE diaries SET date=?, template_id=?, title=?, mood_id=?, tags=?, weather=?, blocks=?, updated_at=?
+         WHERE id=? AND user_id=?`
+      ).bind(date, tplId, title || "", mood_id || "calm", tagsJson,
+             weather ? JSON.stringify(weather) : null, blocksJson, now, existing.id, user.uid).run();
+      console.log("[handleSaveDiary] 📝 UPDATE diary:", diaryId);
+    } else {
+      diaryId = uuid();
+      await env.DB.prepare(
+        `INSERT INTO diaries (id, user_id, date, template_id, title, mood_id, tags, weather, blocks, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(diaryId, user.uid, date, tplId, title || "", mood_id || "calm",
+             tagsJson, weather ? JSON.stringify(weather) : null, blocksJson, now, now).run();
+      console.log("[handleSaveDiary] ✨ INSERT diary:", diaryId);
+    }
+
+    // ⭐ milestone 自动双写到子表（降级处理：失败不阻塞日记保存）
+    const needMilestoneDualWrite = milestone_info && milestone_info.type;
+    if (needMilestoneDualWrite) {
+      try {
+        console.log("[handleSaveDiary] 🎯 milestone 双写开始, diaryId:", diaryId, "type:", milestone_info.type);
+        // 确保 diary template_id 是 milestone
+        if (tplId !== "milestone") {
+          await env.DB.prepare("UPDATE diaries SET template_id = ? WHERE id = ? AND user_id = ?").bind("milestone", diaryId, user.uid).run();
+          tplId = "milestone";
+        }
+        // 查已存在（同一 diary_id）
+        const existingM = await env.DB.prepare("SELECT id FROM milestones WHERE diary_id = ?").bind(diaryId).first();
+        const mIcon = milestone_info.icon || "🎯";
+        const mTitle = milestone_info.title || title || "纪念日";
+        const mDesc = milestone_info.description || "";
+
+        if (existingM) {
+          await env.DB.prepare(
+            `UPDATE milestones SET target_mm=?, target_dd=?, start_date=?, target_date=?, icon=?, title=?, description=?, diary_id=?, updated_at=?
+             WHERE id=? AND user_id=?`
+          ).bind(
+            milestone_info.target_mm || null, milestone_info.target_dd || null,
+            milestone_info.start_date || null, milestone_info.target_date || null,
+            mIcon, mTitle, mDesc, diaryId, now, existingM.id, user.uid
+          ).run();
+          console.log("[handleSaveDiary] ✏️ UPDATE milestone:", existingM.id, "→", mTitle);
+        } else {
+          const mId = uuid();
+          await env.DB.prepare(
+            `INSERT INTO milestones (id, user_id, type, target_mm, target_dd, start_date, target_date, icon, title, description, diary_id, auto_created, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+          ).bind(
+            mId, user.uid, milestone_info.type,
+            milestone_info.target_mm || null, milestone_info.target_dd || null,
+            milestone_info.start_date || null, milestone_info.target_date || null,
+            mIcon, mTitle, mDesc, diaryId, now, now
+          ).run();
+          console.log("[handleSaveDiary] ✨ INSERT milestone:", mId, "→", mTitle);
+        }
+      } catch (me) {
+        console.error("[handleSaveDiary] ⚠️ milestone 双写失败（不影响日记）:", me.message);
+      }
+    }
+
+    // ⭐ plan 自动双写到子表（降级处理：失败不阻塞日记保存）
+    const needPlanDualWrite = plan_info && (plan_info.target_date || plan_info.title);
+    if (needPlanDualWrite) {
+      try {
+        console.log("[handleSaveDiary] 🎯 plan 双写开始, diaryId:", diaryId);
+        if (tplId !== "plan") {
+          await env.DB.prepare("UPDATE diaries SET template_id = ? WHERE id = ? AND user_id = ?").bind("plan", diaryId, user.uid).run();
+          tplId = "plan";
+        }
+        const existingP = await env.DB.prepare("SELECT id FROM plans WHERE diary_id = ?").bind(diaryId).first();
+        const pIcon = plan_info.icon || "🎯";
+        const pTitle = plan_info.title || title || "计划";
+        const pDesc = plan_info.description || "";
+        const pStatus = plan_info.status || "pending";
+
+        if (existingP) {
+          await env.DB.prepare(
+            `UPDATE plans SET target_date=?, status=?, icon=?, title=?, description=?, diary_id=?, updated_at=?
+             WHERE id=? AND user_id=?`
+          ).bind(
+            plan_info.target_date || null, pStatus, pIcon, pTitle, pDesc, diaryId, now, existingP.id, user.uid
+          ).run();
+          console.log("[handleSaveDiary] ✏️ UPDATE plan:", existingP.id, "→", pTitle);
+        } else {
+          const pId = uuid();
+          await env.DB.prepare(
+            `INSERT INTO plans (id, user_id, target_date, status, icon, title, description, diary_id, auto_created, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+          ).bind(
+            pId, user.uid, plan_info.target_date || null, pStatus, pIcon, pTitle, pDesc, diaryId, now, now
+          ).run();
+          console.log("[handleSaveDiary] ✨ INSERT plan:", pId, "→", pTitle, "target_date:", plan_info.target_date);
+        }
+      } catch (pe) {
+        console.error("[handleSaveDiary] ⚠️ plan 双写失败（不影响日记）:", pe.message);
+      }
+    }
+
+    return json({ id: diaryId, ok: true });
+  } catch (e) {
+    console.error("[handleSaveDiary] ❌ 主流程异常:", e.message, e.stack);
+    return json({ error: "save_failed", detail: e.message }, 500);
   }
-
-  return json({ id: diaryId, ok: true });
 }
 
 async function handleDeleteDiary(request, env, JWT_SECRET) {
@@ -339,7 +440,7 @@ async function handleSaveTemplate(request, env, JWT_SECRET) {
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
-  const { name, icon = "📋", description = "", keywords = "", blocks = [], default_title = "", default_tags = [], wallpaper = "", show_lines = 1, default_mood_id = "" } = body;
+  const { name, icon = "📋", description = "", blocks = [], default_title = "", default_tags = [], wallpaper = "", show_lines = 1, default_mood_id = "" } = body;
   if (!name || !name.trim()) return json({ error: "name required" }, 400);
   if (!blocks.length) return json({ error: "blocks required" }, 400);
 
@@ -351,7 +452,7 @@ async function handleSaveTemplate(request, env, JWT_SECRET) {
   await env.DB.prepare(
     `INSERT INTO templates (id, user_id, name, icon, description, keywords, blocks, default_title, default_tags, wallpaper, show_lines, default_mood_id, is_public, author_name, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
-  ).bind(id, user.uid, name.trim(), icon, description, keywords,
+  ).bind(id, user.uid, name.trim(), icon, description, "",
      JSON.stringify(blocks), default_title, JSON.stringify(default_tags),
      wallpaper, show_lines ? 1 : 0, default_mood_id,
      u?.nickname || user.uid.slice(0, 8), now, now).run();
@@ -655,3 +756,93 @@ async function handleUpdateMilestone(request, env, JWT_SECRET) {
   return json({ ok: true });
 }
 
+
+
+// ====== Plans (计划) ======
+async function handleSavePlan(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const body = await readBody(request);
+  const { target_date, icon = "🎯", title, description = "", diary_id, auto_created = 0, status = "pending" } = body;
+  if (!title || !title.trim()) return json({ error: "title required" }, 400);
+
+  const now = Date.now();
+  const id = uuid();
+
+  await env.DB.prepare(
+    `INSERT INTO plans (id, user_id, target_date, status, icon, title, description, diary_id, auto_created, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, user.uid, target_date || null, status, icon, title.trim(), description, diary_id || null, auto_created ? 1 : 0, now, now).run();
+
+  return json({ id, ok: true });
+}
+
+async function handleListPlans(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const rows = await env.DB.prepare(
+    "SELECT * FROM plans WHERE user_id = ? ORDER BY target_date ASC, updated_at DESC"
+  ).bind(user.uid).all();
+
+  const today = new Date().toISOString().slice(0, 10);
+  const out = rows.results.map(r => ({
+    id: r.id,
+    target_date: r.target_date,
+    status: r.status,
+    icon: r.icon,
+    title: r.title,
+    description: r.description,
+    diary_id: r.diary_id,
+    auto_created: r.auto_created === 1,
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+    // 前端算状态时用
+    days_until: r.target_date ? Math.ceil((new Date(r.target_date) - new Date(today)) / 86400000) : null,
+  }));
+
+  return json({ plans: out });
+}
+
+async function handleDeletePlan(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const q = new URL(request.url).searchParams;
+  const id = q.get("id");
+  if (!id) return json({ error: "id required" }, 400);
+
+  await env.DB.prepare("DELETE FROM plans WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+  return json({ ok: true });
+}
+
+async function handleUpdatePlan(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const body = await readBody(request);
+  const { id } = body;
+  if (!id) return json({ error: "id required" }, 400);
+
+  const existing = await env.DB.prepare("SELECT id FROM plans WHERE id = ? AND user_id = ?").bind(id, user.uid).first();
+  if (!existing) return json({ error: "not found" }, 404);
+
+  const now = Date.now();
+  const fields = [];
+  const values = [];
+  const allowed = ["target_date", "status", "icon", "title", "description", "diary_id"];
+  for (const key of allowed) {
+    if (body[key] !== undefined) {
+      fields.push(`${key} = ?`);
+      values.push(body[key]);
+    }
+  }
+  if (!fields.length) return json({ ok: true });
+
+  fields.push("updated_at = ?");
+  values.push(now, id, user.uid);
+
+  await env.DB.prepare(`UPDATE plans SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`).bind(...values).run();
+  return json({ ok: true });
+}

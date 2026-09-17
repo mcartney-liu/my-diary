@@ -10,6 +10,8 @@ import EditorPage from "./components/EditorPage";
 import TrashPage from "./components/TrashPage";
 import TagsPage from "./components/TagsPage";
 import CapsulePage from "./components/CapsulePage";
+import MilestonesPage from "./components/MilestonesPage";
+import PlanPage from "./components/PlanPage";
 import ProfilePage from "./components/ProfilePage";
 
 // 后台写入 localStorage（不阻塞主线程）
@@ -236,6 +238,8 @@ export default function App() {
         <Route path="/trash" element={<TrashPage diaries={deletedDiaries} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onBatchRestore={handleBatchRestore} onBatchPermanentDelete={handleBatchPermanentDelete} />} />
         <Route path="/tags" element={<TagsPage diaries={diaries} />} />
         <Route path="/capsule" element={<CapsulePage diaries={diaries} />} />
+        <Route path="/milestones" element={<MilestonesPage />} />
+        <Route path="/plans" element={<PlanPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route
           path="/editor"

@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus, Pencil } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
 import { transcribeAudio, listTemplates, saveTemplate, updateTemplate, deleteTemplate, listPapers, type UserTemplate, type UserPaper } from "../api";
-import { polishTranscript, recommendBooks, kickoffBookNote, type BookRecommendation } from "../ai";
+import { polishTranscript, recommendBooks, kickoffBookNote, inferMilestoneInfo, quickRuleMatch, getAiProvider, type BookRecommendation } from "../ai";
 import { fetchWeather, fetchLocation, fetchLocationAuto, type LocationResult } from "../weather";
 import { fetchNearbyPois, type Poi } from "../services/poi";
 import TextBlock from "./TextBlock";
@@ -826,6 +826,56 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
   const isFinanceTemplate = templateId === "finance";
   const isReadingTemplate = templateId === "reading";
+  const isMilestoneTemplate = templateId === "milestone";
+
+  // === milestone 模板：自动计算倒计时（类似记账自动算总额）===
+  // 显示在模板第一个 heading block 的 content 里
+  const milestoneSummary = useMemo(() => {
+    if (!isMilestoneTemplate) return null;
+    // 从已保存的 milestone 日记里拿（新建时没有，等保存后才有）
+    const info = initialDiary?.milestoneInfo;
+    if (!info) return null;
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    if (info.type === "fixed" && info.target_mm && info.target_dd) {
+      let year = today.getFullYear();
+      let next = new Date(year, info.target_mm - 1, info.target_dd);
+      if (next <= today) { year++; next = new Date(year, info.target_mm - 1, info.target_dd); }
+      const days = Math.ceil((next.getTime() - today.getTime()) / 86400000);
+      return { text: `还有 ${days} 天 · ${year}年 ${info.target_mm}月${info.target_dd}日`, days, kind: days <= 7 ? "upcoming" : "ongoing" as const };
+    }
+    if (info.type === "start" && info.start_date) {
+      const start = new Date(info.start_date);
+      const days = Math.floor((today.getTime() - start.getTime()) / 86400000);
+      if (days < 0) return { text: `还有 ${-days} 天（尚未开始）`, days: -days, kind: "upcoming" as const };
+      return { text: `已经 ${days} 天了`, days, kind: "ongoing" as const };
+    }
+    if (info.type === "countdown" && info.target_date) {
+      const target = new Date(info.target_date);
+      const days = Math.ceil((target.getTime() - today.getTime()) / 86400000);
+      if (days < 0) return { text: `已过 ${-days} 天`, days: -days, kind: "passed" as const };
+      if (days === 0) return { text: "🎉 就是今天！", days: 0, kind: "upcoming" as const };
+      return { text: `还有 ${days} 天`, days, kind: days <= 7 ? "upcoming" : "ongoing" as const };
+    }
+    return null;
+  }, [isMilestoneTemplate, initialDiary?.milestoneInfo, blocks]);
+
+  // milestone 倒计时自动更新：找到第一个 heading block，把 content 改成倒计时
+  useEffect(() => {
+    if (!isMilestoneTemplate || !milestoneSummary) return;
+    // 找第一个 heading block
+    const firstHeadingIdx = blocks.findIndex(b => b.kind === "heading");
+    if (firstHeadingIdx < 0) return;
+    const b = blocks[firstHeadingIdx];
+    const expected = `🎈 ${milestoneSummary.text}`;
+    if (b.content !== expected) {
+      setBlocks(prev => prev.map((blk, i) =>
+        i === firstHeadingIdx ? { ...blk, content: expected } : blk
+      ));
+    }
+  }, [milestoneSummary, isMilestoneTemplate, blocks]);
 
   // === 读书模板：跨日记聚合"正在读的书" ===
   const readingBooks = useMemo(() => {
@@ -1298,7 +1348,8 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     const now = Date.now();
     const cleaned = blocks.filter((b) => {
       if (b.deleted) return false;  // 软删除的保存时真删
-      if (b.kind === "text") return b.content.trim().length > 0;
+      // text block 不再过滤空（normalizeBlocks 已经 pop 末尾空 text），保留中间空 text 让 bodyText 拼 heading 等
+      if (b.kind === "text") return true;
       if (b.kind === "divider" || b.kind === "heading" || b.kind === "number" || b.kind === "checkbox" || b.kind === "finance_item" || b.kind === "book" || b.kind === "quote") return true;
       return !!b.content; // image/audio 需要有 dataURL
     });
@@ -1310,10 +1361,12 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
     // 扫描正文中的 #xxx hashtag → 自动合并到 tags（去重）
     const hashtagRegex = /#([\p{L}\p{N}_\-]+)/gu;
-    const bodyText = finalBlocks
-      .filter((b) => b.kind === "text")
-      .map((b) => b.content)
-      .join(" ");
+    // 从所有 block 的 content 拼（heading 也有信息，比如 milestone 模板的标题）
+    const bodyText = cleaned
+      .filter((b) => b.content && typeof b.content === "string" && !b.deleted)
+      .map((b) => b.content.trim())
+      .filter(Boolean)
+      .join("\n");
     const extractedTags = new Set<string>();
     let m: RegExpExecArray | null;
     while ((m = hashtagRegex.exec(bodyText)) !== null) {
@@ -1325,9 +1378,112 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     const id = initialDiary?.id ?? savedIdRef.current ?? uid("d");
     if (!savedIdRef.current) savedIdRef.current = id;
 
+    // ⭐ milestone 自动识别 + AI 推断：
+    // 条件 ① 用户选了 milestone 模板 或 ② detectTemplate 规则匹配到 milestone（≥2 关键词）
+    let milestoneInfo: Diary["milestoneInfo"] | undefined;
+    const fullTextForDetect = [title, bodyText].filter(Boolean).join(" ");
+    const ruleHint = quickRuleMatch(fullTextForDetect); // 毫秒级规则匹配
+    const shouldHandleMilestone =
+      templateId === "milestone" ||
+      ruleHint?.templateId === "milestone";
+    console.log("[editor] 💬 save 触发 — templateId:", templateId, "ruleHint:", ruleHint?.templateId || null, "→ shouldHandleMilestone:", shouldHandleMilestone);
+    if (shouldHandleMilestone && fullTextForDetect.trim().length > 2) {
+      try {
+        const inf = await inferMilestoneInfo(fullTextForDetect, getAiProvider());
+        console.log("[editor] 🎈 AI 推断结果:", inf);
+        if (inf) {
+          milestoneInfo = {
+            type: inf.type,
+            target_mm: inf.target_mm,
+            target_dd: inf.target_dd,
+            start_date: inf.start_date,
+            target_date: inf.target_date,
+            title: inf.title,
+            icon: inf.icon,
+            description: inf.description,
+          };
+          console.log("[editor] 🎈 最终 milestoneInfo:", milestoneInfo);
+        } else {
+          console.warn("[editor] 🎈 AI 返回 null，不写 milestone_info");
+        }
+      } catch (e) {
+        console.warn("[editor] milestone AI 推断失败:", e);
+      }
+    }
+
+    // ⭐ 如果是 milestone 模板 + AI 推断出了 title → 更新 finalBlocks 里的 heading content
+    // 这样保存前用户就能看到有语义的标题（而不是模板默认的 "🎈 纪念日"）
+    if (milestoneInfo?.title) {
+      const firstHeadingIdx = finalBlocks.findIndex((b) => b.kind === "heading");
+      if (firstHeadingIdx >= 0) {
+        // 先简单更新成 "🎈 {title}"，保存后倒计时逻辑会接管
+        const icon = milestoneInfo.icon || "🎈";
+        finalBlocks[firstHeadingIdx] = {
+          ...finalBlocks[firstHeadingIdx],
+          content: `${icon} ${milestoneInfo.title}`,
+        };
+        console.log("[editor] 🎈 heading 已更新为:", finalBlocks[firstHeadingIdx].content);
+      }
+    }
+
+    // ⭐ plan 自动识别 + 日期提取：
+    // 条件 ① 用户选了 plan 模板 或 ② 规则强制识别成 plan（未来日期+计划词）
+    let planInfo: Diary["planInfo"] | undefined;
+    const shouldHandlePlan =
+      templateId === "plan" ||
+      (ruleHint?.templateId === "plan" && ruleHint?.reason?.includes("未来事件"));
+    console.log("[editor] 💬 save 触发 — shouldHandlePlan:", shouldHandlePlan);
+    if (shouldHandlePlan && fullTextForDetect.trim().length > 2) {
+      try {
+        // 简单正则提目标日期（YYYY-MM-DD 或 MM月DD日 或 相对时间）
+        let target_date: string | undefined;
+        // 1. 完整日期 YYYY-MM-DD
+        const fullDateRe = /(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日|(\d{4})[\-\/\.](\d{1,2})[\-\/\.](\d{1,2})/;
+        const m1 = fullDateRe.exec(fullTextForDetect);
+        if (m1) {
+          const y = m1[1] || m1[4];
+          const mo = m1[2] || m1[5];
+          const d = m1[3] || m1[6];
+          target_date = `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+        } else {
+          // 2. MM月DD日
+          const mdRe = /(\d{1,2})\s*月\s*(\d{1,2})\s*日/;
+          const m2 = mdRe.exec(fullTextForDetect);
+          if (m2) {
+            const today = new Date();
+            let d = new Date(today.getFullYear(), parseInt(m2[1]) - 1, parseInt(m2[2]));
+            if (d <= today) d.setFullYear(today.getFullYear() + 1);
+            target_date = d.toISOString().slice(0, 10);
+          } else {
+            // 3. 相对时间
+            const relMap: Record<string, number> = { "明天": 1, "后天": 2, "大后天": 3, "下周": 7, "这周": 3, "下个月": 30 };
+            for (const [k, days] of Object.entries(relMap)) {
+              if (fullTextForDetect.includes(k)) {
+                const d = new Date();
+                d.setDate(d.getDate() + days);
+                target_date = d.toISOString().slice(0, 10);
+                break;
+              }
+            }
+          }
+        }
+        // 标题 = 规则匹配关键词组合 或 取前 N 个字
+        const titleFromText = fullTextForDetect.replace(/[。！？,.!?，\s]/g, "").slice(0, 12) || "计划";
+        planInfo = {
+          target_date,
+          title: titleFromText || title.trim() || "计划",
+          icon: "🎯",
+          status: "pending",
+        };
+        console.log("[editor] 🎯 最终 planInfo:", planInfo);
+      } catch (e) {
+        console.warn("[editor] plan 推断失败:", e);
+      }
+    }
+
     const diary: Diary = {
       id,
-      title: title.trim(),
+      title: title.trim() || milestoneInfo?.title || "",
       date,
       moodId,
       blocks: finalBlocks,
@@ -1339,9 +1495,12 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       tags: mergedTags.length > 0 ? mergedTags : undefined,
       wallpaper,
       showLines,
+      milestoneInfo, // ⭐
+      planInfo, // ⭐
       createdAt: initialDiary?.createdAt ?? now,
       updatedAt: now,
     };
+    console.log("[editor] 📦 保存 payload milestone_info:", milestoneInfo ? JSON.stringify(milestoneInfo) : "(无)");
     setSaving(true);
     savingRef.current = true;
     setSaveToast(true);
@@ -2628,7 +2787,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                 <div>
                   <label className="text-xs font-medium text-paper-ink3 mb-1 block">图标</label>
                   <div className="flex flex-wrap gap-2">
-                    {["📋", "🎯", "💼", "🏃", "📖", "✈️", "🧘", "💡", "🎨", "🍱"].map((ic) => (
+                    {["📋", "🎈", "💼", "🏃", "📖", "✈️", "🧘", "💡", "🎨", "🍱"].map((ic) => (
                       <button
                         key={ic}
                         onClick={() => setBuilderIcon(ic)}
