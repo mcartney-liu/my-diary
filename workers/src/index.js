@@ -91,6 +91,8 @@ export default {
       ["GET",    "/api/plans",           handleListPlans],
       ["DELETE", "/api/plans",           handleDeletePlan],
       ["PATCH",  "/api/plans",           handleUpdatePlan],
+      ["POST",   "/api/summaries",       handleSaveSummary],
+      ["GET",    "/api/summaries",       handleListSummaries],
     ];
 
     for (const [method, p, handler] of routes) {
@@ -845,4 +847,32 @@ async function handleUpdatePlan(request, env, JWT_SECRET) {
 
   await env.DB.prepare(`UPDATE plans SET ${fields.join(", ")} WHERE id = ? AND user_id = ?`).bind(...values).run();
   return json({ ok: true });
+}
+// ====== Daily Summaries (每日 AI 总结) ======
+async function handleSaveSummary(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+
+  const body = await readBody(request);
+  const { date, summary, diary_count = 0 } = body;
+  if (!date || !summary) return json({ error: 'date and summary required' }, 400);
+
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT OR REPLACE INTO daily_summaries (user_id, date, summary, diary_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(user.uid, date, summary, diary_count, now, now).run();
+
+  return json({ ok: true });
+}
+
+async function handleListSummaries(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+
+  const rows = await env.DB.prepare(
+    'SELECT * FROM daily_summaries WHERE user_id = ? ORDER BY date DESC'
+  ).bind(user.uid).all();
+
+  return json({ summaries: rows.results });
 }

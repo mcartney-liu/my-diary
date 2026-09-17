@@ -13,6 +13,7 @@
 
 import type { DiaryBlock, MoodId } from "./types";
 import { uid } from "./types";
+import { saveSummary } from "./api";
 
 // ============================================================
 // Provider 层 — 抽象大模型 API 差异
@@ -1085,10 +1086,15 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
 
   if (!parts.length) return null;
 
+  const persistToCloud = (text: string) => {
+    // 🔑 fire-and-forget 存后端（不阻塞 UI，失败静默）
+    saveSummary(date, text, dayDiaries.length).catch(() => {});
+  };
+
   const p = getAiProvider();
   if (!p) {
     const fb = ruleSummarize(parts);
-    if (fb) { localStorage.setItem(cacheKey, fb); return fb; }
+    if (fb) { localStorage.setItem(cacheKey, fb); persistToCloud(fb); return fb; }
     return null;
   }
 
@@ -1107,6 +1113,7 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
     clean = clean.slice(0, 60);
     if (clean && clean.length >= 6) {
       localStorage.setItem(cacheKey, clean);
+      persistToCloud(clean);
       return clean;
     }
     throw new Error('AI returned too short');
@@ -1115,7 +1122,7 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
   }
 
   const fb = ruleSummarize(parts);
-  if (fb) { localStorage.setItem(cacheKey, fb); return fb; }
+  if (fb) { localStorage.setItem(cacheKey, fb); persistToCloud(fb); return fb; }
   return null;
 }
 

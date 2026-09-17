@@ -1,5 +1,58 @@
 # MyDiary 版本更新记录
 
+## v0.3.0 — 2026-09-17
+
+### 🎉 新功能
+
+- **🎯 计划模块** — 和纪念日、时间胶囊并列的独立模块
+  - 计划模板写日记 → 自动识别目标日期 → 存 `plans` 表
+  - AI 快记说 "10月20号和朋友去看海" → 规则层强制识别为计划 → 自动双写
+  - 顶部导航栏 🎯 入口 + 完整 PlanPage + PlanLibrary 组件
+  - 点击整卡跳转到对应日记（无 diary_id 跳新建模板页）
+- **📖 AI 总结入库 + 历史查看** — 首页 StreakBadge 的 AI 总结不再只是临时缓存
+  - 每天的 AI 总结自动存 D1（`daily_summaries` 表），跨设备可见
+  - 点「📖 历史」弹出抽屉，按日期倒序展示所有历史 AI 总结
+  - 空状态引导：刚注册时显示"这里会出现什么"完整说明
+  - 四种场景全覆盖：有+有、有+没、没+有、都没有 → 不同温暖文案
+- **📅 纪念日独立页面** — 从 Profile「我的」移除，统一归首页顶部导航 🎈 入口
+
+### 🐛 Bug 修复
+
+- **AI 总结永远走兜底** — `callChatCompletion` 写死 `response_format: json_object`，但 summarizeDay 要纯文本 → 强制返回 JSON → 每次命中错误兜底。给 callChatCompletion 加 `responseFormat` 参数，summarizeDay 用 `"text"`，其他 skill 保持 `"json_object"`
+- **总结缓存 key bump v2** — 之前坏的兜底缓存可能存过错误内容，bump key 强制清掉
+
+### 🧹 交互改进
+
+- **4 个列表页空状态统一** — 标签🏷️ / 纪念日🎈 / 计划🎯 / 时间胶囊🫧
+  - 顶部常驻说明文字（不管有没有内容），让用户始终知道"这页是干嘛的"
+  - 空状态用 emoji + 主文案 + py-12 居中布局，以时间胶囊为参照
+  - 计划的引导文案改成正面例子（"10月20号和朋友去看海"）
+- **顶部导航栏按钮** — 🏷️ 🎈 🎯 🫧 🗑️ 一键直达，不再 toggle 选中
+
+### 📦 本次改动文件
+
+| 文件 | 改动 |
+|------|------|
+| workers/migrations/0006_plans.sql | 新增 plans 表 |
+| workers/migrations/0007_daily_summaries.sql | 新增 daily_summaries 表 |
+| workers/src/index.js | 加 4 条 /api/summaries + 4 条 /api/plans 路由 |
+| src/api.ts | Plan / DailySummary 类型 + CRUD + saveSummary / listSummaries |
+| src/ai.ts | callChatCompletion 加 responseFormat 参数；summarizeDay text 模式 + 自动存库 |
+| src/components/StreakBadge.tsx | 加 📖 历史抽屉 + 四种空状态文案 |
+| src/components/CalendarPage.tsx | 顶部导航 🎈 🎯 等按钮（直接 nav 跳路由） |
+| src/components/MilestoneLibrary.tsx | 空状态 py-16 + 说明文字常驻 |
+| src/components/PlanLibrary.tsx | 新组件 + 空状态 + 常驻说明 |
+| src/components/PlanPage.tsx | 新独立页面 |
+| src/components/MilestonesPage.tsx | 新独立页面（从 Profile 拆出来） |
+| src/components/CapsulePage.tsx | 说明文字常驻顶部 |
+| src/components/TagsPage.tsx | 说明文字常驻顶部 |
+| src/components/ProfilePage.tsx | 移除纪念日 tab |
+| src/types.ts | Diary 加 planInfo 字段 |
+| CHANGELOG.md | v0.3.0 版本记录 |
+| package.json / vite.config.ts | 版本 0.2.1 → 0.3.0 |
+
+---
+
 ## v0.2.1 — 2026-09-16
 
 ### 🎉 新功能

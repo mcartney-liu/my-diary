@@ -294,3 +294,23 @@ export function updatePlan(patch: Partial<Plan> & { id: string }) {
     method: "PATCH", body: JSON.stringify(patch),
   });
 }
+// ====== Daily Summaries ======
+export interface DailySummary {
+  user_id: string;
+  date: string;
+  summary: string;
+  diary_count: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export function saveSummary(date: string, summary: string, diary_count = 0) {
+  return request<{ ok: boolean }>('/api/summaries', {
+    method: 'POST',
+    body: JSON.stringify({ date, summary, diary_count }),
+  });
+}
+
+export function listSummaries() {
+  return request<{ summaries: DailySummary[] }>('/api/summaries');
+}

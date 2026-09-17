@@ -518,12 +518,38 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-              {/* === v0.2.1 当前版本（高亮） === */}
+              {/* === v0.3.0 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-bold text-paper-accent">v{__APP_VERSION__}</span>
-                  <span className="text-paper-ink3 text-xs">2026年09月16日</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月17日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">🎉 新功能</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>🎯 <b>计划模块</b> — 计划模板写日记 → 自动识别目标日期存 plans 表；顶部导航栏 🎯 入口 + 完整 PlanPage/PlanLibrary 组件</li>
+                    <li>📖 <b>AI 总结入库 + 历史查看</b> — 每天的 AI 总结自动存 D1，点「📖 历史」弹出抽屉按日期倒序查看所有历史总结；空状态四种温暖文案覆盖全部场景</li>
+                    <li>📅 <b>纪念日独立页面</b> — 从 Profile「我的」移除，统一归首页顶部导航 🎈 入口</li>
+                  </ul>
+                  <div><b className="text-paper-ink">🐛 修复</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>AI 总结永远走兜底 — callChatCompletion 写死 json_object 强制返回 JSON → 每次命中错误兜底。加 responseFormat 参数，summarizeDay 用纯文本</li>
+                    <li>总结缓存 key bump v2，清掉之前坏掉的兜底缓存</li>
+                  </ul>
+                  <div><b className="text-paper-ink">🧹 交互改进</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>4 个列表页（标签/纪念日/计划/时间胶囊）空状态统一：顶部常驻说明文字、空状态 py-12 居中布局</li>
+                    <li>顶部导航栏 🏷️ 🎈 🎯 🫧 🗑️ 一键直达，不再 toggle 选中</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* === v0.2.1 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.2.1</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月16日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
