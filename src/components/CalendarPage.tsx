@@ -26,47 +26,63 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [view, setView] = useState<"monthly" | "yearly">("monthly");
   const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
 
-  // 🎠 跑马灯 touch 手势：手指拖时暂停动画，松手继续
+  // 🎠 跑马灯 touch 手势：手指拖时停动画 + 手动跟手，松手继续自动跑
   const marqueeRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const [marqueePaused, setMarqueePaused] = useState(false);
-  const marqueeTouchStartX = useRef(0);
-  const marqueeTouchOffset = useRef(0);
+  const dragStartX = useRef(0);
+  const dragOffset = useRef(0);        // 手动累计偏移
+  const manualTransform = useRef(0);  // 上一次动画位置（用 animation-delay 算）
+
   const handleMarqueeTouchStart = (e: React.TouchEvent) => {
-    marqueeTouchStartX.current = e.touches[0].clientX;
-    marqueeTouchOffset.current = 0;
+    dragStartX.current = e.touches[0].clientX;
+    dragOffset.current = 0;
+    // 停动画：把当前 animation 的实际位置"冻结"成 inline style
+    const track = trackRef.current;
+    if (track) {
+      // 先让浏览器停在当前帧
+      track.style.animationPlayState = "paused";
+      // 读动画当前实际进度，算出 translateX 值
+      const anim = track.getAnimations()[0];
+      if (anim) {
+        const effect = anim.effect as KeyframeEffect;
+        const keyframes = effect.getKeyframes() as Array<{ transform: string }>;
+        // 简单处理：animation 从 translateX(0) 到 translateX(-50%)
+        // 用 currentTime / duration 算进度
+        const totalMs = trackRef.current?.style.animationDuration
+          ? parseFloat(trackRef.current.style.animationDuration) * 1000
+          : 25000;
+        const progress = (anim.currentTime as number) / totalMs;
+        // track 实际宽度的一半就是 -50%
+        const halfWidth = track.scrollWidth / 2;
+        manualTransform.current = -halfWidth * progress;
+      }
+    }
     setMarqueePaused(true);
   };
+
   const handleMarqueeTouchMove = (e: React.TouchEvent) => {
-    if (!marqueeRef.current) return;
-    const dx = e.touches[0].clientX - marqueeTouchStartX.current;
-    marqueeTouchOffset.current = dx;
-    // 把当前 CSS animation 的 translateX 暂停，手动跟手
-    const track = marqueeRef.current.querySelector<HTMLDivElement>(".marquee-track");
-    if (track) {
-      track.style.animationPlayState = "paused";
-      // 读取当前 computed transform 作为起点，加上手势偏移
-      const computed = getComputedStyle(track).transform;
-      if (computed && computed !== "none") {
-        try {
-          const m = new DOMMatrix(computed);
-          track.style.transform = `translateX(${m.m41 + dx}px)`;
-        } catch {
-          track.style.transform = `translateX(${dx}px)`;
-        }
-      }
-      marqueeTouchStartX.current = e.touches[0].clientX;
+    e.preventDefault(); // 防止 iOS 页面滚动抢事件
+    const dx = e.touches[0].clientX - dragStartX.current;
+    dragStartX.current = e.touches[0].clientX;
+    dragOffset.current += dx;
+    if (trackRef.current) {
+      // 完全手动接管 transform
+      trackRef.current.style.animation = "none";
+      trackRef.current.style.transform = `translateX(${manualTransform.current + dragOffset.current}px)`;
     }
   };
+
   const handleMarqueeTouchEnd = () => {
+    // 松手，清掉 inline style，恢复 CSS animation
+    if (trackRef.current) {
+      trackRef.current.style.transform = "";
+      trackRef.current.style.animation = "";
+      trackRef.current.style.animationPlayState = "";
+    }
     setMarqueePaused(false);
-    // 下一次 animation frame 把动画重置回 transform: translateX(0) 继续跑
-    requestAnimationFrame(() => {
-      const track = marqueeRef.current?.querySelector<HTMLDivElement>(".marquee-track");
-      if (track) {
-        track.style.transform = "";
-        track.style.animationPlayState = "";
-      }
-    });
+    dragOffset.current = 0;
+    manualTransform.current = 0;
   };
 
   const cells = useMemo(() => monthCells(year, month), [year, month]);
@@ -127,7 +143,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             onTouchMove={handleMarqueeTouchMove}
             onTouchEnd={handleMarqueeTouchEnd}
           >
-            <div className="flex gap-1.5 marquee-track whitespace-nowrap">
+            <div ref={trackRef} className="flex gap-1.5 marquee-track whitespace-nowrap">
               {/* 第一份 */}
               <button
                 onClick={() => nav("/tags")}
