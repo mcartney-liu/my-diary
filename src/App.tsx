@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Routes, Route, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Routes, Route, Navigate, useParams, useSearchParams } from "react-router-dom";
 import type { Diary, MoodId, DiaryBlock } from "./types";
 import { seedIfEmpty } from "./storage";
 import { upsertDiary as apiUpsert, deleteDiary as apiDelete, listDiaries as apiListDiaries, getToken } from "./api";
@@ -309,7 +309,6 @@ function EditorPageWrapper(props: {
 }) {
   const { id } = useParams();
   const [sp] = useSearchParams();
-  const nav = useNavigate();
   const existing = id ? props.allDiaries.find((d) => d.id === id && !d.deletedAt) : undefined;
   const templateId = sp.get("template") ?? "diary";
 
