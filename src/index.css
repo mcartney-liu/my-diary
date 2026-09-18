@@ -137,3 +137,18 @@ input::placeholder, textarea::placeholder {
 html.fonts-loaded * {
   -webkit-text-stroke: 0.001px transparent;
 }
+
+/* 🎠 顶栏导航跑马灯：图标左右无限循环滑动 */
+@keyframes marquee-nav {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.marquee-track {
+  animation: marquee-nav 25s linear infinite;
+  will-change: transform;
+}
+.marquee-wrapper:hover .marquee-track,
+.marquee-wrapper:active .marquee-track,
+.marquee-paused .marquee-track {
+  animation-play-state: paused;
+}

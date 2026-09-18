@@ -77,49 +77,95 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             </div>
             <span className="text-paper-ink font-semibold text-lg tracking-wide">MyDiary</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => nav("/tags")}
-              title="标签"
-              className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95"
-            >
-              🏷️
-            </button>
-            <button
-              onClick={() => nav("/milestones")}
-              title="纪念日"
-              className="px-2.5 py-1.5 rounded-full border border-rose-200 bg-rose-50 text-sm hover:bg-rose-100 transition active:scale-95"
-            >
-              🎈
-            </button>
-            <button
-              onClick={() => nav("/plans")}
-              title="计划"
-              className="px-2.5 py-1.5 rounded-full border border-blue-200 bg-blue-50 text-sm hover:bg-blue-100 transition active:scale-95"
-            >
-              🎯
-            </button>
-            <button
-              onClick={() => nav("/finance")}
-              title="记账统计"
-              className="px-2.5 py-1.5 rounded-full border border-emerald-200 bg-emerald-50 text-sm hover:bg-emerald-100 transition active:scale-95"
-            >
-              💰
-            </button>
-            <button
-              onClick={() => nav("/capsule")}
-              title="时间胶囊"
-              className="px-2.5 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-sm hover:bg-amber-100 transition active:scale-95"
-            >
-              🫧
-            </button>
-            <button
-              onClick={() => nav("/trash")}
-              title="回收站"
-              className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95"
-            >
-              🗑️
-            </button>
+          <div className="marquee-wrapper overflow-hidden max-w-[58%] md:max-w-none">
+            <div className="flex gap-1.5 marquee-track whitespace-nowrap">
+              {/* 第一份 */}
+              <button
+                onClick={() => nav("/tags")}
+                title="标签"
+                className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95 flex-shrink-0"
+              >
+                🏷️
+              </button>
+              <button
+                onClick={() => nav("/milestones")}
+                title="纪念日"
+                className="px-2.5 py-1.5 rounded-full border border-rose-200 bg-rose-50 text-sm hover:bg-rose-100 transition active:scale-95 flex-shrink-0"
+              >
+                🎈
+              </button>
+              <button
+                onClick={() => nav("/plans")}
+                title="计划"
+                className="px-2.5 py-1.5 rounded-full border border-blue-200 bg-blue-50 text-sm hover:bg-blue-100 transition active:scale-95 flex-shrink-0"
+              >
+                🎯
+              </button>
+              <button
+                onClick={() => nav("/finance")}
+                title="记账统计"
+                className="px-2.5 py-1.5 rounded-full border border-emerald-200 bg-emerald-50 text-sm hover:bg-emerald-100 transition active:scale-95 flex-shrink-0"
+              >
+                💰
+              </button>
+              <button
+                onClick={() => nav("/capsule")}
+                title="时间胶囊"
+                className="px-2.5 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-sm hover:bg-amber-100 transition active:scale-95 flex-shrink-0"
+              >
+                🫧
+              </button>
+              <button
+                onClick={() => nav("/trash")}
+                title="回收站"
+                className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95 flex-shrink-0"
+              >
+                🗑️
+              </button>
+              {/* 第二份（复制一份让动画无缝循环） */}
+              <button
+                onClick={() => nav("/tags")}
+                title="标签"
+                className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95 flex-shrink-0"
+              >
+                🏷️
+              </button>
+              <button
+                onClick={() => nav("/milestones")}
+                title="纪念日"
+                className="px-2.5 py-1.5 rounded-full border border-rose-200 bg-rose-50 text-sm hover:bg-rose-100 transition active:scale-95 flex-shrink-0"
+              >
+                🎈
+              </button>
+              <button
+                onClick={() => nav("/plans")}
+                title="计划"
+                className="px-2.5 py-1.5 rounded-full border border-blue-200 bg-blue-50 text-sm hover:bg-blue-100 transition active:scale-95 flex-shrink-0"
+              >
+                🎯
+              </button>
+              <button
+                onClick={() => nav("/finance")}
+                title="记账统计"
+                className="px-2.5 py-1.5 rounded-full border border-emerald-200 bg-emerald-50 text-sm hover:bg-emerald-100 transition active:scale-95 flex-shrink-0"
+              >
+                💰
+              </button>
+              <button
+                onClick={() => nav("/capsule")}
+                title="时间胶囊"
+                className="px-2.5 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-sm hover:bg-amber-100 transition active:scale-95 flex-shrink-0"
+              >
+                🫧
+              </button>
+              <button
+                onClick={() => nav("/trash")}
+                title="回收站"
+                className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95 flex-shrink-0"
+              >
+                🗑️
+              </button>
+            </div>
           </div>
         </div>
       </header>
