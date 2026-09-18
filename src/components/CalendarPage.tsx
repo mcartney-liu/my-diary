@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { monthCells, moodById, fmtDate } from "../data";
@@ -25,6 +25,49 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [selectedDate, setSelectedDate] = useState<string>(() => fmtDate(now));
   const [view, setView] = useState<"monthly" | "yearly">("monthly");
   const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
+
+  // 🎠 跑马灯 touch 手势：手指拖时暂停动画，松手继续
+  const marqueeRef = useRef<HTMLDivElement>(null);
+  const [marqueePaused, setMarqueePaused] = useState(false);
+  const marqueeTouchStartX = useRef(0);
+  const marqueeTouchOffset = useRef(0);
+  const handleMarqueeTouchStart = (e: React.TouchEvent) => {
+    marqueeTouchStartX.current = e.touches[0].clientX;
+    marqueeTouchOffset.current = 0;
+    setMarqueePaused(true);
+  };
+  const handleMarqueeTouchMove = (e: React.TouchEvent) => {
+    if (!marqueeRef.current) return;
+    const dx = e.touches[0].clientX - marqueeTouchStartX.current;
+    marqueeTouchOffset.current = dx;
+    // 把当前 CSS animation 的 translateX 暂停，手动跟手
+    const track = marqueeRef.current.querySelector<HTMLDivElement>(".marquee-track");
+    if (track) {
+      track.style.animationPlayState = "paused";
+      // 读取当前 computed transform 作为起点，加上手势偏移
+      const computed = getComputedStyle(track).transform;
+      if (computed && computed !== "none") {
+        try {
+          const m = new DOMMatrix(computed);
+          track.style.transform = `translateX(${m.m41 + dx}px)`;
+        } catch {
+          track.style.transform = `translateX(${dx}px)`;
+        }
+      }
+      marqueeTouchStartX.current = e.touches[0].clientX;
+    }
+  };
+  const handleMarqueeTouchEnd = () => {
+    setMarqueePaused(false);
+    // 下一次 animation frame 把动画重置回 transform: translateX(0) 继续跑
+    requestAnimationFrame(() => {
+      const track = marqueeRef.current?.querySelector<HTMLDivElement>(".marquee-track");
+      if (track) {
+        track.style.transform = "";
+        track.style.animationPlayState = "";
+      }
+    });
+  };
 
   const cells = useMemo(() => monthCells(year, month), [year, month]);
 
@@ -77,7 +120,13 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             </div>
             <span className="text-paper-ink font-semibold text-lg tracking-wide">MyDiary</span>
           </div>
-          <div className="marquee-wrapper overflow-hidden max-w-[58%] md:max-w-none">
+          <div
+            ref={marqueeRef}
+            className={`marquee-wrapper overflow-hidden max-w-[58%] md:max-w-none select-none ${marqueePaused ? "marquee-paused" : ""}`}
+            onTouchStart={handleMarqueeTouchStart}
+            onTouchMove={handleMarqueeTouchMove}
+            onTouchEnd={handleMarqueeTouchEnd}
+          >
             <div className="flex gap-1.5 marquee-track whitespace-nowrap">
               {/* 第一份 */}
               <button
