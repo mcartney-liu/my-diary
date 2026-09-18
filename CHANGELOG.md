@@ -2,34 +2,50 @@
 
 ## v0.3.1 — 2026-09-18
 
+### 🎉 新功能
+
+- **📊 记账统计页面** — 顶栏 📊 入口，独立 FinancePage（全新 294 行组件）
+  - 按周/月汇总：每天收/支总额、结余、收入占比
+  - 柱图可视化：每天一根柱子，收支双色叠加（支出在上收入在下）
+  - 分类占比 TOP5：自动按 category 聚合，找出钱主要花在哪
+  - 新增 `categories.ts`（98 行）：完整分类体系（餐饮/购物/交通/娱乐/居家/工资/红包...），每个分类含 emoji、中文名、默认 direction（支出/收入）
+- **🖼️ 图片 Block 压缩 + 元信息** — ImageBlock 重构，上传时自动压缩到上限，保存原始分辨率/尺寸/mime
+- **📅 日历页新增 📊 导航入口** — CalendarPage 顶栏加了 Finance 路由按钮
+
 ### 🐛 Bug 修复
 
-- **📊 记账柱图方向反了** — FinancePage 柱图 `justify-start` 改成 `justify-end`，新的日期从右边往左边生长（符合时间直觉）；X 轴显示全部日期不再只取偶数天
-- **📊 柱图 X 轴只显示偶数** — 修复 chartWidth 宽度计算，现在所有日期都能看到
-- **📈 每日一句话总结不到真实内容** — summarizeDay 之前只看 text block，记账模板全是 finance_item 没有 text，导致 AI 每次都兜底；现在加上 finance_item 收支流水提取
-- **📖 历史抽屉 0 条** — 后端按登录 uid 过滤 daily_summaries，手工塞数据用错了 uid；前端同时忽略后端 save 返回的最终 id（`{ id: diaryId }`），导致 title 语义合并后前端本地还是旧 uid → 初始化合并时 id 不同无法去重
+- **📊 记账柱图方向反了** — justify-start → justify-end，日期从右往左生长（符合时间直觉）；X 轴不再只显示偶数天
+- **📊 柱图 X 轴宽度不够** — 修 chartWidth 计算，所有日期标签都能显示出来
+- **📈 每日一句话总结不到真实内容** — summarizeDay 之前只看 text block，记账模板全是 finance_item 没有文字 → AI 每次都兜底；现在加上 finance_item 收支流水提取（收入总计、支出总计、TOP3 category）
+- **📖 历史抽屉 0 条** — 后端按登录 uid 过滤 daily_summaries；之前手工塞数据用错了 uid 导致查不到
 
 ### 🛡️ 架构加固：三道防线彻底终结重复日记
 
 之前重复日记的根因链：前端新建任何模板都 `uid()` 生成新 id → 后端按 id 查 → 查不到 → INSERT 新行（migration 0005 已删唯一约束）→ 每次保存一篇等于一次 INSERT。**三道防线堵死链路**：
 
 1. **后端写时** — `date + template_id + title` 相同（finance/milestone/plan 模板）→ 按语义键 UPDATE 不 INSERT
-2. **前端 save 后** — 处理后端返回的最终 id，如果后端用了不同 id → 把本地旧 id 纠正成新 id
+2. **前端 save 后** — 处理后端返回的最终 id（之前 `.catch(()=>{})` 完全忽略返回值），如果后端用了不同 id → 把本地旧 uid 纠正成新 id
 3. **前端 init 合并时** — `dedupeDiaries` 加第二层 title 语义去重（只对 finance/milestone/plan 模板），localStorage 旧 uid + 云端同标题新 uid → 合并到 updatedAt 最新的那条
 
 ### 🛡️ 编辑器空模板拦截
 
-新建 finance 模板后改了标题没填收支就保存 → 默认标题 + 所有 finance_item 全是 0 值 → 弹窗拦住"至少记一笔再保存"，不让垃圾数据进 D1
+新建 finance 模板改了标题但没填收支就保存 → 默认标题 + 所有 finance_item 全是 0 值 → 弹窗拦住"至少记一笔再保存"，垃圾数据不进 D1
 
 ### 📦 本次改动文件
 
 | 文件 | 改动 |
 |------|------|
+| src/components/FinancePage.tsx | **全新** — 记账统计独立页面（294 行） |
+| src/categories.ts | **全新** — 收支分类体系（98 行） |
+| workers/migrations/0008_diaries_add_cols.sql | 新增 migration |
 | workers/src/index.js | handleSaveDiary 加 title 语义合并（date+template+title → UPDATE） |
-| src/App.tsx | dedupeDiaries 加双层去重（id + title 语义）；handleUpsert 处理后端返回 id 纠正本地 state |
-| src/components/FinancePage.tsx | 柱图 justify-end + X 轴全日期显示 |
-| src/ai.ts | summarizeDay 加 finance_item 流水提取 |
+| src/App.tsx | dedupeDiaries 双层去重 + handleUpsert 处理后端返回 id 纠正本地 state |
+| src/components/CalendarPage.tsx | 顶栏加 📊 Finance 路由入口 |
+| src/components/ImageBlock.tsx | 压缩 + 元信息 |
 | src/components/EditorPage.tsx | 保存前空模板拦截 |
+| src/components/ProfilePage.tsx | changelog 弹窗加 v0.3.1 |
+| src/api.ts | DailySummary 类型 |
+| src/ai.ts | summarizeDay 加 finance_item 流水提取 |
 | CHANGELOG.md | v0.3.1 版本记录 |
 | package.json / vite.config.ts | 版本 0.3.0 → 0.3.1 |
 

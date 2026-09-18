@@ -526,21 +526,27 @@ export default function ProfilePage() {
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">🎉 新功能</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>📊 <b>记账统计页面</b> — 顶栏 📊 入口，周/月汇总 + 收支柱图 + 分类 TOP5；全新 categories.ts 完整收支分类体系</li>
+                    <li>🖼️ <b>图片 Block 压缩 + 元信息</b> — 上传自动压缩，存原始分辨率/mime</li>
+                    <li>📅 <b>日历顶栏新增 📊 入口</b> — 一键跳到记账统计页</li>
+                  </ul>
                   <div><b className="text-paper-ink">🐛 Bug 修复</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>📊 <b>记账柱图方向 + X 轴修复</b> — justify-start → justify-end，日期从右往左生长更符合直觉；X 轴不再只显示偶数，所有日期都能看到</li>
-                    <li>📈 <b>每日一句话总结不到真实内容</b> — summarizeDay 之前只看文字块，记账模板全是 finance_item 没有文字 → AI 每次都兜底；现在加上收支流水提取</li>
-                    <li>📖 <b>历史抽屉 0 条</b> — 后端按登录 uid 过滤 daily_summaries；之前手工塞数据用错了 uid 导致查不到</li>
+                    <li>📊 <b>柱图方向 + X 轴</b> — justify-start → justify-end；X 轴不再只显示偶数天</li>
+                    <li>📈 <b>每日一句话</b> — summarizeDay 之前只看文字块，记账模板全是 finance_item → 每次都兜底；现在加上收支流水提取</li>
+                    <li>📖 <b>历史抽屉 0 条</b> — 后端按登录 uid 过滤 daily_summaries；之前手工塞数据用错 uid</li>
                   </ul>
                   <div><b className="text-paper-ink">🛡️ 三道防线终结重复日记</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>后端：同日期+同模板+同标题（finance/milestone/plan）→ 按语义键 UPDATE 不 INSERT</li>
-                    <li>前端 save 后：处理后端返回的最终 id，把本地旧 uid 纠正成新 id</li>
-                    <li>前端 init 合并时：dedupeDiaries 加第二层 title 语义去重，localStorage 旧 uid + 云端同标题新 uid → 合并到最新的</li>
+                    <li>后端：同日期+同模板+同标题 → 语义键 UPDATE 不 INSERT</li>
+                    <li>前端 save 后：处理后端返回的最终 id 纠正本地 state</li>
+                    <li>前端 init 合并：dedupeDiaries 加第二层 title 语义去重</li>
                   </ul>
                   <div><b className="text-paper-ink">🛡️ 编辑器空模板拦截</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>新建 finance 模板改了标题但没填收支就保存 → 拦住"至少记一笔再保存"，垃圾数据不进 D1</li>
+                    <li>新建 finance 模板改了标题但没填收支就保存 → 拦住</li>
                   </ul>
                 </div>
               </div>
