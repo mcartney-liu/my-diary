@@ -143,6 +143,31 @@ html.fonts-loaded * {
   0%   { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }
+.marquee-wrapper {
+  /* 左右渐隐消散：边缘 24px 从透明渐变到不透明 */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    rgba(0,0,0,0.3) 8px,
+    rgba(0,0,0,0.85) 16px,
+    #000 24px,
+    #000 calc(100% - 24px),
+    rgba(0,0,0,0.85) calc(100% - 16px),
+    rgba(0,0,0,0.3) calc(100% - 8px),
+    transparent 100%
+  );
+          mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    rgba(0,0,0,0.3) 8px,
+    rgba(0,0,0,0.85) 16px,
+    #000 24px,
+    #000 calc(100% - 24px),
+    rgba(0,0,0,0.85) calc(100% - 16px),
+    rgba(0,0,0,0.3) calc(100% - 8px),
+    transparent 100%
+  );
+}
 .marquee-track {
   animation: marquee-nav 25s linear infinite;
   will-change: transform;

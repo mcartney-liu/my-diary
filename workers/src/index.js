@@ -218,8 +218,10 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
     //    - 其它模板 → 查同 user_id + date
     // 说明：migration 0005 已经去掉了 diaries 表的 UNIQUE(user_id, date) 约束，
     // 所以 finance/milestone/plan 允许多篇/天，但"同标题同日期"应该合并。
-    let existing = null;
-    const multiPerDay = tplId === "milestone" || tplId === "plan" || tplId === "finance";
+    // time_capsule 特殊处理：按 capsule_unlock_at（解锁日期）作为语义唯一键
+    const isCapsule = tplId === "time_capsule";
+    // milestone/plan/finance → 同日期+同模板+同标题合并；time_capsule → 同日期+同解锁日合并；其它 → 同 user+date 合并
+    const multiPerDay = isCapsule || tplId === "milestone" || tplId === "plan" || tplId === "finance";
 
     // 分支 1：按 id 查（编辑）
     if (id) {
@@ -230,7 +232,12 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
     // 🔑 关键：不管前端有没有传新 uid，同 title + 同 date + 同 template → UPDATE
     if (!existing) {
       const normalizedTitle = (title || "").trim();
-      if (multiPerDay && normalizedTitle) {
+      if (isCapsule && capsule_unlock_at) {
+        // time_capsule：同 user + 同 date + 同解锁日期 → UPDATE；不同解锁日期 → INSERT 新胶囊
+        existing = await env.DB.prepare(
+          "SELECT id FROM diaries WHERE user_id = ? AND date = ? AND template_id = ? AND capsule_unlock_at = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1"
+        ).bind(user.uid, date, tplId, capsule_unlock_at).first();
+      } else if (multiPerDay && normalizedTitle) {
         // finance/milestone/plan：同日期 + 同模板 + 同标题 → UPDATE
         existing = await env.DB.prepare(
           "SELECT id FROM diaries WHERE user_id = ? AND date = ? AND template_id = ? AND title = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1"
@@ -241,7 +248,7 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
           "SELECT id FROM diaries WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1"
         ).bind(user.uid, date).first();
       }
-      // finance/milestone/plan 且 title 空 → 确实是新的一篇 → 不设 existing，走 INSERT
+      // multiPerDay 且 title/capsule_unlock_at 空 → 确实是新的一篇 → 不设 existing，走 INSERT
     }
 
     let diaryId = existing?.id;
