@@ -13,12 +13,16 @@
   - 手机触屏也能用，拖的时候会显示实时百分比
 - **🖼️ 图片上传自动压缩** — 传大图也不怕吃配额
 - **📅 日历顶栏加了 📊 入口** — 一键跳到记账统计页
+- **🎠 顶栏导航跑马灯** — 手机端图标多了挤不下，自动左右循环滑（像跑马灯一样）
+  - 手指按住能停住，拖一下能手动滑动
+  - 松手后继续自动循环，始终在顶栏那条区域里
 
 ### 🐛 Bug 修复
 
 - **📊 柱图方向反了 + 日期显示不全** — 之前柱子从左往右长不符合直觉；日期轴还只显示偶数天，日期多了看不全；都改了
 - **📈 每日一句话总说"今天没什么特别的"** — 之前只看文字内容，记账模板全是流水没有文字，AI 每次都兜底；现在能识别收支流水了
 - **📖 历史抽屉显示 0 条** — 后端过滤条件问题，修了
+- **🔙 从列表页点进日记，返回键跳回首页** — 之前硬编码跳首页，现在回到上一页（不管是记账统计、纪念日还是计划）
 
 ### 🔧 交互改进
 
@@ -39,12 +43,13 @@
 | src/components/FinancePage.tsx | 全新 — 记账统计独立页面 |
 | src/categories.ts | 全新 — 收支分类体系 |
 | src/components/ImageBlock.tsx | 图片拖放调大小 + 自动压缩 |
-| src/App.tsx | 重复日记去重 + 后端返回标识纠正 |
+| src/App.tsx | 重复日记去重 + 返回键回上一页 |
 | src/components/EditorPage.tsx | 空模板拦截 |
-| src/components/CalendarPage.tsx | 顶栏加 📊 入口 |
+| src/components/CalendarPage.tsx | 顶栏 📊 入口 + 跑马灯 |
 | src/components/ProfilePage.tsx | 版本更新记录弹窗 |
 | src/ai.ts | 每日一句话识别收支流水 |
 | src/api.ts | 每日总结接口 |
+| src/index.css | 跑马灯 keyframes |
 | workers/src/index.js | 后端同标题自动合并更新 |
 | workers/migrations/0008_diaries_add_cols.sql | 新增数据库迁移 |
 | CHANGELOG.md | v0.3.1 版本记录 |
