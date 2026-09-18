@@ -26,53 +26,102 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [view, setView] = useState<"monthly" | "yearly">("monthly");
   const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
 
-  // 🎠 跑马灯 touch 手势：手指拖时停动画 + 手动跟手，松手继续自动跑
+  // 🎠 跑马灯 touch 手势：手指拖时停动画 + 手动跟手，松手继续自动跑（接回当前位置）
   const marqueeRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const [marqueePaused, setMarqueePaused] = useState(false);
   const dragStartX = useRef(0);
-  const dragOffset = useRef(0);        // 手动累计偏移
-  const manualTransform = useRef(0);  // 上一次动画位置（用 animation-delay 算）
+  const dragOffset = useRef(0);        // 本轮手势累计偏移
+  const baseOffset = useRef(0);        // touchstart 时的"冻结位置"
+  const autoOffset = useRef(0);        // 松手后自动循环的当前位置（JS 驱动）
+  const lastFrameTime = useRef(0);
+  const rafId = useRef<number | null>(null);
+
+  // 自动循环速度：25s 一轮，换算成 px/ms
+  const AUTO_SPEED = useMemo(() => {
+    if (typeof window === "undefined") return 0;
+    const track = trackRef.current;
+    const half = track ? track.scrollWidth / 2 : 150;
+    return half / 25000; // px per ms
+  }, []);
+
+  const stopAutoLoop = () => {
+    if (rafId.current !== null) {
+      cancelAnimationFrame(rafId.current);
+      rafId.current = null;
+    }
+  };
+
+  const startAutoLoopFromCurrent = () => {
+    // 从当前 transform 位置开始，用 JS rAF 驱动（不再用 CSS keyframes，避免重置到 0 弹回）
+    stopAutoLoop();
+    const track = trackRef.current;
+    if (!track) return;
+    track.style.animation = "none"; // 关掉 CSS animation，完全手动
+    lastFrameTime.current = performance.now();
+
+    const tick = (now: number) => {
+      const dt = now - lastFrameTime.current;
+      lastFrameTime.current = now;
+      // 左移 = 负方向，速度 * dt
+      autoOffset.current -= AUTO_SPEED * dt;
+      // 循环：滑到 -halfWidth 时重置到 0
+      const half = track.scrollWidth / 2;
+      if (autoOffset.current <= -half) autoOffset.current += half;
+      track.style.transform = `translateX(${autoOffset.current}px)`;
+      rafId.current = requestAnimationFrame(tick);
+    };
+    rafId.current = requestAnimationFrame(tick);
+  };
 
   const handleMarqueeTouchStart = (e: React.TouchEvent) => {
+    stopAutoLoop();
     dragStartX.current = e.touches[0].clientX;
     dragOffset.current = 0;
     const track = trackRef.current;
     if (track) {
-      track.style.animationPlayState = "paused";
+      // 冻结当前位置——不管是 CSS animation 还是 JS rAF 驱动的
       const anim = track.getAnimations()[0];
       if (anim) {
-        const totalMs = 25000; // 和 CSS keyframes 时长一致
+        // CSS animation 还在跑：读进度算当前 translate
+        const totalMs = 25000;
         const progress = Math.min(1, Math.max(0, (anim.currentTime as number) / totalMs));
-        const halfWidth = track.scrollWidth / 2;
-        manualTransform.current = -halfWidth * progress;
+        const half = track.scrollWidth / 2;
+        baseOffset.current = -half * progress;
+        track.style.animationPlayState = "paused";
+      } else if (autoOffset.current !== 0 || track.style.transform) {
+        // JS rAF 驱动中：用 autoOffset
+        baseOffset.current = autoOffset.current;
       }
     }
     setMarqueePaused(true);
   };
 
   const handleMarqueeTouchMove = (e: React.TouchEvent) => {
-    e.preventDefault(); // 防止 iOS 页面滚动抢事件
+    e.preventDefault();
     const dx = e.touches[0].clientX - dragStartX.current;
     dragStartX.current = e.touches[0].clientX;
     dragOffset.current += dx;
     if (trackRef.current) {
-      // 完全手动接管 transform
       trackRef.current.style.animation = "none";
-      trackRef.current.style.transform = `translateX(${manualTransform.current + dragOffset.current}px)`;
+      trackRef.current.style.transform = `translateX(${baseOffset.current + dragOffset.current}px)`;
     }
   };
 
   const handleMarqueeTouchEnd = () => {
-    // 松手，清掉 inline style，恢复 CSS animation
     if (trackRef.current) {
+      // 把当前手动拖动的最终位置保存为 autoOffset 起点
+      autoOffset.current = baseOffset.current + dragOffset.current;
+      // 清掉 inline transform（startAutoLoopFromCurrent 会重新写）
       trackRef.current.style.transform = "";
       trackRef.current.style.animation = "";
       trackRef.current.style.animationPlayState = "";
     }
-    setMarqueePaused(false);
     dragOffset.current = 0;
-    manualTransform.current = 0;
+    baseOffset.current = 0;
+    setMarqueePaused(false);
+    // 从当前用户松手的位置接回自动循环
+    startAutoLoopFromCurrent();
   };
 
   const cells = useMemo(() => monthCells(year, month), [year, month]);
