@@ -487,11 +487,10 @@ async function handleSaveTemplate(request, env, JWT_SECRET) {
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
-  const { name, icon = "📋", description = "", blocks = [], default_title = "", default_tags = [], wallpaper = "", show_lines = 1, default_mood_id = "" } = body;
+  const { name, icon = "📋", description = "", blocks = [], default_title = "", default_tags = [], wallpaper = "", show_lines = 1, default_mood_id = "", keywords = "" } = body;
   if (!name || !name.trim()) return json({ error: "name required" }, 400);
   if (!blocks.length) return json({ error: "blocks required" }, 400);
 
-  // 拿 author_name
   const u = await env.DB.prepare("SELECT nickname FROM users WHERE id = ?").bind(user.uid).first();
   const now = Date.now();
   const id = uuid();
@@ -499,7 +498,7 @@ async function handleSaveTemplate(request, env, JWT_SECRET) {
   await env.DB.prepare(
     `INSERT INTO templates (id, user_id, name, icon, description, keywords, blocks, default_title, default_tags, wallpaper, show_lines, default_mood_id, is_public, author_name, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
-  ).bind(id, user.uid, name.trim(), icon, description, "",
+  ).bind(id, user.uid, name.trim(), icon, description, keywords,
      JSON.stringify(blocks), default_title, JSON.stringify(default_tags),
      wallpaper, show_lines ? 1 : 0, default_mood_id,
      u?.nickname || user.uid.slice(0, 8), now, now).run();
