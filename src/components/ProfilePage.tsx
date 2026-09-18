@@ -528,25 +528,26 @@ export default function ProfilePage() {
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>📊 <b>记账统计页面</b> — 顶栏 📊 入口，周/月汇总 + 收支柱图 + 分类 TOP5；全新 categories.ts 完整收支分类体系</li>
-                    <li>🖼️ <b>图片 Block 压缩 + 元信息</b> — 上传自动压缩，存原始分辨率/mime</li>
-                    <li>📅 <b>日历顶栏新增 📊 入口</b> — 一键跳到记账统计页</li>
+                    <li>📊 <b>记账统计页面</b> — 顶栏多了 📊 入口，点进去能看周/月汇总，每天收支柱图一目了然，分类 TOP5 自动找出钱花在哪</li>
+                    <li>🖼️ <b>图片能拖放调大小了</b> — 写日记时图片右下角有小圆点（hover 才出现），拖一下就能缩小放大（25%-150%），手机触屏也能用</li>
+                    <li>🖼️ <b>图片上传自动压缩</b> — 传大图也不怕吃配额</li>
+                    <li>📅 <b>日历顶栏加了 📊 入口</b> — 一键跳到记账统计页</li>
                   </ul>
                   <div><b className="text-paper-ink">🐛 Bug 修复</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>📊 <b>柱图方向 + X 轴</b> — justify-start → justify-end；X 轴不再只显示偶数天</li>
-                    <li>📈 <b>每日一句话</b> — summarizeDay 之前只看文字块，记账模板全是 finance_item → 每次都兜底；现在加上收支流水提取</li>
-                    <li>📖 <b>历史抽屉 0 条</b> — 后端按登录 uid 过滤 daily_summaries；之前手工塞数据用错 uid</li>
+                    <li>📊 <b>柱图方向反了 + 日期显示不全</b> — 之前柱子从左往右长不符合直觉；X 轴只显示偶数天；都改了</li>
+                    <li>📈 <b>每日一句话总说"今天没什么特别的"</b> — 之前只看文字内容，记账模板全是流水没有文字，AI 每次都兜底；现在能识别收支流水了</li>
+                    <li>📖 <b>历史抽屉显示 0 条</b> — 后端过滤条件问题，修了</li>
                   </ul>
-                  <div><b className="text-paper-ink">🛡️ 三道防线终结重复日记</b></div>
+                  <div><b className="text-paper-ink">🧹 交互改进</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>后端：同日期+同模板+同标题 → 语义键 UPDATE 不 INSERT</li>
-                    <li>前端 save 后：处理后端返回的最终 id 纠正本地 state</li>
-                    <li>前端 init 合并：dedupeDiaries 加第二层 title 语义去重</li>
+                    <li>🛡️ 新建空记账模板会拦住你 — 改了标题但没填任何收支就点保存 → 弹窗提示"至少记一笔再保存"</li>
                   </ul>
-                  <div><b className="text-paper-ink">🛡️ 编辑器空模板拦截</b></div>
+                  <div><b className="text-paper-ink">🛡️ 重复日记彻底解决</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>新建 finance 模板改了标题但没填收支就保存 → 拦住</li>
+                    <li>后端：同日期 + 同模板 + 同标题 → 直接更新旧的，不新建</li>
+                    <li>前端：收到后端返回的最终 id，自动把本地纠正过来</li>
+                    <li>启动时：localStorage 和云端合并 → 只留最新那条</li>
                   </ul>
                 </div>
               </div>
