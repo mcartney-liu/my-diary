@@ -138,7 +138,7 @@ export default function StreakBadge({ diaries }: Props) {
             <p className="text-[12px] text-paper-ink3 leading-relaxed">
               <span className="text-paper-ink/60">✨ 这里会出现什么？</span>
               <br />
-              写日记后，AI 会帮你提炼一句话——昨天、今天各一条，点「📖 历史」看全部
+              写日记后，我们会帮你提炼一句话——昨天、今天各一条，点「📖 历史」看全部
             </p>
           </div>
         ) : (
@@ -182,7 +182,7 @@ export default function StreakBadge({ diaries }: Props) {
             <div className="flex items-center justify-between px-5 py-4 border-b border-paper-line">
               <div className="flex items-center gap-2">
                 <span className="text-xl">📖</span>
-                <h3 className="font-semibold text-paper-ink">每日 AI 总结</h3>
+                <h3 className="font-semibold text-paper-ink">每日一句话</h3>
                 <span className="text-xs text-paper-ink3">· {history.length} 条</span>
               </div>
               <button
@@ -204,7 +204,7 @@ export default function StreakBadge({ diaries }: Props) {
                   <div className="text-4xl mb-2">📖</div>
                   <p className="text-sm text-paper-ink2">还没有历史总结</p>
                   <p className="text-xs text-paper-ink3 mt-1">
-                    AI 总结从今天开始自动保存，明天就能看到啦
+                    从今天开始自动保存，明天就能看到啦
                   </p>
                 </div>
               )}

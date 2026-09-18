@@ -100,6 +100,13 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
               🎯
             </button>
             <button
+              onClick={() => nav("/finance")}
+              title="记账统计"
+              className="px-2.5 py-1.5 rounded-full border border-emerald-200 bg-emerald-50 text-sm hover:bg-emerald-100 transition active:scale-95"
+            >
+              💰
+            </button>
+            <button
               onClick={() => nav("/capsule")}
               title="时间胶囊"
               className="px-2.5 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-sm hover:bg-amber-100 transition active:scale-95"

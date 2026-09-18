@@ -12,6 +12,7 @@ import TagsPage from "./components/TagsPage";
 import CapsulePage from "./components/CapsulePage";
 import MilestonesPage from "./components/MilestonesPage";
 import PlanPage from "./components/PlanPage";
+import FinancePage from "./components/FinancePage";
 import ProfilePage from "./components/ProfilePage";
 
 // 后台写入 localStorage（不阻塞主线程）
@@ -53,14 +54,40 @@ function upsertLocal(list: Diary[], d: Diary): Diary[] {
 }
 
 // 历史 bug 修复：之前每次保存生成新 uid 导致同一篇日记被复制多份
-// 只按 id 去重（同 id 多份 → 留最新 updatedAt 的那条）
+// 两层去重：
+// 1. 先按 id 去重（同 id 多份 → 留最新 updatedAt）
+// 2. 再按 "date + templateId + title" 去重（同内容不同 id → 留最新）
+//    只对 finance/milestone/plan 模板启用（这些模板一天可多篇，但同标题=同内容）
 function dedupeDiaries(list: Diary[]): Diary[] {
+  // 第一层：按 id 去重
   const byId = new Map<string, Diary>();
   for (const d of list) {
     const existing = byId.get(d.id);
     if (!existing || d.updatedAt > existing.updatedAt) byId.set(d.id, d);
   }
-  return Array.from(byId.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+
+  // 第二层：按语义键去重（同标题同日期同模板 → 合并）
+  const financeLikeTemplates = new Set(["finance", "milestone", "plan"]);
+  const finalList = Array.from(byId.values());
+  const seenTitle = new Map<string, Diary>();
+  const result: Diary[] = [];
+  for (const d of finalList) {
+    const tpl = d.templateId || "diary";
+    if (!financeLikeTemplates.has(tpl)) {
+      // 普通模板：直接保留
+      result.push(d);
+    } else {
+      // finance/milestone/plan：同日期+同模板+同标题 → 留最新
+      const key = `${d.date}:${tpl}:${(d.title || "").trim()}`;
+      const existing = seenTitle.get(key);
+      if (!existing || d.updatedAt > existing.updatedAt) {
+        seenTitle.set(key, d);
+      }
+    }
+  }
+  result.push(...seenTitle.values());
+
+  return result.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export default function App() {
@@ -108,6 +135,11 @@ export default function App() {
                 blocks: Array.isArray(d.blocks) ? d.blocks : [],
                 createdAt: d.created_at,
                 updatedAt: d.updated_at,
+                // 🔑 新增 4 个之前只在 localStorage 存的字段
+                deletedAt: d.deleted_at ?? undefined,
+                capsuleUnlockAt: d.capsule_unlock_at ?? undefined,
+                wallpaper: d.wallpaper ?? undefined,
+                showLines: d.show_lines ?? 1,
               }));
               const merged = dedupeDiaries([...cleaned, ...mapped]);
               setAllDiaries(merged);
@@ -134,7 +166,20 @@ export default function App() {
       saveLocal(next);
       return next;
     });
-    apiUpsert(d).catch(() => { /* offline */ });
+    // 🔑 处理后端返回的最终 id — 后端可能按 title 语义合并到了另一条
+    apiUpsert(d).then(r => {
+      if (r.id && r.id !== d.id) {
+        // 后端用了不同的 id（UPDATE existing 而非 INSERT 新的）
+        // → 本地 state 要把旧 id 删掉，换上后端返回的新 id
+        setAllDiaries(prev => {
+          const cleaned = prev.filter(x => x.id !== d.id);        // 删前端生成的旧 id
+          const corrected = { ...d, id: r.id };                   // 改成后端的最终 id
+          const next = upsertLocal(cleaned, corrected);
+          saveLocal(next);
+          return next;
+        });
+      }
+    }).catch(() => { /* offline */ });
   };
 
   // 软删（加 deletedAt 时间戳，不立刻从列表消失）
@@ -240,6 +285,7 @@ export default function App() {
         <Route path="/capsule" element={<CapsulePage diaries={diaries} />} />
         <Route path="/milestones" element={<MilestonesPage />} />
         <Route path="/plans" element={<PlanPage />} />
+<Route path="/finance" element={<FinancePage diaries={diaries} />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route
           path="/editor"

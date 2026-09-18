@@ -14,6 +14,7 @@
 import type { DiaryBlock, MoodId } from "./types";
 import { uid } from "./types";
 import { saveSummary } from "./api";
+import { FINANCE_CATEGORIES } from "./categories";
 
 // ============================================================
 // Provider 层 — 抽象大模型 API 差异
@@ -1052,6 +1053,14 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
     /^（可选）/,
   ];
 
+  // finance_item 分类 key → 中文名（用于把流水转成可读文本）
+  const catNameFor = (dir: string, key: string | undefined | null): string => {
+    const meta = FINANCE_CATEGORIES.find(
+      (c) => c.key === key && c.direction === dir
+    );
+    return meta?.name || key || (dir === "income" ? "收入" : "支出");
+  };
+
   const parts = dayDiaries.map(d => {
     const title = (d.title || '').trim();
     // 跳过模板默认标题（带 emoji 前缀的默认模板标题）
@@ -1059,8 +1068,21 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
     const isDefaultTitle = DEFAULT_TITLES.some(t => title.includes(t)) || (title.length < 12 && startsWithEmoji);
 
     let body = '';
+    let financeBody = '';  // 🆕 专门收集 finance_item 流水描述
     if (Array.isArray(d.blocks)) {
       for (const b of d.blocks) {
+        // 🔑 finance_item：把每笔流水转成可读文本（即使正文都是模板默认值也能出内容）
+        if (b.kind === 'finance_item' && b.value) {
+          const dir = (b.direction || 'expense') as 'expense' | 'income';
+          const catKey = b.category || '';
+          const catName = catNameFor(dir, catKey);
+          const sign = dir === 'income' ? '+' : '-';
+          const note = (b.content || '').trim();
+          const line = `${sign}${b.value} ${catName}${note ? ' ' + note : ''}`;
+          financeBody += line + ' ';
+          if (financeBody.length > 120) break;
+          continue;
+        }
         // 跳过不适合做文本摘要的 block 类型
         if (b.kind === 'heading' || b.kind === 'image' || b.kind === 'audio' || b.kind === 'divider') continue;
         // 跳过纯模板式 text 内容（太短的、像占位符的、模板 checklist 里的默认文字）
@@ -1077,10 +1099,11 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
         }
       }
     }
-    // 组合：用有效 title + body
+    // 组合：用有效 title + body + financeBody
     const pieces = [];
     if (title && !isDefaultTitle) pieces.push(title);
     if (body.trim()) pieces.push(body.trim());
+    if (financeBody.trim()) pieces.push(financeBody.trim());  // 🆕 流水摘要也算内容
     return pieces.join(' ');
   }).filter(t => t && t.length > 4).slice(0, 3);
 

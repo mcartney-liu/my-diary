@@ -12,7 +12,7 @@ import ImageBlock from "./ImageBlock";
 import AudioBlock from "./AudioBlock";
 import { PRESET_PAPERS, matchPreset } from "../presetPapers";
 import { TEMPLATES, templateById } from "../templates";
-import { categoriesByDir,  } from "../categories";
+import { categoriesByDir, resolveCategory } from "../categories";
 import GridSnap from "./GridSnap";
 import ConfirmDialog from "./ConfirmDialog";
 import {
@@ -799,7 +799,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     pendingFocusIdRef.current = null;
   }, [blocks]);
 
-  // 本月汇总（所有已保存的 finance 模板日记）
+  // 本月汇总（所有已保存的 finance 模板日记，且没被软删的）
   const monthSummary = useMemo(() => {
     if (!allDiaries) return null;
     const now = new Date();
@@ -810,12 +810,13 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     let diaryCount = 0;
     for (const d of allDiaries) {
       if (d.templateId !== "finance") continue;
+      if (d.deletedAt) continue;  // 🔑 软删的日记不算
       const y = Number(d.date.slice(0, 4));
       const m = Number(d.date.slice(5, 7)) - 1;
       if (y !== thisYear || m !== thisMonth) continue;
       diaryCount++;
       for (const b of d.blocks) {
-        if (b.kind === "finance_item" && b.value) {
+        if (b.kind === "finance_item" && b.value && !b.deleted) {  // 🔑 软删的 block 也不算
           if (b.direction === "income") income += b.value;
           else expense += b.value;
         }
@@ -1307,7 +1308,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     }
   };
 
-  // 🆕 AI 美化：把转写文字丢给 polishTranscript，结果替换 blocks/title/mood/tags
+  // 🆕 AI 美化：把转写文字丢给 polishTranscript，结果追加到现有 blocks 末尾（不覆盖用户手写内容）
   const [aiPolishing, setAiPolishing] = useState(false);
   const confirmAIPolish = async () => {
     if (!pendingRec) return;
@@ -1316,7 +1317,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     setAiPolishing(true);
     try {
       const polished = await polishTranscript(text, { templateId: templateId ?? "diary" });
-      if (polished.title) setTitle(polished.title);
+      // 🔑 blocks 追加而非替换 — 保用户手写的内容
       if (polished.blocks?.length) {
         const newBlocks: DiaryBlock[] = polished.blocks.map((b) => {
           const base = { id: uid("b"), kind: b.kind, content: b.content ?? "" };
@@ -1326,10 +1327,12 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           if (b.kind === "finance_item") return { ...base, label: b.label, direction: b.direction ?? "expense", category: b.category, value: b.value };
           return base;
         });
-        setBlocks(newBlocks);
+        setBlocks([...blocks, ...newBlocks]);
       }
-      if (polished.mood) setMoodId(polished.mood as MoodId);
-      if (polished.tags?.length) setTags(polished.tags);
+      // 🔑 title/mood/tags 原来没值才设 — 不覆盖用户之前手动选的
+      if (polished.title && !title) setTitle(polished.title);
+      if (polished.mood && !moodId) setMoodId(polished.mood as MoodId);
+      if (polished.tags?.length && !tags?.length) setTags(polished.tags);
       cancelPending();
     } catch (err) {
       console.warn("AI 美化失败:", err);
@@ -1345,6 +1348,41 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
   const handleSave = async () => {
     if (savingRef.current) return; // 防重复
+
+    // 🛡️ 防线 B：空模板拦截 — 阻止"默认标题 + 所有模板字段都没填值"的误保存
+    // 这是重复数据的主要来源：用户点新建 → 改了标题/没改 → 直接点保存 → 新 uid → 后端 INSERT
+    const DEFAULT_TITLES_BLOCK = ["今日日记","旅行日记","今日记账","运动日记","读书笔记","感恩日记","健康日记","计划日记","今日记录"];
+    const tplId = initialTemplateId || initialDiary?.templateId || "diary";
+    const isDefaultTitle = DEFAULT_TITLES_BLOCK.some((t) => (title || "").includes(t)) && (title || "").length < 16;
+
+    if (isDefaultTitle) {
+      if (tplId === "finance") {
+        // finance 模板：检查有没有填 value 的 finance_item
+        const hasFilledFinanceItem = blocks.some(
+          (b) => b.kind === "finance_item" && (b.value ?? 0) > 0
+        );
+        if (!hasFilledFinanceItem) {
+          alert("💰 还没填任何收支哦，至少记一笔再保存吧～");
+          return;
+        }
+      } else if (tplId !== "milestone" && tplId !== "plan") {
+        // 普通模板 + 默认标题 + 没有有效正文 → 拦住
+        const hasRealContent = blocks.some(
+          (b) =>
+            (b.kind === "text" && b.content && b.content.trim().length >= 4) ||
+            b.kind === "image" ||
+            b.kind === "audio" ||
+            (b.kind === "checkbox" && b.checked) ||
+            (b.kind === "finance_item" && (b.value ?? 0) > 0)
+        );
+        if (!hasRealContent) {
+          alert("📝 还没写内容哦，写点什么再保存吧～");
+          return;
+        }
+      }
+      // milestone / plan 模板：允许空标题保存（倒计时本身就是内容）
+    }
+
     const now = Date.now();
     const cleaned = blocks.filter((b) => {
       if (b.deleted) return false;  // 软删除的保存时真删
@@ -1354,6 +1392,17 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       return !!b.content; // image/audio 需要有 dataURL
     });
     const finalBlocks: DiaryBlock[] = cleaned.length ? cleaned : [{ id: uid("b"), kind: "text" as const, content: "" }];
+
+    // 🔑 保存前统一归一化 finance_item 的 category — 关键词兜底 + 历史遗留 key 映射
+    for (let i = 0; i < finalBlocks.length; i++) {
+      const b = finalBlocks[i];
+      if (b.kind !== "finance_item") continue;
+      const dir = (b.direction ?? "expense") as "expense" | "income";
+      const resolved = resolveCategory(b.category, dir, b.content || title);
+      if (resolved !== b.category) {
+        finalBlocks[i] = { ...b, category: resolved };
+      }
+    }
 
     const capsuleUnlockAt = capsuleDays
       ? now + capsuleDays * 24 * 60 * 60 * 1000
@@ -1964,7 +2013,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
               />
             )}
             {b.kind === "image" && (
-              <GridSnap minRows={2}><ImageBlock block={b} onRemove={() => markDeleted(b.id)} /></GridSnap>
+              <GridSnap minRows={2}><ImageBlock block={b} onUpdate={(patch) => updateBlock(b.id, patch)} onRemove={() => markDeleted(b.id)} /></GridSnap>
             )}
             {b.kind === "audio" && (
               <GridSnap minRows={3}><AudioBlock block={b} onRemove={() => markDeleted(b.id)} /></GridSnap>
@@ -2369,7 +2418,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
         <div className="fixed inset-0 z-40 bg-black/30 flex items-center justify-center animate-[fade-in_0.2s] pointer-events-none">
           <div className="bg-paper-card rounded-2xl shadow-2xl px-6 py-5 flex items-center gap-3">
             <Loader2 size={20} className="text-paper-accent animate-spin" />
-            <span className="text-sm text-paper-ink">AI 正在听你说了什么...</span>
+            <span className="text-sm text-paper-ink">正在听你说了什么...</span>
           </div>
         </div>
       )}
@@ -2977,7 +3026,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                 {/* === Section 2: AI 推荐 === */}
                 <section>
                   <h3 className="text-xs font-semibold text-paper-ink2 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <span className="text-paper-accent">✨</span> AI 推荐（附金句）
+                    <span className="text-paper-accent">✨</span> 为你推荐（附金句）
                   </h3>
                   {aiRecommendLoading ? (
                     <div className="space-y-2">
@@ -3044,7 +3093,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                         disabled={!manualBookTitle.trim()}
                         className="flex-1 px-4 py-2.5 rounded-xl bg-paper-accent text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 active:scale-95 transition flex items-center justify-center gap-1"
                       >
-                        <span>✨</span> AI 帮起头
+                        <span>✨</span> 帮你起个头
                       </button>
                     </div>
                   </div>

@@ -30,7 +30,7 @@ export default function VoiceQuickEntry() {
   const timerRef = useRef<number | null>(null);
   const finalTextRef = useRef("");
 
-  // ⭐ 用户自建模板（AI 快记也要能匹配）
+  // ⭐ 用户自建模板（语音快记也要能匹配）
   const [userTemplates, setUserTemplates] = useState<UserTemplate[]>([]);
 
   useEffect(() => {
@@ -98,7 +98,7 @@ export default function VoiceQuickEntry() {
       setResult({ templateId: det.templateId, reason: det.reason, transcript: text });
       setPhase("match");
     } catch (e) {
-      setError((e as Error).message || "AI 分析失败");
+      setError((e as Error).message || "分析失败");
       setPhase("input");
     }
   };
@@ -186,10 +186,10 @@ export default function VoiceQuickEntry() {
       : `${btnBase} bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50`;
 
   const btnLabel = phase === "recording" ? `${fmtTime(elapsed)} · 停止` :
-                   phase === "input" ? "AI 快记" :
-                   phase === "processing" ? "AI 分析中..." :
+                   phase === "input" ? "语音快记" :
+                   phase === "processing" ? "帮你想想..." :
                    phase === "match" ? "查看结果" :
-                   "AI 快记";
+                   "语音快记";
 
   return (
     <>
@@ -199,7 +199,7 @@ export default function VoiceQuickEntry() {
           <div className="w-16 h-16 rounded-full border-4 border-paper-line border-t-paper-accent animate-spin" />
           <div className="mt-4 text-paper-ink font-medium flex items-center gap-2">
             <Bot size={18} className="text-paper-ink animate-pulse" />
-            AI 正在整理你的日记...
+            正在整理你的日记...
           </div>
           <div className="mt-1 text-sm text-slate-500">稍等几秒，马上好</div>
         </div>
@@ -231,7 +231,7 @@ export default function VoiceQuickEntry() {
             {phase === "menu" && (
               <>
                 <div className="flex items-center justify-between">
-                  <div className="font-medium text-paper-ink">AI 快记</div>
+                  <div className="font-medium text-paper-ink">语音快记</div>
                   <button onClick={cancel} className="text-paper-ink2 hover:text-paper-ink text-sm">关闭</button>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -305,7 +305,7 @@ export default function VoiceQuickEntry() {
                   disabled={!typedText.trim()}
                   className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink font-medium hover:bg-paper-line/50 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  ✨ AI 分析这句话
+                  ✨ 帮你分析这句话
                 </button>
               </>
             )}
@@ -315,7 +315,7 @@ export default function VoiceQuickEntry() {
               <div className="flex items-center gap-3 py-4">
                 <Loader2 size={22} className="animate-spin text-paper-ink" />
                 <div>
-                  <div className="font-medium text-paper-ink">AI 正在分析...</div>
+                  <div className="font-medium text-paper-ink">帮你琢磨...</div>
                   <div className="text-xs text-paper-ink2">识别意图 → 匹配模板</div>
                 </div>
               </div>
@@ -326,7 +326,7 @@ export default function VoiceQuickEntry() {
               <>
                 <div className="flex items-center gap-2">
                   <Sparkles size={16} className="text-paper-ink" />
-                  <div className="font-medium text-paper-ink">AI 推荐模板</div>
+                  <div className="font-medium text-paper-ink">为你推荐模板</div>
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="text-4xl">{matchedTemplate.icon}</div>

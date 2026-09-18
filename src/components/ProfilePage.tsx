@@ -137,7 +137,7 @@ export default function ProfilePage() {
       const titleMatch = polished.match(/^标题[:：]\s*(.+)$/m);
       if (titleMatch) setFbTitle(titleMatch[1].trim());
     } catch (e: any) {
-      alert("AI 整理失败: " + (e.message || "试试文字输入吧"));
+      alert("整理失败: " + (e.message || "试试文字输入吧"));
     } finally {
       setFbPolishing(false);
     }
@@ -483,7 +483,7 @@ export default function ProfilePage() {
                         disabled={!fbContent.trim() || fbPolishing}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-paper-line bg-paper-surface text-paper-ink2 hover:border-paper-accent transition disabled:opacity-40"
                       >
-                        {fbPolishing ? "✨ 整理中..." : "✨ AI 整理成 bug 报告"}
+                        {fbPolishing ? "✨ 整理中..." : "✨ 整理成反馈报告"}
                       </button>
                     </div>
                   </div>
@@ -518,23 +518,51 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-              {/* === v0.3.0 当前版本（高亮） === */}
+              {/* === v0.3.1 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-bold text-paper-accent">v{__APP_VERSION__}</span>
-                  <span className="text-paper-ink3 text-xs">2026年09月17日</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月18日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">🐛 Bug 修复</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>📊 <b>记账柱图方向 + X 轴修复</b> — justify-start → justify-end，日期从右往左生长更符合直觉；X 轴不再只显示偶数，所有日期都能看到</li>
+                    <li>📈 <b>每日一句话总结不到真实内容</b> — summarizeDay 之前只看文字块，记账模板全是 finance_item 没有文字 → AI 每次都兜底；现在加上收支流水提取</li>
+                    <li>📖 <b>历史抽屉 0 条</b> — 后端按登录 uid 过滤 daily_summaries；之前手工塞数据用错了 uid 导致查不到</li>
+                  </ul>
+                  <div><b className="text-paper-ink">🛡️ 三道防线终结重复日记</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>后端：同日期+同模板+同标题（finance/milestone/plan）→ 按语义键 UPDATE 不 INSERT</li>
+                    <li>前端 save 后：处理后端返回的最终 id，把本地旧 uid 纠正成新 id</li>
+                    <li>前端 init 合并时：dedupeDiaries 加第二层 title 语义去重，localStorage 旧 uid + 云端同标题新 uid → 合并到最新的</li>
+                  </ul>
+                  <div><b className="text-paper-ink">🛡️ 编辑器空模板拦截</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>新建 finance 模板改了标题但没填收支就保存 → 拦住"至少记一笔再保存"，垃圾数据不进 D1</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* === v0.3.0 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.3.0</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月17日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>🎯 <b>计划模块</b> — 计划模板写日记 → 自动识别目标日期存 plans 表；顶部导航栏 🎯 入口 + 完整 PlanPage/PlanLibrary 组件</li>
-                    <li>📖 <b>AI 总结入库 + 历史查看</b> — 每天的 AI 总结自动存 D1，点「📖 历史」弹出抽屉按日期倒序查看所有历史总结；空状态四种温暖文案覆盖全部场景</li>
+                    <li>🎯 <b>计划模块（原每日计划升级）</b> — 从「每日计划」模板扩展成完整的计划系统，任何未来日期的计划都能写成日记并自动倒计时；顶部导航栏 🎯 入口 + PlanPage/PlanLibrary 组件</li>
+                    <li>📖 <b>每日一句话入库 + 历史查看</b> — 每天自动提炼的一句话会存起来，点「📖 历史」弹出抽屉按日期倒序查看；空状态四种温暖文案覆盖全部场景</li>
                     <li>📅 <b>纪念日独立页面</b> — 从 Profile「我的」移除，统一归首页顶部导航 🎈 入口</li>
+                    <li>⚙️ <b>设置移到右上角</b> — 齿轮按钮弹出菜单（字体切换 / 智能服务 / 反馈 / 关于），更符合移动端常规操作</li>
+                    <li>🎤 <b>语音识别断线自动重连</b> — Chrome 原生语音识别会随机断开（网络抖动、切后台），现在自动重启 + 防抖 timer，识别稳定性显著提升</li>
                   </ul>
                   <div><b className="text-paper-ink">🐛 修复</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>AI 总结永远走兜底 — callChatCompletion 写死 json_object 强制返回 JSON → 每次命中错误兜底。加 responseFormat 参数，summarizeDay 用纯文本</li>
+                    <li>每日一句话永远走兜底 — callChatCompletion 写死 json_object 强制返回 JSON → 每次命中错误兜底。加 responseFormat 参数，summarizeDay 用纯文本</li>
                     <li>总结缓存 key bump v2，清掉之前坏掉的兜底缓存</li>
                   </ul>
                   <div><b className="text-paper-ink">🧹 交互改进</b></div>

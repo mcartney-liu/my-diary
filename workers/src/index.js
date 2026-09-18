@@ -200,7 +200,8 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
     if (!user) return json({ error: "unauthorized" }, 401);
 
     const body = await readBody(request);
-    const { id, date, template_id, title, mood_id, tags, weather, blocks, milestone_info, plan_info } = body;
+    const { id, date, template_id, title, mood_id, tags, weather, blocks,
+            milestone_info, plan_info, deleted_at, capsule_unlock_at, wallpaper, show_lines } = body;
     if (!date) return json({ error: "date required" }, 400);
 
     const now = Date.now();
@@ -209,32 +210,61 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
     let tplId = template_id || "diary";
     console.log("[handleSaveDiary] 📥 template_id:", tplId, "milestone_info:", milestone_info ? JSON.stringify(milestone_info) : "(无)");
 
-    // Upsert 策略：
-    // 1. 有前端传的 id → 按 id 查（编辑已有日记）
-    // 2. 是 milestone 模板 + 没有前端 id → 直接 INSERT（一个人可以同一天写多个纪念日）
-    // 3. 普通日记 → 按 user_id + date 唯一（每天一篇）
+    // Upsert 策略（防重复核心）：
+    // 1. 优先按前端传的 id 查 → 编辑已有日记
+    // 2. 没找到 OR 前端没传 id →
+    //    - finance/milestone/plan 模板 → 查同 date + 同 template_id + 同 title
+    //      （用户点两次"保存"同一笔 → UPDATE 旧的，不 INSERT 新的）
+    //    - 其它模板 → 查同 user_id + date
+    // 说明：migration 0005 已经去掉了 diaries 表的 UNIQUE(user_id, date) 约束，
+    // 所以 finance/milestone/plan 允许多篇/天，但"同标题同日期"应该合并。
     let existing = null;
+    const multiPerDay = tplId === "milestone" || tplId === "plan" || tplId === "finance";
+
+    // 分支 1：按 id 查（编辑）
     if (id) {
       existing = await env.DB.prepare("SELECT id FROM diaries WHERE id = ? AND user_id = ?").bind(id, user.uid).first();
-    } else if (tplId !== "milestone" && tplId !== "plan") {
-      existing = await env.DB.prepare("SELECT id FROM diaries WHERE user_id = ? AND date = ?").bind(user.uid, date).first();
+    }
+
+    // 分支 2：没找到 OR 没传 id → 按语义唯一键查
+    // 🔑 关键：不管前端有没有传新 uid，同 title + 同 date + 同 template → UPDATE
+    if (!existing) {
+      const normalizedTitle = (title || "").trim();
+      if (multiPerDay && normalizedTitle) {
+        // finance/milestone/plan：同日期 + 同模板 + 同标题 → UPDATE
+        existing = await env.DB.prepare(
+          "SELECT id FROM diaries WHERE user_id = ? AND date = ? AND template_id = ? AND title = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1"
+        ).bind(user.uid, date, tplId, normalizedTitle).first();
+      } else if (!multiPerDay) {
+        // 普通模板：同 user + date → UPDATE（每天一篇）
+        existing = await env.DB.prepare(
+          "SELECT id FROM diaries WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1"
+        ).bind(user.uid, date).first();
+      }
+      // finance/milestone/plan 且 title 空 → 确实是新的一篇 → 不设 existing，走 INSERT
     }
 
     let diaryId = existing?.id;
     if (existing) {
       await env.DB.prepare(
-        `UPDATE diaries SET date=?, template_id=?, title=?, mood_id=?, tags=?, weather=?, blocks=?, updated_at=?
+        `UPDATE diaries SET date=?, template_id=?, title=?, mood_id=?, tags=?, weather=?, blocks=?,
+          deleted_at=?, capsule_unlock_at=?, wallpaper=?, show_lines=?, updated_at=?
          WHERE id=? AND user_id=?`
       ).bind(date, tplId, title || "", mood_id || "calm", tagsJson,
-             weather ? JSON.stringify(weather) : null, blocksJson, now, existing.id, user.uid).run();
+             weather ? JSON.stringify(weather) : null, blocksJson,
+             deleted_at ?? null, capsule_unlock_at ?? null, wallpaper ?? null, show_lines ?? 1,
+             now, existing.id, user.uid).run();
       console.log("[handleSaveDiary] 📝 UPDATE diary:", diaryId);
     } else {
       diaryId = uuid();
       await env.DB.prepare(
-        `INSERT INTO diaries (id, user_id, date, template_id, title, mood_id, tags, weather, blocks, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO diaries (id, user_id, date, template_id, title, mood_id, tags, weather, blocks,
+          deleted_at, capsule_unlock_at, wallpaper, show_lines, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(diaryId, user.uid, date, tplId, title || "", mood_id || "calm",
-             tagsJson, weather ? JSON.stringify(weather) : null, blocksJson, now, now).run();
+             tagsJson, weather ? JSON.stringify(weather) : null, blocksJson,
+             deleted_at ?? null, capsule_unlock_at ?? null, wallpaper ?? null, show_lines ?? 1,
+             now, now).run();
       console.log("[handleSaveDiary] ✨ INSERT diary:", diaryId);
     }
 
@@ -333,9 +363,17 @@ async function handleDeleteDiary(request, env, JWT_SECRET) {
 
   const q = new URL(request.url).searchParams;
   const id = q.get("id");
+  const force = q.get("force") === "1";  // 前端确认"真的硬删"才传
+
   if (!id) return json({ error: "id required" }, 400);
 
-  await env.DB.prepare("DELETE FROM diaries WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+  if (force) {
+    // 硬删（回收站清空 / 永久删除）
+    await env.DB.prepare("DELETE FROM diaries WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+  } else {
+    // 默认软删（设 deleted_at，拉列表时前端自己过滤）
+    await env.DB.prepare("UPDATE diaries SET deleted_at = ? WHERE id = ? AND user_id = ?").bind(Date.now(), id, user.uid).run();
+  }
   return json({ ok: true });
 }
 

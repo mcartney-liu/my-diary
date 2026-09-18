@@ -24,6 +24,8 @@ export interface DiaryBlock {
   // === finance_item 专属 ===
   direction?: "expense" | "income"; // 支出 / 收入
   category?: string;         // 分类 key，如 "food" / "transport"
+  // === image 专属 ===
+  widthPercent?: number;     // 图片宽度百分比 25~150，默认 100
   // === book 专属 ===
   author?: string;           // 作者
   totalPages?: number;       // 总页数

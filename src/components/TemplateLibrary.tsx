@@ -205,7 +205,7 @@ export default function TemplateLibrary() {
 
               <div>
                 <label className="text-xs font-medium text-paper-ink3 mb-1 block">
-                  描述 / 模板含义（AI 快记靠你写的话来匹配这个模板，写得越详细越准）
+                  描述 / 模板含义（语音快记靠你写的话来匹配这个模板，写得越详细越准）
                 </label>
                 <textarea value={bDesc} onChange={(e) => setBDesc(e.target.value)}
                   placeholder="比如：每周复盘 · 3 件好事 + 3 件待改进&#10;或者：恋爱中的特殊日子、纪念日、约会、礼物、吵架、和好..."

@@ -74,12 +74,17 @@ export function upsertDiary(d: Diary) {
   return request<{ id: string }>("/api/diaries", { method: "POST", body: JSON.stringify({
     id: d.id, date: d.date, template_id: d.templateId, title: d.title,
     mood_id: d.moodId, tags: d.tags, weather: d.weather, blocks: d.blocks,
-    milestone_info: d.milestoneInfo, // ⭐ milestone 模板专用
-    plan_info: d.planInfo, // ⭐ plan 模板专用
+    milestone_info: d.milestoneInfo,
+    plan_info: d.planInfo,
+    deleted_at: d.deletedAt ?? null,
+    capsule_unlock_at: d.capsuleUnlockAt ?? null,
+    wallpaper: d.wallpaper ?? null,
+    show_lines: d.showLines ?? 1,
   })});
 }
-export function deleteDiary(id: string) {
-  return request<{ ok: boolean }>(`/api/diaries?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+export function deleteDiary(id: string, forceHardDelete = false) {
+  const q = forceHardDelete ? `?id=${encodeURIComponent(id)}&force=1` : `?id=${encodeURIComponent(id)}`;
+  return request<{ ok: boolean }>(`/api/diaries${q}`, { method: "DELETE" });
 }
 
 // ====== Profile ======

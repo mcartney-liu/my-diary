@@ -1,24 +1,59 @@
 # MyDiary 版本更新记录
 
+## v0.3.1 — 2026-09-18
+
+### 🐛 Bug 修复
+
+- **📊 记账柱图方向反了** — FinancePage 柱图 `justify-start` 改成 `justify-end`，新的日期从右边往左边生长（符合时间直觉）；X 轴显示全部日期不再只取偶数天
+- **📊 柱图 X 轴只显示偶数** — 修复 chartWidth 宽度计算，现在所有日期都能看到
+- **📈 每日一句话总结不到真实内容** — summarizeDay 之前只看 text block，记账模板全是 finance_item 没有 text，导致 AI 每次都兜底；现在加上 finance_item 收支流水提取
+- **📖 历史抽屉 0 条** — 后端按登录 uid 过滤 daily_summaries，手工塞数据用错了 uid；前端同时忽略后端 save 返回的最终 id（`{ id: diaryId }`），导致 title 语义合并后前端本地还是旧 uid → 初始化合并时 id 不同无法去重
+
+### 🛡️ 架构加固：三道防线彻底终结重复日记
+
+之前重复日记的根因链：前端新建任何模板都 `uid()` 生成新 id → 后端按 id 查 → 查不到 → INSERT 新行（migration 0005 已删唯一约束）→ 每次保存一篇等于一次 INSERT。**三道防线堵死链路**：
+
+1. **后端写时** — `date + template_id + title` 相同（finance/milestone/plan 模板）→ 按语义键 UPDATE 不 INSERT
+2. **前端 save 后** — 处理后端返回的最终 id，如果后端用了不同 id → 把本地旧 id 纠正成新 id
+3. **前端 init 合并时** — `dedupeDiaries` 加第二层 title 语义去重（只对 finance/milestone/plan 模板），localStorage 旧 uid + 云端同标题新 uid → 合并到 updatedAt 最新的那条
+
+### 🛡️ 编辑器空模板拦截
+
+新建 finance 模板后改了标题没填收支就保存 → 默认标题 + 所有 finance_item 全是 0 值 → 弹窗拦住"至少记一笔再保存"，不让垃圾数据进 D1
+
+### 📦 本次改动文件
+
+| 文件 | 改动 |
+|------|------|
+| workers/src/index.js | handleSaveDiary 加 title 语义合并（date+template+title → UPDATE） |
+| src/App.tsx | dedupeDiaries 加双层去重（id + title 语义）；handleUpsert 处理后端返回 id 纠正本地 state |
+| src/components/FinancePage.tsx | 柱图 justify-end + X 轴全日期显示 |
+| src/ai.ts | summarizeDay 加 finance_item 流水提取 |
+| src/components/EditorPage.tsx | 保存前空模板拦截 |
+| CHANGELOG.md | v0.3.1 版本记录 |
+| package.json / vite.config.ts | 版本 0.3.0 → 0.3.1 |
+
+---
+
 ## v0.3.0 — 2026-09-17
 
 ### 🎉 新功能
 
-- **🎯 计划模块** — 和纪念日、时间胶囊并列的独立模块
-  - 计划模板写日记 → 自动识别目标日期 → 存 `plans` 表
-  - AI 快记说 "10月20号和朋友去看海" → 规则层强制识别为计划 → 自动双写
-  - 顶部导航栏 🎯 入口 + 完整 PlanPage + PlanLibrary 组件
-  - 点击整卡跳转到对应日记（无 diary_id 跳新建模板页）
-- **📖 AI 总结入库 + 历史查看** — 首页 StreakBadge 的 AI 总结不再只是临时缓存
-  - 每天的 AI 总结自动存 D1（`daily_summaries` 表），跨设备可见
-  - 点「📖 历史」弹出抽屉，按日期倒序展示所有历史 AI 总结
+- **🎯 计划模块（原每日计划升级）** — 从「每日计划」模板扩展成完整的计划系统，不再局限于当天
+  - 任何未来日期的计划都能写成日记，自动识别目标日期、倒计时、到期状态
+  - 顶部导航栏 🎯 入口 + 完整 PlanPage/PlanLibrary 组件（和纪念日/时间胶囊并列）
+  - 后端 plans 子表双写，和日记关联但有独立的状态管理
+- **📖 每日一句话入库 + 历史查看** — 首页 StreakBadge 的一句话不再只是临时缓存
+  - 每天自动提炼的一句话存 D1（`daily_summaries` 表），跨设备可见
+  - 点「📖 历史」弹出抽屉，按日期倒序展示所有历史
   - 空状态引导：刚注册时显示"这里会出现什么"完整说明
   - 四种场景全覆盖：有+有、有+没、没+有、都没有 → 不同温暖文案
 - **📅 纪念日独立页面** — 从 Profile「我的」移除，统一归首页顶部导航 🎈 入口
+- **⚙️ 设置移到右上角** — 齿轮按钮弹出菜单（字体切换 / 智能服务 / 反馈 / 关于），更符合移动端常规操作
 
 ### 🐛 Bug 修复
 
-- **AI 总结永远走兜底** — `callChatCompletion` 写死 `response_format: json_object`，但 summarizeDay 要纯文本 → 强制返回 JSON → 每次命中错误兜底。给 callChatCompletion 加 `responseFormat` 参数，summarizeDay 用 `"text"`，其他 skill 保持 `"json_object"`
+- **每日一句话永远走兜底** — `callChatCompletion` 写死 `response_format: json_object`，但 summarizeDay 要纯文本 → 强制返回 JSON → 每次命中错误兜底。给 callChatCompletion 加 `responseFormat` 参数，summarizeDay 用 `"text"`，其他 skill 保持 `"json_object"`
 - **总结缓存 key bump v2** — 之前坏的兜底缓存可能存过错误内容，bump key 强制清掉
 
 ### 🧹 交互改进
@@ -28,6 +63,7 @@
   - 空状态用 emoji + 主文案 + py-12 居中布局，以时间胶囊为参照
   - 计划的引导文案改成正面例子（"10月20号和朋友去看海"）
 - **顶部导航栏按钮** — 🏷️ 🎈 🎯 🫧 🗑️ 一键直达，不再 toggle 选中
+- **🎤 语音识别断线自动重连** — Chrome 原生 SpeechRecognition 会随机断开（网络抖动、切后台），之前断了就停；现在检测到非用户主动停止就自动重启，加防抖 timer 防止无限循环；识别准确率和稳定性显著提升
 
 ### 📦 本次改动文件
 
@@ -132,4 +168,4 @@
 - 日记 CRUD + localStorage ↔ D1 双向同步
 - 10 种 Block 组件：text / heading / divider / checkbox / number / finance_item / image / audio / book / quote
 - 8 个官方模板：日记 / 记账 / 读书 / 旅行 / 运动 / 每日计划 / 感恩日记 / 健康记录
-- 底部 Tab Bar：我的 | AI速记 | 写日记
+- 底部 Tab Bar：我的 | 语音快记 | 写日记
