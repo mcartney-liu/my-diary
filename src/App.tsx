@@ -350,8 +350,8 @@ function EditorPageWrapper(props: {
       initialTemplateId={effectiveTemplateId}
       initialPolished={initialPolished}
       onSave={async (d) => { await props.onUpsert(d); }}
-      onSoftDelete={(d) => { props.onSoftDelete(d.id); nav(-1, { replace: true }); }}
-      onCancel={() => nav(-1, { replace: true })}
+      onSoftDelete={(d) => { props.onSoftDelete(d.id); window.history.back(); }}
+      onCancel={() => window.history.back()}
       allDiaries={props.allDiaries}
     />
   );
