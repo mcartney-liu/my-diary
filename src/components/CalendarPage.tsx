@@ -37,23 +37,13 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const handleMarqueeTouchStart = (e: React.TouchEvent) => {
     dragStartX.current = e.touches[0].clientX;
     dragOffset.current = 0;
-    // 停动画：把当前 animation 的实际位置"冻结"成 inline style
     const track = trackRef.current;
     if (track) {
-      // 先让浏览器停在当前帧
       track.style.animationPlayState = "paused";
-      // 读动画当前实际进度，算出 translateX 值
       const anim = track.getAnimations()[0];
       if (anim) {
-        const effect = anim.effect as KeyframeEffect;
-        const keyframes = effect.getKeyframes() as Array<{ transform: string }>;
-        // 简单处理：animation 从 translateX(0) 到 translateX(-50%)
-        // 用 currentTime / duration 算进度
-        const totalMs = trackRef.current?.style.animationDuration
-          ? parseFloat(trackRef.current.style.animationDuration) * 1000
-          : 25000;
-        const progress = (anim.currentTime as number) / totalMs;
-        // track 实际宽度的一半就是 -50%
+        const totalMs = 25000; // 和 CSS keyframes 时长一致
+        const progress = Math.min(1, Math.max(0, (anim.currentTime as number) / totalMs));
         const halfWidth = track.scrollWidth / 2;
         manualTransform.current = -halfWidth * progress;
       }
