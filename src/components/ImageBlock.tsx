@@ -69,8 +69,10 @@ export default function ImageBlock({ block, onRemove, onUpdate }: Props) {
 
   return (
     <>
-      <div ref={containerRef} className="group relative flex justify-start">
+      {/* p-2 把小圆点包进 hover 区域（方案 A）：group hover 覆盖 padding，鼠标移向小圆点不会丢 hover */}
+      <div className="p-2 group relative inline-block">
         <div
+          ref={containerRef}
           className={`rounded-2xl overflow-hidden bg-paper-surface border border-paper-line relative ${draggingRef.current ? "pointer-events-none" : ""}`}
           style={{ width: `${width}%`, maxWidth: "100%" }}
         >
@@ -87,7 +89,7 @@ export default function ImageBlock({ block, onRemove, onUpdate }: Props) {
             <div
               onMouseDown={onHandleDown}
               onTouchStart={onHandleDown}
-              className="absolute -bottom-1 -right-1 w-5 h-5 flex items-center justify-center cursor-nesw-resize z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+              className="absolute bottom-0.5 right-0.5 w-5 h-5 flex items-center justify-center cursor-nesw-resize z-10 opacity-0 group-hover:opacity-100 transition-opacity"
               title="拖动调整大小"
             >
               <div className="w-3 h-3 bg-paper-ink/60 rounded-full border-2 border-white shadow-md hover:bg-paper-accent transition-colors" />
@@ -96,7 +98,7 @@ export default function ImageBlock({ block, onRemove, onUpdate }: Props) {
         </div>
 
         {/* 悬浮工具栏 — 右上角 */}
-        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition">
+        <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition">
           <button
             onClick={() => setPreview(true)}
             className="p-1.5 rounded-full bg-black/60 hover:bg-black/80 text-white"
@@ -115,7 +117,7 @@ export default function ImageBlock({ block, onRemove, onUpdate }: Props) {
 
         {/* 拖动时的实时百分比提示 */}
         {draggingRef.current && (
-          <div className="absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-paper-ink text-white text-xs font-medium pointer-events-none">
+          <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded bg-paper-ink text-white text-xs font-medium pointer-events-none">
             {Math.round(width)}%
           </div>
         )}

@@ -64,9 +64,10 @@ export default {
 
     // 路由表（method + path → handler）
     const routes = [
-      ["POST",   "/api/auth/register",  handleRegister],
-      ["POST",   "/api/auth/login",     handleLogin],
-      ["GET",    "/api/auth/me",        handleMe],
+      ["POST",   "/api/auth/send-code",  handleSendCode],
+      ["POST",   "/api/auth/register",   handleRegister],
+      ["POST",   "/api/auth/login",      handleLogin],
+      ["GET",    "/api/auth/me",         handleMe],
       ["GET",    "/api/diaries",        handleListDiaries],
       ["POST",   "/api/diaries",        handleSaveDiary],
       ["DELETE", "/api/diaries",        handleDeleteDiary],
@@ -122,12 +123,146 @@ async function readBody(request) {
 }
 
 // ====== Auth ======
-async function handleRegister(request, env, JWT_SECRET) {
-  const { email, password, nickname } = await readBody(request);
-  if (!email || !password || password.length < 6) return json({ error: "email and password(≥6) required" }, 400);
+
+// 邮箱格式校验（宽松版，够挡明显假邮箱）
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+// 取当前环境的 KV namespace（prod 叫 verify_codes，dev 叫 verify_codes_dev）
+function getVerifyKV(env) {
+  return env.verify_codes || env.verify_codes_dev;
+}
+
+// 验证码邮件 HTML 模板
+function buildVerifyEmail(code, nickname = "朋友") {
+  const safeName = nickname ? `，${nickname}` : "";
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+<body style="margin:0;padding:0;background:#faf6f1;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;">
+  <div style="max-width:440px;margin:40px auto;background:#fff;border-radius:16px;padding:36px 32px;box-shadow:0 4px 24px rgba(0,0,0,.06);">
+    <div style="font-size:26px;font-weight:700;color:#1a1a1a;margin-bottom:6px;">📖 欢迎来到我的日记</div>
+    <div style="font-size:14px;color:#9e9e9e;margin-bottom:24px;">每一天，都值得被记录</div>
+
+    <div style="font-size:14px;color:#6b6b6b;line-height:1.7;margin-bottom:24px;">
+      Hi${safeName} 👋，感谢你选择我们！<br/>
+      用下面这 6 位验证码完成注册，开启你的日记之旅吧 ✨
+    </div>
+
+    <div style="font-size:14px;color:#9e9e9e;margin-bottom:8px;">你的注册验证码</div>
+    <div style="font-size:38px;font-weight:700;letter-spacing:10px;color:#1a1a1a;padding:18px 24px;background:#faf6f1;border-radius:12px;text-align:center;margin-bottom:24px;border:1px solid #f0ece6;">${code}</div>
+    <div style="font-size:12px;color:#9e9e9e;margin-bottom:28px;">⏱️ 5 分钟内有效 · 如果不是你发起的注册，请忽略此邮件</div>
+
+    <div style="background:#faf6f1;border-radius:12px;padding:20px 24px;margin-bottom:24px;">
+      <div style="font-size:13px;color:#1a1a1a;font-weight:600;margin-bottom:12px;">🌟 注册后你可以</div>
+      <div style="font-size:12px;color:#6b6b6b;line-height:2;">
+        ✍️ 随时随地写日记，云端永不丢失<br/>
+        🎨 手绘信纸 · 手写字体 · 心情记录<br/>
+        🎯 纪念日提醒 · 计划管理 · 时间胶囊<br/>
+        🤖 AI 每日总结 · 模板库共享
+      </div>
+    </div>
+
+    <div style="font-size:12px;color:#bfbfbf;margin-top:8px;border-top:1px solid #f0ece6;padding-top:16px;text-align:center;">
+      来自 <b>我的日记</b> team<br/>
+      每天写一篇，让生活有迹可循 📝
+    </div>
+  </div>
+</body></html>`;
+  const text = `【我的日记】Hi${safeName}，欢迎加入！你的注册验证码是：${code}（5 分钟内有效）。每天写一篇，让生活有迹可循。`;
+  return { html, text };
+}
+
+// 用 Resend HTTP API 发邮件
+async function sendEmail(env, to, subject, htmlBody, textBody) {
+  const fromEmail = env.FROM_EMAIL || "noreply@callmydiary.online";
+  const fromName = env.FROM_NAME || "我的日记";
+  const apiKey = env.RESEND_API_KEY;
+
+  if (!apiKey) {
+    console.log(`[EMAIL MOCK] → ${to}  code=${htmlBody.match(/\d{6}/)?.[0] || "?"}`);
+    return { mock: true };
+  }
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: `${fromName} <${fromEmail}>`,
+      to: [to],
+      subject,
+      html: htmlBody,
+      text: textBody,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Resend ${res.status}: ${err}`);
+  }
+  return { ok: true };
+}
+
+// POST /api/auth/send-code — 生成验证码 + 发邮件
+async function handleSendCode(request, env) {
+  const { email } = await readBody(request);
+  if (!email || !EMAIL_RE.test(email)) return json({ error: "邮箱格式不对" }, 400);
 
   const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
-  if (existing) return json({ error: "email already registered" }, 409);
+  if (existing) return json({ error: "这个邮箱已经注册过了" }, 409);
+
+  // 6 位数字验证码
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const kv = getVerifyKV(env);
+  if (!kv) return json({ error: "验证码服务未配置" }, 503);
+
+  await kv.put(`code:${email}`, code, { expirationTtl: 300 }); // 5 分钟
+  // 限流标记：同邮箱 60 秒内不允许重发
+  const rateKey = `rate:${email}`;
+  const rateOk = await kv.get(rateKey);
+  if (rateOk) {
+    // 不拒绝，只是记录一下次数
+  }
+  await kv.put(rateKey, "1", { expirationTtl: 60 });
+
+  // 发邮件
+  const { html, text } = buildVerifyEmail(code);
+  const subject = "【我的日记】注册验证码";
+  try {
+    await sendEmail(env, email, subject, html, text);
+  } catch (e) {
+    return json({ error: `邮件发送失败：${e.message || e}` }, 500);
+  }
+
+  return json({ ok: true, dev_code: env.RESEND_API_KEY ? null : code });
+}
+
+// 校验验证码 + 清理
+async function consumeVerifyCode(env, email, code) {
+  const kv = getVerifyKV(env);
+  const key = `code:${email}`;
+  const expected = await kv.get(key);
+  if (!expected) return { ok: false, error: "验证码已过期或不存在" };
+  if (expected !== code) return { ok: false, error: "验证码不对" };
+  await kv.delete(key); // 用过就删
+  return { ok: true };
+}
+
+async function handleRegister(request, env, JWT_SECRET) {
+  const { email, password, nickname, code } = await readBody(request);
+  if (!email || !password || password.length < 6) {
+    return json({ error: "邮箱 + 密码（≥6 位）必填" }, 400);
+  }
+  if (!EMAIL_RE.test(email)) return json({ error: "邮箱格式不对" }, 400);
+  if (!code) return json({ error: "请先获取验证码" }, 400);
+
+  // 验验证码
+  const verify = await consumeVerifyCode(env, email, String(code));
+  if (!verify.ok) return json({ error: verify.error }, 400);
+
+  const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+  if (existing) return json({ error: "邮箱已注册" }, 409);
 
   const salt = genSalt();
   const pwHash = await hashPassword(password, salt);

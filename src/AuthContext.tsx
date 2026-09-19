@@ -10,7 +10,8 @@ interface AuthState {
 
 interface AuthActions {
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, nickname?: string) => Promise<void>;
+  sendCode: (email: string) => Promise<{ ok: boolean; dev_code?: string | null }>;
+  register: (email: string, password: string, code: string, nickname?: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
 }
@@ -34,8 +35,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api.setToken(r.token);
     setState({ user: r.user, loading: false, loggedIn: true });
   };
-  const register = async (email: string, password: string, nickname?: string) => {
-    const r = await api.register(email, password, nickname);
+  const sendCode = async (email: string) => {
+    return await api.sendVerificationCode(email);
+  };
+  const register = async (email: string, password: string, code: string, nickname?: string) => {
+    const r = await api.register(email, password, code, nickname);
     api.setToken(r.token);
     setState({ user: r.user, loading: false, loggedIn: true });
   };
@@ -51,7 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch { logout(); }
   };
 
-  return <AuthContext.Provider value={{ ...state, login, register, logout, refresh }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ ...state, login, sendCode, register, logout, refresh }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
