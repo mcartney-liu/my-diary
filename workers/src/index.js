@@ -1003,34 +1003,42 @@ async function callChatFriendly(env, question) {
   return r.response || '';
 }
 
-async function callWorkersAI_LLM(env, question, context, totalCount, indexedCount) {
+async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history) {
   const sys = `你是温暖的日记 AI 助手。
 
 规则：
 1. 依据给你的日记片段回答问题，口语化，可加少量 emoji
-2. 统计/计数类问题（多少、几篇、总共、统计）：先告诉用户"你一共有 N 篇日记"（N=indexedCount），然后说"我看到了其中 M 篇"（M=totalCount），再基于这 M 篇回答
-3. 如果没找到相关日记，也要友好说"这个好像没找到呢～你可以试试别的问题，比如'最近花了多少钱'、'我最开心的一天'之类的 😊"，不要干巴巴说"没找到"
-4. 如果片段内容和问题不相关，诚实说"我看到的片段里好像没有相关内容哦"`;
+2. 统计/计数类问题（多少、几篇、总共、统计）：先告诉用户"你一共有 N 篇日记"（N=totalIndexed），然后说"我找到其中最相关的 M 篇"（M=topK），再基于这 M 篇回答
+3. "我找到 M 篇"是指语义检索后最相关的 M 篇，不是总共只有 M 篇——不要让用户误以为剩下的日记丢失了
+4. 如果没找到相关日记，也要友好说"这个好像没找到呢～你可以试试别的问题，比如'最近花了多少钱'、'我最开心的一天'之类的 😊"，不要干巴巴说"没找到"
+5. 如果片段内容和问题不相关，诚实说"我看到的片段里好像没有相关内容哦"
+6. 能接上下文追问（"为什么"、"那之前呢"等），结合历史对话理解`;
   const user = `【事实】
-- 用户一共有 **${indexedCount}** 篇已索引日记
-- 下面只列出最相关的 ${totalCount} 篇（其余 ${Math.max(0, indexedCount - totalCount)} 篇和这个问题不直接相关）
+- 用户一共有 **${totalIndexed}** 篇已索引日记
+- 下面列出语义最相关的 ${topK} 篇（其余 ${Math.max(0, totalIndexed - topK)} 篇和这个问题不直接相关）
 
 ${context}
 
 问题：${question}
 
-回答统计类问题（多少/几篇/总共）时，必须先说"你一共有 ${indexedCount} 篇日记"。`;
-  const r = await env.AI.run(LLM_MODEL, {
-    messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
-    max_tokens: 512,
-  });
+回答统计类问题（多少/几篇/总共）时，必须先说"你一共有 ${totalIndexed} 篇日记"。`;
+  const msgs = [{ role: 'system', content: sys }];
+  if (Array.isArray(history)) {
+    for (const h of history) {
+      if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
+        msgs.push({ role: h.role, content: String(h.content).slice(0, 500) });
+      }
+    }
+  }
+  msgs.push({ role: 'user', content: user });
+  const r = await env.AI.run(LLM_MODEL, { messages: msgs, max_tokens: 512 });
   return r.response || '';
 }
 
 async function handleAsk(request, env, JWT_SECRET) {
   const user = await authUser(request, JWT_SECRET);
   if (!user) return json({ error: 'unauthorized' }, 401);
-  const { question } = await request.json();
+  const { question, history } = await request.json();
   if (!question || !question.trim()) return json({ error: 'question required' }, 400);
   // 问候/闲聊 → 直接友好回复，不查日记
   if (isGreeting(question)) {
@@ -1050,12 +1058,13 @@ async function handleAsk(request, env, JWT_SECRET) {
     const scored = rows.results
       .map(r => ({ ...r, score: cosineSimilarity(qVec, jsonToFloat32(r.vector)) }))
       .sort((a, b) => b.score - a.score);
-    const top = scored.slice(0, 5);
     const totalIndexed = rows.results.length;
+    const topK = Math.min(10, totalIndexed);   // 放宽到最多 10 篇
+    const top = scored.slice(0, topK);
     const contextParts = top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
     const context = contextParts.join('\n\n');
     let answer;
-    try { answer = await callWorkersAI_LLM(env, question, context, top.length || 5, totalIndexed || 0); }
+    try { answer = await callWorkersAI_LLM(env, question, context, topK, totalIndexed, history); }
     catch (e) { answer = 'LLM 错: ' + e.message; }
     return json({ answer, sources: top.map(s => ({ diary_id: s.diary_id, score: Math.round(s.score*1000)/1000 })) });
   } catch (e) { return json({ error: e.message }, 500); }

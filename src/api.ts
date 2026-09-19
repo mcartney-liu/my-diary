@@ -321,10 +321,10 @@ export function listSummaries() {
 }
 
 // AI 知识库问答
-export function askDiary(question: string) {
+export function askDiary(question: string, history?: { role: "user" | "assistant"; content: string }[]) {
   return request<{ answer: string; sources: { diary_id: string; score: number }[] }>('/api/ai/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({ question, history }),
   });
 }

@@ -105,7 +105,12 @@ export default function AiChatView() {
     }));
     setLoading(true);
     try {
-      const r = await askDiary(question);
+      // 传最近 6 轮历史（不含当前 question），让 AI 能接上下文
+      const recent = [...active.msgs].slice(-6).map((m) => ({
+        role: m.role === "ai" ? "assistant" : ("user" as const),
+        content: m.content,
+      }));
+      const r = await askDiary(question, recent);
       const aiMsg: Msg = {
         role: "ai",
         content: r.answer || "（没有回复）",
