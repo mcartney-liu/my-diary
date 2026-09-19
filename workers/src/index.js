@@ -1013,13 +1013,20 @@ async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, his
 ${context || '（没有检索到相关日记）'}`;
   const sys = `你是温暖的日记 AI 助手，同时你也有通用知识可以回答常识问题。
 
+绝对禁止说的话（违反就扣分）：
+- "这个问题是xx类/xx类型/属于xx"
+- "这个问题涉及/不涉及"
+- "我来分类一下"、"判断这个问题"
+- 任何暴露你在做类型判断的话
+
 规则：
-1. 判断问题是"关于用户日记的"还是"通用知识/常识"，**不要把判断过程说出来**，直接给答案
-2. 如果是日记相关（含"我"、"我的"、"我花了多少"、"我写了多少"、"我最"、"日记"等），依据给你的日记片段回答，口语化，可加少量 emoji
-3. 如果是常识（地理/科学/历史/新闻等和日记无关的），**直接用自己的知识回答**，可以礼貌补一句"不过我在你的日记里没找到相关内容哦～你也可以问我关于你日记的问题"
-4. 如果日记片段和问题**完全不相关**，**忽略日记片段**，用自己的知识回答
+1. 直接给答案，不要说你在判断什么
+2. 日记相关问题（含"我"、"我的"、"我花了多少"、"我写了多少"、"我最"、"日记"等），依据给你的日记片段回答，口语化，可加少量 emoji
+3. 常识问题（地理/科学/历史/新闻等和日记无关的），直接用自己的知识回答，可以礼貌补一句"不过我在你的日记里没找到相关内容哦～你也可以问我关于你日记的问题"
+4. 如果日记片段和问题完全不相关，忽略日记片段，用自己的知识回答
 5. 统计/计数类日记问题：先告诉用户"你一共有 N 篇日记"（N=totalIndexed），然后说"我找到其中最相关的 M 篇"（M=topK），再基于这 M 篇回答
-6. 追问（"为什么"、"那之前呢"、"你自己知道吗"等）必须结合历史对话理解，**不能脱离上下文瞎答**
+6. 追问（"为什么"、"那之前呢"、"你自己知道吗"、"你没搞错吧"等）必须结合历史对话理解，不能脱离上下文瞎答
+7. 对数字/单位/算术要谨慎，不确定就说"我不太确定，建议查证一下"
 
 ${facts}`;
   const msgs = [{ role: 'system', content: sys }];
@@ -1035,11 +1042,11 @@ ${facts}`;
   return r.response || '';
 }
 
-// 判断是否是追问/短句（用历史上下文来补充检索词）
-const FOLLOWUP_PATTERNS = [/^为什么/, /^那/, /^然后/, /^后来/, /^你自己/, /^你知道/, /^你呢/, /^还有/, /^那你/, /^再/, /^为什么呢/, /^为啥/];
+// 判断是否是追问（用历史上下文来补充检索词）——只靠关键词匹配，不靠长度
+const FOLLOWUP_PATTERNS = [/^为什么/, /^那/, /^然后/, /^后来/, /^你自己/, /^你知道/, /^你呢/, /^还有/, /^那你/, /^再/, /^为什么呢/, /^为啥/, /^你没搞错/, /^你确定/, /^是这样吗/, /^对吗/, /^那之前/, /^之前呢/];
 function isFollowup(q) {
   const t = q.trim();
-  if (t.length <= 6) return true;
+  // 必须命中追问关键词才算，避免把"中国面积多大"这种独立问题当成追问
   return FOLLOWUP_PATTERNS.some(re => re.test(t));
 }
 // 从 history 里找最后一轮用户的原始问题（用于追问时的 RAG 检索）
@@ -1068,6 +1075,27 @@ async function handleAsk(request, env, JWT_SECRET) {
       return json({ answer: '你好呀～我在呢 😊 你可以问我关于你日记的问题，或者随便聊聊天～' });
     }
   }
+  // 判断是否是"关于用户日记"的问题——没有任何个人关键词就是纯常识，跳过 RAG
+  const DIARY_KEYWORDS = ['我', '我的', '我花', '我写', '我最', '日记', '笔记', '我计划', '我要', '我想', '我今天', '昨天', '今天', '最近', '总共', '一共', '多少篇', '几篇'];
+  const isDiaryRelated = DIARY_KEYWORDS.some(kw => question.includes(kw))
+    || (Array.isArray(history) && history.some(h => h?.role === 'user' && DIARY_KEYWORDS.some(kw => h.content?.includes(kw))));
+  if (!isDiaryRelated) {
+    // 纯常识/通用问题，直接让 LLM 自由发挥，不查日记
+    try {
+      const sys = '你是温暖友好的 AI 助手。准确回答问题，简洁口语化，可加少量 emoji。如果是数字/单位/算术要特别小心，不确定就说"我不太确定，建议查证一下"。';
+      const msgs = [{ role: 'system', content: sys }];
+      if (Array.isArray(history)) {
+        for (const h of history) {
+          if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
+            msgs.push({ role: h.role, content: String(h.content).slice(0, 500) });
+          }
+        }
+      }
+      msgs.push({ role: 'user', content: question });
+      const r = await env.AI.run(LLM_MODEL, { messages: msgs, max_tokens: 500 });
+      return json({ answer: r.response || '让我想想～', sources: [] });
+    } catch (e) { return json({ answer: '抱歉，我暂时答不上来这个问题' }); }
+  }
   try {
     // 追问时用"上一轮原始问题 + 当前问题"一起检索，避免语义跑偏
     const ragQuery = isFollowup(question)
@@ -1084,16 +1112,16 @@ async function handleAsk(request, env, JWT_SECRET) {
     const totalIndexed = rows.results.length;
     const topK = Math.min(10, totalIndexed);
     const top = scored.slice(0, topK);
-    // 如果最高分都 < 0.15，说明真没相关日记，context 传空让 LLM 自由发挥
+    // 相关度太低 → 传空片段让 LLM 自己判断
     const bestScore = top[0]?.score ?? 0;
-    const contextParts = bestScore < 0.15 ? [] : top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
+    const contextParts = bestScore < 0.2 ? [] : top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
     const context = contextParts.join('\n\n');
     let answer;
     try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history); }
     catch (e) { answer = 'LLM 错: ' + e.message; }
     return json({
       answer,
-      sources: bestScore < 0.15 ? [] : top.map(s => ({ diary_id: s.diary_id, score: Math.round(s.score*1000)/1000 })),
+      sources: bestScore < 0.2 ? [] : top.map(s => ({ diary_id: s.diary_id, score: Math.round(s.score*1000)/1000 })),
     });
   } catch (e) { return json({ error: e.message }, 500); }
 }
