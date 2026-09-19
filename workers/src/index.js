@@ -958,6 +958,35 @@ function jsonToFloat32(text) { return new Float32Array(JSON.parse(text)); }
 
 const EMBEDDING_MODEL = '@cf/baai/bge-m3';
 const LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
+const LLM_MODEL_NAME = 'agnes-3.0-flash';
+
+// 统一 LLM 调用：优先走用户配的 agnes-3.0-flash，没有 key 时 fallback 到 Workers AI llama
+async function callLLM(env, messages, maxTokens = 512) {
+  if (env.AGNES_API_KEY && env.AGNES_ENDPOINT) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
+      const res = await fetch(env.AGNES_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${env.AGNES_API_KEY}`,
+        },
+        body: JSON.stringify({ model: LLM_MODEL_NAME, messages, max_tokens: maxTokens, temperature: 0.7 }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`agnes API ${res.status}`);
+      const data = await res.json();
+      return data?.choices?.[0]?.message?.content || '';
+    } catch (e) {
+      console.warn('[callLLM] agnes 失败，fallback Workers AI:', e.message);
+    }
+  }
+  // fallback: Workers AI
+  const r = await env.AI.run(LLM_MODEL, { messages, max_tokens: maxTokens });
+  return r.response || '';
+}
 
 async function embedText(env, text) {
   if (!text || !text.trim()) return null;
@@ -998,11 +1027,7 @@ function isGreeting(q) {
 // 不带日记的友好回复（给问候/闲聊用）
 async function callChatFriendly(env, question) {
   const sys = '你是温暖的日记 AI 助手。友好、简洁、口语化，适当加 emoji。可以介绍自己能帮用户找日记、统计、回忆。';
-  const r = await env.AI.run(LLM_MODEL, {
-    messages: [{ role: 'system', content: sys }, { role: 'user', content: question }],
-    max_tokens: 256,
-  });
-  return r.response || '';
+  return callLLM(env, [{ role: 'system', content: sys }, { role: 'user', content: question }], 256);
 }
 
 async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history) {
@@ -1038,8 +1063,7 @@ ${facts}`;
     }
   }
   msgs.push({ role: 'user', content: question });
-  const r = await env.AI.run(LLM_MODEL, { messages: msgs, max_tokens: 600 });
-  return r.response || '';
+  return callLLM(env, msgs, 600);
 }
 
 // 判断是否是追问（用历史上下文来补充检索词）——只靠关键词匹配，不靠长度
@@ -1092,8 +1116,8 @@ async function handleAsk(request, env, JWT_SECRET) {
         }
       }
       msgs.push({ role: 'user', content: question });
-      const r = await env.AI.run(LLM_MODEL, { messages: msgs, max_tokens: 500 });
-      return json({ answer: r.response || '让我想想～', sources: [] });
+      const answer = await callLLM(env, msgs, 500);
+      return json({ answer: answer || '让我想想～', sources: [] });
     } catch (e) { return json({ answer: '抱歉，我暂时答不上来这个问题' }); }
   }
   try {
