@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
-import { getProfile, patchProfile, submitFeedback, type ProfileStats } from "../api";
+import { getProfile, patchProfile, submitFeedback, type ProfileStats, listMemory, addMemory, deleteMemory } from "../api";
 import { polishFeedback, getAiProvider } from "../ai";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
+
+interface MemoryItem { id: number; type: string; content: string; confidence: number; status: string; created_at: string; }
 
 declare const __APP_VERSION__: string;
 
@@ -23,7 +25,11 @@ export default function ProfilePage() {
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState("");
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "templates" | "papers">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "templates" | "papers" | "memory">("profile");
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [newMemType, setNewMemType] = useState("fact");
+  const [newMemContent, setNewMemContent] = useState("");
 
   // 反馈弹窗
   const [showFeedback, setShowFeedback] = useState(false);
@@ -57,6 +63,34 @@ export default function ProfilePage() {
     document.documentElement.setAttribute("data-font", fontSetting);
     document.body.setAttribute("data-font", fontSetting);
   }, [fontSetting]);
+
+  // ===== 切换到记忆 tab 时加载 =====
+  useEffect(() => {
+    if (activeTab !== "memory") return;
+    setMemoryLoading(true);
+    listMemory()
+      .then(r => setMemories(r.memories || []))
+      .catch(() => setMemories([]))
+      .finally(() => setMemoryLoading(false));
+  }, [activeTab]);
+
+  const handleAddMemory = async () => {
+    if (!newMemContent.trim()) return;
+    try {
+      await addMemory(newMemType, newMemContent.trim(), 0.8);
+      setNewMemContent("");
+      const r = await listMemory();
+      setMemories(r.memories || []);
+    } catch {}
+  };
+
+  const handleDeleteMemory = async (id: number) => {
+    if (!confirm("删除这条记忆？AI 下次就不会用上了")) return;
+    try {
+      await deleteMemory(id);
+      setMemories(prev => prev.filter(m => m.id !== id));
+    } catch {}
+  };
 
   const handleLogout = () => {
     if (!confirm("确定要退出登录吗？")) return;
@@ -337,6 +371,7 @@ export default function ProfilePage() {
             { k: "profile", label: "👤 个人" },
             { k: "templates", label: "📚 模板库" },
             { k: "papers", label: "🎨 信纸库" },
+            { k: "memory", label: "🧠 记忆" },
           ].map((t) => (
             <button
               key={t.k}
@@ -371,6 +406,81 @@ export default function ProfilePage() {
         {activeTab === "papers" && (
           <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
             <PaperLibrary />
+          </section>
+        )}
+
+        {activeTab === "memory" && (
+          <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5 space-y-4">
+            {/* 标题 */}
+            <div>
+              <h3 className="text-paper-ink2 text-xs font-medium tracking-wider uppercase">🧠 我的记忆</h3>
+              <p className="text-paper-ink3 text-xs mt-1">AI 会记住这些，下次自动用上</p>
+            </div>
+
+            {/* 手动加一条 */}
+            <div className="border border-paper-line/60 rounded-xl p-3 space-y-2">
+              <div className="flex gap-2">
+                <select
+                  value={newMemType}
+                  onChange={e => setNewMemType(e.target.value)}
+                  className="px-2 py-1.5 rounded-lg border border-paper-line bg-white text-xs text-paper-ink focus:outline-none focus:border-paper-ink/40"
+                >
+                  <option value="preference">偏好 💫</option>
+                  <option value="profile">个人 📋</option>
+                  <option value="fact">事实 📌</option>
+                  <option value="task">待办 ✅</option>
+                  <option value="interest">兴趣 🎨</option>
+                </select>
+                <input
+                  value={newMemContent}
+                  onChange={e => setNewMemContent(e.target.value)}
+                  placeholder="记住一件事，比如：我讨厌加班"
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-paper-line bg-white text-sm text-paper-ink focus:outline-none focus:border-paper-ink/40"
+                  onKeyDown={e => { if (e.key === "Enter") handleAddMemory(); }}
+                />
+                <button
+                  onClick={handleAddMemory}
+                  disabled={!newMemContent.trim()}
+                  className="px-3 py-1.5 rounded-lg bg-paper-ink text-paper-bg text-sm disabled:opacity-40"
+                >添加</button>
+              </div>
+            </div>
+
+            {/* 记忆列表 */}
+            {memoryLoading ? (
+              <div className="text-center text-paper-ink3 text-sm py-6">加载中…</div>
+            ) : memories.length === 0 ? (
+              <div className="text-center text-paper-ink3 text-sm py-8 border border-dashed border-paper-line/60 rounded-xl">
+                还没有记忆 🌱 和 AI 聊几次天，它会自动记住重要的事
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {memories.map(m => (
+                  <div key={m.id} className="border border-paper-line/60 rounded-xl p-3 hover:border-paper-ink/30 transition group">
+                    <div className="flex items-start gap-2">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium shrink-0 ${
+                        m.type === "preference" ? "bg-amber-100 text-amber-700" :
+                        m.type === "profile"    ? "bg-blue-100 text-blue-700" :
+                        m.type === "task"       ? "bg-green-100 text-green-700" :
+                        m.type === "interest"   ? "bg-pink-100 text-pink-700" :
+                                                  "bg-gray-100 text-gray-700"
+                      }`}>
+                        {m.type === "preference" ? "偏好" : m.type === "profile" ? "个人" : m.type === "task" ? "待办" : m.type === "interest" ? "兴趣" : "事实"}
+                      </span>
+                      <span className="flex-1 text-sm text-paper-ink leading-relaxed">{m.content}</span>
+                      <button
+                        onClick={() => handleDeleteMemory(m.id)}
+                        className="text-paper-ink3 hover:text-red-500 text-xs opacity-0 group-hover:opacity-100 transition"
+                        title="删除这条记忆"
+                      >删除</button>
+                    </div>
+                    <div className="mt-1.5 text-[10px] text-paper-ink3">
+                      置信度 {Math.round(m.confidence * 100)}% · {new Date(m.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -720,3 +830,6 @@ function formatNumber(n: number): string {
   if (n >= 10000) return (n / 10000).toFixed(1) + "w";
   return n.toLocaleString();
 }
+
+// rebuild trigger 07:41:03
+
