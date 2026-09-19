@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MyDiary API — Cloudflare Worker
  * Routes:
  *   POST   /api/auth/register    注册
@@ -95,6 +95,9 @@ export default {
       ["GET",    "/api/summaries",       handleListSummaries],
       ["POST",   "/api/ai/ask",          handleAsk],
       ["POST",   "/api/ai/reindex",      handleReindex],
+      ["GET",    "/api/memory",          handleListMemory],
+      ["POST",   "/api/memory",          handleAddMemory],
+      ["DELETE", "/api/memory",          handleDeleteMemory],
     ];
 
     for (const [method, p, handler] of routes) {
@@ -953,6 +956,156 @@ function cosineSimilarity(a, b) {
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
+// ===== 混合检索辅助 =====
+// 中文停用词（极简版，够用就行）
+const STOPWORDS = new Set(['的', '了', '是', '在', '我', '你', '他', '她', '它', '我们', '你们', '他们',
+  '这', '那', '有', '没', '不', '也', '就', '都', '还', '要', '会', '能', '去', '来', '看', '想', '说',
+  '啊', '吗', '呢', '吧', '哦', '呀', '嗯', '唉', '哎', '啦',
+  '什么', '怎么', '为什么', '哪里', '哪个', '多少', '几', '很', '特别', '比较', '稍微', '非常',
+  '一下', '一会', '一些', '这个', '那个', '现在', '以后', '之前', '时候', '可能', '应该', '知道']);
+
+// 从 query 提取关键词：n-gram (2~4 字) + 英文/数字 token
+// 简单策略：多 gram 优先，尽量不过度过滤
+function extractKeywords(query) {
+  if (!query) return [];
+  const tokens = new Set();
+  const cleaned = query.replace(/[，。！？、；：""''（）【】《》…\s]/g, '').trim();
+  // 英文/数字
+  (query.match(/[a-zA-Z0-9]+/g) || []).forEach(t => tokens.add(t.toLowerCase()));
+  // 中文 n-gram (4→3→2 字，长的优先)
+  for (let len = Math.min(4, cleaned.length); len >= 2; len--) {
+    for (let i = 0; i <= cleaned.length - len; i++) {
+      const gram = cleaned.slice(i, i + len);
+      // 完全由停用词组成的才跳过（保留含实字的）
+      if ([...gram].every(ch => STOPWORDS.has(ch))) continue;
+      tokens.add(gram);
+    }
+  }
+  return [...tokens].slice(0, 12); // 最多 12 个
+}
+
+// 算 content 里的关键词匹配分：频率 + 位置加权（前面出现权重高）
+function keywordScore(content, keywords) {
+  if (!keywords.length || !content) return 0;
+  let score = 0;
+  for (const kw of keywords) {
+    let pos = content.indexOf(kw);
+    if (pos === -1) continue;
+    // 频率：出现次数
+    const count = content.split(kw).length - 1;
+    // 位置：越靠前权重越高（0~1）
+    const posBonus = Math.max(0, 1 - pos / Math.max(content.length, 1));
+    score += count * 0.3 + posBonus * 0.5;
+  }
+  // 归一化（除以关键词数，让分数在 0~1 区间）
+  return Math.min(1, score / keywords.length);
+}
+
+// ===== 长期记忆 =====
+const MEMORY_ENABLED_DEFAULT = false; // 默认关，env.MEMORY_ENABLED='true' 才开
+const MAX_MEMORIES_IN_PROMPT = 15;     // 最多塞进 prompt 的记忆数
+const MAX_EXTRACT_PER_TURN = 3;        // 每轮对话最多提取的候选记忆
+
+// 加载用户 active 记忆 → 格式化为 system prompt 片段
+async function loadMemories(env, uid) {
+  try {
+    const r = await env.DB.prepare(
+      "SELECT type, content, confidence FROM user_memory WHERE user_id = ? AND status = 'active' ORDER BY confidence DESC, updated_at DESC LIMIT ?"
+    ).bind(uid, MAX_MEMORIES_IN_PROMPT).all();
+    const rows = r.results || [];
+    if (!rows.length) return '';
+    const typeLabel = { profile: '个人资料', preference: '偏好', fact: '事实', task: '待办', interest: '兴趣' };
+    return rows.map(m => `- [${typeLabel[m.type] || m.type}] ${m.content}`).join('\n');
+  } catch (e) {
+    return '';
+  }
+}
+
+// 用 LLM 从这轮对话里提取可能的记忆候选
+async function extractMemoryCandidates(env, userMsg, aiReply) {
+  const sys = `你是一个记忆提取器。从用户的消息中提取值得记住的用户画像/偏好/事实/待办/兴趣。
+规则：
+1. 只提取关于用户自己的信息（不是AI回答里的常识）
+2. 置信度：profile(0.9) > preference(0.8) > fact(0.7) > task(0.7) > interest(0.6)
+3. 内容简洁，完整句子
+4. 完全不确定就返回空数组
+
+严格输出 JSON：{"memories": [{"type": "preference", "content": "用户喜欢爵士音乐", "confidence": 0.8}]}`;
+  const msgs = [
+    { role: 'system', content: sys },
+    { role: 'user', content: `用户说：${userMsg}\nAI答：${aiReply}` },
+  ];
+  try {
+    // 用 Workers AI 免费模型（快速稳定，不依赖 Agnes）
+    const res = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: msgs,
+      max_tokens: 300,
+    });
+    const raw = res?.response || res?.output || (typeof res === 'string' ? res : JSON.stringify(res));
+    console.log('[extract] raw=', String(raw).slice(0, 200));
+    // 用正则提取 JSON 块
+    const m = String(raw).match(/\{[\s\S]*\}/);
+    if (!m) { console.log('[extract] no json found'); return []; }
+    const parsed = JSON.parse(m[0]);
+    const mems = (parsed.memories || []).slice(0, MAX_EXTRACT_PER_TURN);
+    console.log('[extract] mems=', JSON.stringify(mems));
+    const VALID_TYPES = new Set(['profile', 'preference', 'fact', 'task', 'interest']);
+    return mems
+      .filter(x => VALID_TYPES.has(x.type) && x.content && x.content.length >= 4)
+      .map(x => ({ ...x, confidence: Math.min(1, Math.max(0.5, Number(x.confidence) || 0.7)) }));
+  } catch (e) { console.log('[extract] error=', e.message); return []; }
+}
+
+// 把记忆候选 upsert 到 DB（同 user_id + content 唯一）
+async function saveMemories(env, uid, candidates) {
+  if (!candidates.length) return 0;
+  const stmt = env.DB.prepare(
+    `INSERT INTO user_memory (user_id, type, content, confidence, status)
+     VALUES (?, ?, ?, ?, 'active')
+     ON CONFLICT(user_id, content) DO UPDATE SET
+       confidence = MAX(confidence, excluded.confidence),
+       updated_at = datetime('now','localtime')`
+  );
+  const batch = candidates.map(c => stmt.bind(uid, c.type, c.content, c.confidence));
+  try { await env.DB.batch(batch); } catch { return 0; }
+  return candidates.length;
+}
+
+// ===== Memory API handlers =====
+async function handleListMemory(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const r = await env.DB.prepare(
+    "SELECT id, type, content, confidence, status, created_at FROM user_memory WHERE user_id = ? AND status != 'archived' ORDER BY confidence DESC, updated_at DESC LIMIT 50"
+  ).bind(user.uid).all();
+  return json({ memories: r.results });
+}
+
+async function handleAddMemory(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const { type, content, confidence } = await request.json();
+  if (!content || content.length < 2) return json({ error: 'content too short' }, 400);
+  const VALID_TYPES = new Set(['profile', 'preference', 'fact', 'task', 'interest']);
+  const t = VALID_TYPES.has(type) ? type : 'fact';
+  const r = await env.DB.prepare(
+    `INSERT INTO user_memory (user_id, type, content, confidence, status)
+     VALUES (?, ?, ?, ?, 'active')
+     ON CONFLICT(user_id, content) DO UPDATE SET updated_at = datetime('now','localtime')`
+  ).bind(user.uid, t, content, confidence || 0.7).run();
+  return json({ ok: true, id: r.lastRowId });
+}
+
+async function handleDeleteMemory(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const url = new URL(request.url);
+  const id = url.searchParams.get('id');
+  if (!id) return json({ error: 'missing id' }, 400);
+  await env.DB.prepare("DELETE FROM user_memory WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+  return json({ ok: true });
+}
+
 function float32ToJson(arr) { return JSON.stringify(Array.from(arr)); }
 function jsonToFloat32(text) { return new Float32Array(JSON.parse(text)); }
 
@@ -1032,13 +1185,15 @@ async function callChatFriendly(env, question) {
   return callLLM(env, [{ role: 'system', content: sys }, { role: 'user', content: question }], 256);
 }
 
-async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history) {
+async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history, memoriesText = '') {
   // 事实 + 片段放进 system，保持 messages 里只有一条最后的 user（当前问题）
   const facts = `【事实】
 - 用户一共有 **${totalIndexed}** 篇已索引日记
 - 语义检索到 ${topK} 篇日记片段（可能和当前问题无关，不相关就忽略）：
 ${context || '（没有检索到相关日记）'}`;
+  const memoryBlock = memoriesText ? `\n【关于这个用户，你记住了】\n${memoriesText}\n（在回答时自然地用上这些记忆，不要说"根据我的记忆"之类的话）` : '';
   const sys = `你是温暖的日记 AI 助手，同时你也有通用知识可以回答常识问题。
+${memoryBlock}
 
 绝对禁止说的话（违反就扣分）：
 - "这个问题是xx类/xx类型/属于xx"
@@ -1054,6 +1209,7 @@ ${context || '（没有检索到相关日记）'}`;
 5. 统计/计数类日记问题：先告诉用户"你一共有 N 篇日记"（N=totalIndexed），然后说"我找到其中最相关的 M 篇"（M=topK），再基于这 M 篇回答
 6. 追问（"为什么"、"那之前呢"、"你自己知道吗"、"你没搞错吧"等）必须结合历史对话理解，不能脱离上下文瞎答
 7. 对数字/单位/算术要谨慎，不确定就说"我不太确定，建议查证一下"
+8. 如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），回答的结尾可以自然提一句"我会记住这点的～"或者"📝 这会成为我的记忆"（不要每次都说，10次里说2-3次就好，自然不生硬）
 
 ${facts}`;
   const msgs = [{ role: 'system', content: sys }];
@@ -1113,7 +1269,9 @@ async function handleAsk(request, env, JWT_SECRET) {
   if (!isDiaryRelated) {
     // 纯常识/通用问题，直接让 LLM 自由发挥，不查日记
     try {
-      const sys = '你是温暖友好的 AI 助手。准确回答问题，简洁口语化，可加少量 emoji。如果是数字/单位/算术要特别小心，不确定就说"我不太确定，建议查证一下"。';
+      const memoriesText = await loadMemories(env, user.uid);
+      const memBlock = memoriesText ? `\n\n【关于这个用户，你记住了】\n${memoriesText}\n（自然用上，不要说"根据我的记忆"）` : '';
+      const sys = `你是温暖友好的 AI 助手。准确回答问题，简洁口语化，可加少量 emoji。如果是数字/单位/算术要特别小心，不确定就说"我不太确定，建议查证一下"。如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），回答结尾自然提一句"我会记住这点的～"（不要每次都说，10次里2-3次就好）。${memBlock}`;
       const msgs = [{ role: 'system', content: sys }];
       if (Array.isArray(history)) {
         for (const h of history) {
@@ -1124,6 +1282,16 @@ async function handleAsk(request, env, JWT_SECRET) {
       }
       msgs.push({ role: 'user', content: question });
       const answer = await callLLM(env, msgs, 500);
+      // 同步提取记忆（Workers AI 很快，5s timeout 够了）
+      if (answer) {
+        try {
+          const cands = await Promise.race([
+            extractMemoryCandidates(env, question, answer),
+            new Promise(r => setTimeout(() => r([]), 5000)),
+          ]);
+          if (cands.length) await saveMemories(env, user.uid, cands);
+        } catch {}
+      }
       return json({ answer: answer || '让我想想～', sources: [] });
     } catch (e) { return json({ answer: '抱歉，我暂时答不上来这个问题' }); }
   }
@@ -1137,24 +1305,53 @@ async function handleAsk(request, env, JWT_SECRET) {
     const rows = await env.DB.prepare(
       'SELECT diary_id, content, vector FROM diary_embeddings WHERE user_id = ? ORDER BY diary_id DESC LIMIT 50'
     ).bind(user.uid).all();
-    const scored = rows.results
-      .map(r => ({ ...r, score: cosineSimilarity(qVec, jsonToFloat32(r.vector)) }))
-      .sort((a, b) => b.score - a.score);
+
+    // ===== 混合检索：向量 (0.7) + 关键词 (0.3) =====
+    const keywords = extractKeywords(ragQuery);
+    const USE_VECTOR_W = 0.7;
+    const USE_KW_W = 0.3;
+
+    // 先算纯 cosine，用于归一化 keyword score
+    const vecScores = rows.results.map(r => cosineSimilarity(qVec, jsonToFloat32(r.vector)));
+    const maxVec = Math.max(...vecScores, 0.001); // 避免除零
+
+    const scored = rows.results.map((r, i) => {
+      const vecRaw = vecScores[i];
+      const kwRaw = keywordScore(r.content, keywords);
+      // keyword 归一化到 0~maxVec 范围，避免被 0.3 权重压太小
+      const kwNorm = kwRaw * maxVec;
+      const score = USE_VECTOR_W * vecRaw + USE_KW_W * kwNorm;
+      return { ...r, score, vecScore: Math.round(vecRaw * 1000) / 1000, kwScore: Math.round(kwRaw * 1000) / 1000 };
+    }).sort((a, b) => b.score - a.score);
+
     const totalIndexed = rows.results.length;
     const topK = Math.min(10, totalIndexed);
     const top = scored.slice(0, topK);
-    // 相关度太低 → 传空片段让 LLM 自己判断
+    // 相关度太低 → 传空片段让 LLM 自己判断（阈值 0.15 比纯向量低一点，因为融合分会低些）
     const bestScore = top[0]?.score ?? 0;
-    const contextParts = bestScore < 0.2 ? [] : top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
+    const contextParts = bestScore < 0.15 ? [] : top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
     const context = contextParts.join('\n\n');
+    // 加载记忆 → 拼进 prompt
+    const memoriesText = await loadMemories(env, user.uid);
     let answer;
-    try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history); }
+    try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history, memoriesText); }
     catch (e) { answer = 'LLM 错: ' + e.message; }
+    // 同步提取并保存记忆（Workers AI 很快，5s timeout 够了）
+    if (answer) {
+      try {
+        const cands = await Promise.race([
+          extractMemoryCandidates(env, question, answer),
+          new Promise(r => setTimeout(() => r([]), 5000)),
+        ]);
+        if (cands.length) await saveMemories(env, user.uid, cands);
+      } catch {}
+    }
     return json({
       answer,
-      sources: bestScore < 0.2 ? [] : top.map(s => ({ diary_id: s.diary_id, score: Math.round(s.score*1000)/1000 })),
+      sources: bestScore < 0.15 ? [] : top.map(s => ({ diary_id: s.diary_id, score: Math.round(s.score*1000)/1000 })),
+      keywords, // debug: 返回提取到的关键词，方便验证
     });
-  } catch (e) { return json({ error: e.message }, 500); }
+    return json({ answer, sources, keywords, _memCount: $("SELECT COUNT(*) FROM user_memory WHERE user_id=?").all().then(r => r.results[0]["COUNT(*)"]) });
 }
 
 async function handleReindex(request, env, JWT_SECRET) {

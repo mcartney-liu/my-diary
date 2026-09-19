@@ -1,4 +1,4 @@
-﻿// Cloud API client — talks to Cloudflare Workers
+// Cloud API client — talks to Cloudflare Workers
 // 开发环境: 直连 dev Worker 绝对地址 (绕开 Vite proxy —— Node.js 在本 Windows 上连不了海外 HTTPS)
 // 生产环境: 相对路径走 Pages Functions 同域代理 (绕开 iPhone Safari 对 workers.dev 的封锁)
 
@@ -327,4 +327,19 @@ export function askDiary(question: string, history?: { role: "user" | "assistant
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question, history }),
   });
+}
+
+// 长期记忆
+export function listMemory() {
+  return request<{ memories: { id: number; type: string; content: string; confidence: number; status: string; created_at: string }[] }>('/api/memory');
+}
+export function addMemory(type: string, content: string, confidence = 0.7) {
+  return request<{ ok: boolean; id: number }>('/api/memory', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, content, confidence }),
+  });
+}
+export function deleteMemory(id: number) {
+  return request<{ ok: boolean }>(`/api/memory?id=${id}`, { method: 'DELETE' });
 }

@@ -1,24 +1,32 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const TS = Date.now().toString();
+
 export default defineConfig({
   plugins: [react()],
   base: "./",
   define: {
-    __APP_VERSION__: JSON.stringify("0.4.0"),
+    __APP_VERSION__: JSON.stringify("0.4.1-" + TS),
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        entryFileNames: `assets/index-${TS}.js`,
+        chunkFileNames: `assets/chunk-${TS}.js`,
+      },
+    },
   },
   server: {
     host: true,
     port: 5173,
     allowedHosts: true,
     proxy: {
-      // 更具体的放前面，优先匹配
       "/api/transcribe": {
         target: "http://localhost:8080",
         changeOrigin: true,
         timeout: 120_000,
       },
-      // 所有其他 /api/* 代理到 Cloudflare Worker (dev 环境)
       "/api": {
         target: "https://mydiary-api-dev.mcartneyliu.workers.dev",
         changeOrigin: true,

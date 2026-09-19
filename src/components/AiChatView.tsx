@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { askDiary } from "../api";
+import { askDiary, addMemory } from "../api";
 import { useAuth } from "../AuthContext";
 
 interface Msg {
@@ -20,6 +20,40 @@ const SUGGESTIONS = [
   "最近花了多少钱？",
   "我最开心的一天是哪天？",
 ];
+
+// 记住这句话按钮
+function RememberButton({ content }: { content: string }) {
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const handleSave = async () => {
+    if (saving || saved) return;
+    setSaving(true);
+    try {
+      // 猜类型：含"喜欢/爱/讨厌"→ preference，含"我是/我叫/我有"→ profile，含"要/计划/目标"→ task，默认 fact
+      let type = "fact";
+      if (/喜欢|爱|讨厌|偏好|习惯|风格/.test(content)) type = "preference";
+      else if (/我是|我叫|我姓|我今年|我来自|我有/.test(content)) type = "profile";
+      else if (/要|计划|目标|打算|准备/.test(content)) type = "task";
+      await addMemory(type, content, 0.8);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch {
+      // 静默失败
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <button
+      onClick={handleSave}
+      disabled={saved || saving}
+      className="mt-1.5 text-[11px] text-paper-bg/70 hover:text-paper-bg transition opacity-60 hover:opacity-100"
+      title="点击保存为长期记忆，AI 下次会记住"
+    >
+      {saved ? "💾 已记住！会成为我的记忆 🌟" : saving ? "保存中…" : "💾 记住这句话"}
+    </button>
+  );
+}
 
 function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
@@ -252,6 +286,9 @@ export default function AiChatView() {
                   📎 引用 {m.sources.length} 篇日记
                 </div>
               ) : null}
+              {m.role === "user" && (
+                <RememberButton content={m.content} />
+              )}
             </div>
           </div>
         ))}
@@ -292,3 +329,4 @@ export default function AiChatView() {
     </section>
   );
 }
+
