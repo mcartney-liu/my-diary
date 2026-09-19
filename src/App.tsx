@@ -142,8 +142,11 @@ export default function App() {
                 showLines: d.show_lines ?? 1,
               }));
               const merged = dedupeDiaries([...cleaned, ...mapped]);
-              setAllDiaries(merged);
-              saveLocal(merged);
+               // 已登录状态下以云端为真相源，过滤掉本地独有的孤儿数据（id 不匹配任何云端记录）
+               const cloudIds = new Set(mapped.map((d: Diary) => d.id));
+               const final = merged.filter((d: Diary) => cloudIds.has(d.id));
+               setAllDiaries(final);
+               saveLocal(final);
             }
           })
           .catch(() => { /* 离线或 token 过期，保留本地 */ });
