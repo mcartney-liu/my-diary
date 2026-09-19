@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { askDiary } from "../api";
+import { useAuth } from "../AuthContext";
 
 interface Msg {
   role: "user" | "ai";
@@ -14,9 +15,6 @@ interface Session {
   createdAt: number;
 }
 
-const STORAGE_KEY = "mydiary-web:chat:sessions";
-const ACTIVE_KEY = "mydiary-web:chat:active";
-
 const SUGGESTIONS = [
   "我写过什么主题的日记？",
   "最近花了多少钱？",
@@ -27,13 +25,21 @@ function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-function loadData(): { sessions: Session[]; activeId: string } {
+function storageKeys(userId: string): { sessions: string; active: string } {
+  return {
+    sessions: `mydiary-web:chat:sessions:${userId}`,
+    active: `mydiary-web:chat:active:${userId}`,
+  };
+}
+
+function loadDataFor(userId: string): { sessions: Session[]; activeId: string } {
+  const keys = storageKeys(userId);
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(keys.sessions);
     if (raw) {
       const list: Session[] = JSON.parse(raw);
       if (list.length) {
-        const active = localStorage.getItem(ACTIVE_KEY) || list[0].id;
+        const active = localStorage.getItem(keys.active) || list[0].id;
         const found = list.find((s) => s.id === active);
         return { sessions: list, activeId: found ? found.id : list[0].id };
       }
@@ -44,7 +50,11 @@ function loadData(): { sessions: Session[]; activeId: string } {
 }
 
 export default function AiChatView() {
-  const initial = useMemo(loadData, []);
+  const { user } = useAuth();
+  const userId = user?.id || "anon";
+  const keys = useMemo(() => storageKeys(userId), [userId]);
+
+  const initial = useMemo(() => loadDataFor(userId), [userId]);
   const [sessions, setSessions] = useState<Session[]>(initial.sessions);
   const [activeId, setActiveId] = useState<string>(initial.activeId);
   const [input, setInput] = useState("");
@@ -54,13 +64,20 @@ export default function AiChatView() {
 
   const active = sessions.find((s) => s.id === activeId) || sessions[0];
 
-  // 持久化
+  // 切换账号时重新加载
+  useEffect(() => {
+    const d = loadDataFor(userId);
+    setSessions(d.sessions);
+    setActiveId(d.activeId);
+  }, [userId]);
+
+  // 持久化（按账号隔离）
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
-      localStorage.setItem(ACTIVE_KEY, activeId);
+      localStorage.setItem(keys.sessions, JSON.stringify(sessions));
+      localStorage.setItem(keys.active, activeId);
     } catch {}
-  }, [sessions, activeId]);
+  }, [sessions, activeId, keys.sessions, keys.active]);
 
   // 自动滚到底
   useEffect(() => {

@@ -396,10 +396,10 @@ async function handleGetProfile(request, env, JWT_SECRET) {
 
   const u = await env.DB.prepare("SELECT id, email, nickname, avatar FROM users WHERE id = ?").bind(user.uid).first();
   const p = await env.DB.prepare("SELECT * FROM profiles WHERE user_id = ?").bind(user.uid).first();
-  const countRow = await env.DB.prepare("SELECT COUNT(*) as c FROM diaries WHERE user_id = ?").bind(user.uid).first();
+  const countRow = await env.DB.prepare("SELECT COUNT(*) as c FROM diaries WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')").bind(user.uid).first();
 
   // 统计总字数（应用层，D1 不支持 json_length）
-  const allBlocks = await env.DB.prepare("SELECT blocks FROM diaries WHERE user_id = ?").bind(user.uid).all();
+  const allBlocks = await env.DB.prepare("SELECT blocks FROM diaries WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')").bind(user.uid).all();
   let totalWords = 0;
   for (const row of allBlocks.results) {
     try {
