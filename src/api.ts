@@ -1,4 +1,4 @@
-// Cloud API client — talks to Cloudflare Workers
+﻿// Cloud API client — talks to Cloudflare Workers
 // 开发环境: 直连 dev Worker 绝对地址 (绕开 Vite proxy —— Node.js 在本 Windows 上连不了海外 HTTPS)
 // 生产环境: 相对路径走 Pages Functions 同域代理 (绕开 iPhone Safari 对 workers.dev 的封锁)
 
@@ -46,14 +46,9 @@ async function request<T>(path: string, init?: RequestInit, auth = true): Promis
 export interface AuthUser { id: string; email: string; nickname: string }
 export interface AuthResult { token: string; user: AuthUser }
 
-export function sendVerificationCode(email: string) {
-  return request<{ ok: boolean; dev_code?: string | null }>("/api/auth/send-code", {
-    method: "POST", body: JSON.stringify({ email }),
-  }, false);
-}
-export function register(email: string, password: string, code: string, nickname?: string) {
+export function register(email: string, password: string, nickname?: string) {
   return request<AuthResult>("/api/auth/register", {
-    method: "POST", body: JSON.stringify({ email, password, code, nickname }),
+    method: "POST", body: JSON.stringify({ email, password, nickname }),
   }, false);
 }
 export function login(email: string, password: string) {
@@ -323,4 +318,13 @@ export function saveSummary(date: string, summary: string, diary_count = 0) {
 
 export function listSummaries() {
   return request<{ summaries: DailySummary[] }>('/api/summaries');
+}
+
+// AI 知识库问答
+export function askDiary(question: string) {
+  return request<{ answer: string; sources: { diary_id: string; score: number }[] }>('/api/ai/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question }),
+  });
 }

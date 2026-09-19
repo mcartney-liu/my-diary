@@ -518,43 +518,31 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-              {/* === v0.3.1 当前版本（高亮） === */}
+              {/* === v0.4.0 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-bold text-paper-accent">v{__APP_VERSION__}</span>
-                  <span className="text-paper-ink3 text-xs">2026年09月18日</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月19日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>📊 <b>记账统计页面</b> — 顶栏多了 📊 入口，点进去能看周/月汇总，每天收支柱图一目了然，分类前几名自动找出钱花在哪</li>
-                    <li>🖼️ <b>图片能拖放调大小了</b> — 写日记时图片右下角有个小圆点，鼠标悬停或长按才出现，拖一下就能缩小放大（25% 到 150%），手机触屏也能用</li>
-                    <li>🖼️ <b>图片上传自动压缩</b> — 传大图也不怕吃配额</li>
-                    <li>📅 <b>日历顶栏加了 📊 入口</b> — 一键跳到记账统计页</li>
-                    <li>🎠 <b>顶栏导航跑马灯</b> — 手机端图标多了挤不下，自动左右循环滑，手指能按住停住、拖一下、松手继续</li>
+                    <li>💬 <b>日记知识库</b> — 首页顶部 Tab 新增「💬 知识库」入口，和月历 / 年度回顾并列；能从所有日记里按语义找片段回答问题，附带引用来源</li>
+                    <li>🧠 <b>多会话管理</b> — 点左上角 ☰ 打开历史抽屉，「＋ 新对话」新建空白，点历史项切换回去，鼠标悬停可删除单个会话</li>
+                    <li>💾 <b>聊天记录自动保存</b> — 所有对话持久化到本地，刷新页面、重新登录都不丢；当前活跃哪个会话也记住</li>
+                    <li>😊 <b>问候不再死板</b> — "你好"、"你是谁" 不再说"没找到相关内容"，会友好介绍自己能帮什么</li>
                   </ul>
-                  <div><b className="text-paper-ink">🐛 Bug 修复</b></div>
+                  <div><b className="text-paper-ink">🧭 交互调整</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>📊 <b>柱图方向反了 + 日期显示不全</b> — 之前柱子从左往右长不符合直觉；日期轴还只显示偶数天，日期多了看不全；都改了</li>
-                    <li>📈 <b>每日一句话总说"今天没什么特别的"</b> — 之前只看文字内容，记账模板全是流水没有文字，AI 每次都兜底；现在能识别收支流水了</li>
-                    <li>📖 <b>历史抽屉显示 0 条</b> — 后端过滤条件问题，修了</li>
-                    <li>🔙 <b>从列表页点进日记，返回键跳回首页</b> — 之前硬编码跳首页，现在回到上一页（不管是记账统计、纪念日还是计划）</li>
-                  </ul>
-                  <div><b className="text-paper-ink">🔧 交互改进</b></div>
-                  <ul className="list-disc pl-5 space-y-1">
-                    <li>新建空记账模板会拦住你 — 改了标题但没填任何收支就点保存 → 弹窗提示"至少记一笔再保存"</li>
-                  </ul>
-                  <div><b className="text-paper-ink">🛡️ 重复日记彻底解决</b></div>
-                  <ul className="list-disc pl-5 space-y-1">
-                    <li>后端：同日期 + 同模板 + 同标题（记账/纪念日/计划）→ 直接更新旧的，不新建</li>
-                    <li>前端：收到后端返回的最终标识，自动把本地纠正过来</li>
-                    <li>启动时：本地缓存和云端合并 → 只留最新那条</li>
+                    <li>顶栏导航变成三 Tab（📅 月历 / 📊 年度回顾 / 💬 知识库），AI 入口从底部导航移除，保持底部三项不变</li>
+                    <li>知识库内嵌在 Tab 切换区，不再是右侧抽屉，和月历 / 年度回顾同级同宽</li>
+                    <li>全局不用 "AI" 字样，统一叫「知识库」、图标 💬</li>
                   </ul>
                 </div>
               </div>
 
-              {/* === v0.3.0 === */}
+              {/* === v0.3.1 === */}
               <div className="border-t border-paper-line pt-4">
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-bold text-paper-ink">v0.3.0</span>

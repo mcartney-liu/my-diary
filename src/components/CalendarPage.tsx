@@ -9,6 +9,7 @@ import OnThisDay from "./OnThisDay";
 import MoodHeatmap from "./MoodHeatmap";
 import DayList from "./DayList";
 import VoiceQuickEntry from "./VoiceQuickEntry";
+import AiChatView from "./AiChatView";
 
 interface Props {
   diaries: Diary[];
@@ -23,7 +24,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [selectedDate, setSelectedDate] = useState<string>(() => fmtDate(now));
-  const [view, setView] = useState<"monthly" | "yearly">("monthly");
+  const [view, setView] = useState<"monthly" | "yearly" | "ai">("monthly");
   const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
 
   // 🎠 跑马灯 touch 手势：手指拖时停动画 + 手动跟手，松手继续自动跑（接回当前位置）
@@ -303,6 +304,16 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           >
             📊 年度回顾
           </button>
+          <button
+            onClick={() => setView("ai")}
+            className={`px-3.5 py-1.5 rounded-full text-sm transition ${
+              view === "ai"
+                ? "bg-paper-ink text-paper-bg shadow-sm"
+                : "text-paper-ink2 hover:text-paper-ink"
+            }`}
+          >
+            💬 知识库
+          </button>
         </div>
 
         {view === "monthly" ? (
@@ -390,8 +401,10 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           <DayList date={selectedDate} diaries={byDate.get(selectedDate) ?? []} onSoftDelete={onSoftDelete} />
         </section>
           </>
-        ) : (
+        ) : view === "yearly" ? (
           <MoodHeatmap diaries={diaries} />
+        ) : (
+          <AiChatView />
         )}
       </main>
 
@@ -445,8 +458,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
 
       {/* 📱 底部固定 Tab Bar */}
       <nav className="fixed bottom-0 inset-x-0 z-20 backdrop-blur-sm bg-[#faf6ef]/95 border-t border-paper-line">
-        <div className="max-w-3xl mx-auto px-4 py-2 flex items-center justify-between">
-          {/* 左边：我的 */}
+        <div className="max-w-3xl mx-auto px-4 py-2 flex items-center justify-around">
           <button
             onClick={() => nav("/profile")}
             className="flex flex-col items-center gap-0.5 px-4 py-2 rounded-xl text-paper-ink2 hover:text-paper-accent transition active:scale-95"
@@ -455,12 +467,10 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             <span className="text-[11px] font-medium">我的</span>
           </button>
 
-          {/* 中间：AI 速记 */}
           <div className="flex flex-col items-center gap-0.5">
             <VoiceQuickEntry />
           </div>
 
-          {/* 右边：写日记 */}
           <button
             onClick={() => nav("/editor")}
             className="flex flex-col items-center gap-0.5 px-4 py-2 rounded-xl text-paper-ink2 hover:text-paper-accent transition active:scale-95"

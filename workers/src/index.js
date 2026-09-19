@@ -64,10 +64,9 @@ export default {
 
     // 路由表（method + path → handler）
     const routes = [
-      ["POST",   "/api/auth/send-code",  handleSendCode],
-      ["POST",   "/api/auth/register",   handleRegister],
-      ["POST",   "/api/auth/login",      handleLogin],
-      ["GET",    "/api/auth/me",         handleMe],
+      ["POST",   "/api/auth/register",  handleRegister],
+      ["POST",   "/api/auth/login",     handleLogin],
+      ["GET",    "/api/auth/me",        handleMe],
       ["GET",    "/api/diaries",        handleListDiaries],
       ["POST",   "/api/diaries",        handleSaveDiary],
       ["DELETE", "/api/diaries",        handleDeleteDiary],
@@ -94,6 +93,8 @@ export default {
       ["PATCH",  "/api/plans",           handleUpdatePlan],
       ["POST",   "/api/summaries",       handleSaveSummary],
       ["GET",    "/api/summaries",       handleListSummaries],
+      ["POST",   "/api/ai/ask",          handleAsk],
+      ["POST",   "/api/ai/reindex",      handleReindex],
     ];
 
     for (const [method, p, handler] of routes) {
@@ -123,146 +124,12 @@ async function readBody(request) {
 }
 
 // ====== Auth ======
-
-// 邮箱格式校验（宽松版，够挡明显假邮箱）
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
-// 取当前环境的 KV namespace（prod 叫 verify_codes，dev 叫 verify_codes_dev）
-function getVerifyKV(env) {
-  return env.verify_codes || env.verify_codes_dev;
-}
-
-// 验证码邮件 HTML 模板
-function buildVerifyEmail(code, nickname = "朋友") {
-  const safeName = nickname ? `，${nickname}` : "";
-  const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;padding:0;background:#faf6f1;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;">
-  <div style="max-width:440px;margin:40px auto;background:#fff;border-radius:16px;padding:36px 32px;box-shadow:0 4px 24px rgba(0,0,0,.06);">
-    <div style="font-size:26px;font-weight:700;color:#1a1a1a;margin-bottom:6px;">📖 欢迎来到我的日记</div>
-    <div style="font-size:14px;color:#9e9e9e;margin-bottom:24px;">每一天，都值得被记录</div>
-
-    <div style="font-size:14px;color:#6b6b6b;line-height:1.7;margin-bottom:24px;">
-      Hi${safeName} 👋，感谢你选择我们！<br/>
-      用下面这 6 位验证码完成注册，开启你的日记之旅吧 ✨
-    </div>
-
-    <div style="font-size:14px;color:#9e9e9e;margin-bottom:8px;">你的注册验证码</div>
-    <div style="font-size:38px;font-weight:700;letter-spacing:10px;color:#1a1a1a;padding:18px 24px;background:#faf6f1;border-radius:12px;text-align:center;margin-bottom:24px;border:1px solid #f0ece6;">${code}</div>
-    <div style="font-size:12px;color:#9e9e9e;margin-bottom:28px;">⏱️ 5 分钟内有效 · 如果不是你发起的注册，请忽略此邮件</div>
-
-    <div style="background:#faf6f1;border-radius:12px;padding:20px 24px;margin-bottom:24px;">
-      <div style="font-size:13px;color:#1a1a1a;font-weight:600;margin-bottom:12px;">🌟 注册后你可以</div>
-      <div style="font-size:12px;color:#6b6b6b;line-height:2;">
-        ✍️ 随时随地写日记，云端永不丢失<br/>
-        🎨 手绘信纸 · 手写字体 · 心情记录<br/>
-        🎯 纪念日提醒 · 计划管理 · 时间胶囊<br/>
-        🤖 AI 每日总结 · 模板库共享
-      </div>
-    </div>
-
-    <div style="font-size:12px;color:#bfbfbf;margin-top:8px;border-top:1px solid #f0ece6;padding-top:16px;text-align:center;">
-      来自 <b>我的日记</b> team<br/>
-      每天写一篇，让生活有迹可循 📝
-    </div>
-  </div>
-</body></html>`;
-  const text = `【我的日记】Hi${safeName}，欢迎加入！你的注册验证码是：${code}（5 分钟内有效）。每天写一篇，让生活有迹可循。`;
-  return { html, text };
-}
-
-// 用 Resend HTTP API 发邮件
-async function sendEmail(env, to, subject, htmlBody, textBody) {
-  const fromEmail = env.FROM_EMAIL || "noreply@callmydiary.online";
-  const fromName = env.FROM_NAME || "我的日记";
-  const apiKey = env.RESEND_API_KEY;
-
-  if (!apiKey) {
-    console.log(`[EMAIL MOCK] → ${to}  code=${htmlBody.match(/\d{6}/)?.[0] || "?"}`);
-    return { mock: true };
-  }
-
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: `${fromName} <${fromEmail}>`,
-      to: [to],
-      subject,
-      html: htmlBody,
-      text: textBody,
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Resend ${res.status}: ${err}`);
-  }
-  return { ok: true };
-}
-
-// POST /api/auth/send-code — 生成验证码 + 发邮件
-async function handleSendCode(request, env) {
-  const { email } = await readBody(request);
-  if (!email || !EMAIL_RE.test(email)) return json({ error: "邮箱格式不对" }, 400);
-
-  const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
-  if (existing) return json({ error: "这个邮箱已经注册过了" }, 409);
-
-  // 6 位数字验证码
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  const kv = getVerifyKV(env);
-  if (!kv) return json({ error: "验证码服务未配置" }, 503);
-
-  await kv.put(`code:${email}`, code, { expirationTtl: 300 }); // 5 分钟
-  // 限流标记：同邮箱 60 秒内不允许重发
-  const rateKey = `rate:${email}`;
-  const rateOk = await kv.get(rateKey);
-  if (rateOk) {
-    // 不拒绝，只是记录一下次数
-  }
-  await kv.put(rateKey, "1", { expirationTtl: 60 });
-
-  // 发邮件
-  const { html, text } = buildVerifyEmail(code);
-  const subject = "【我的日记】注册验证码";
-  try {
-    await sendEmail(env, email, subject, html, text);
-  } catch (e) {
-    return json({ error: `邮件发送失败：${e.message || e}` }, 500);
-  }
-
-  return json({ ok: true, dev_code: env.RESEND_API_KEY ? null : code });
-}
-
-// 校验验证码 + 清理
-async function consumeVerifyCode(env, email, code) {
-  const kv = getVerifyKV(env);
-  const key = `code:${email}`;
-  const expected = await kv.get(key);
-  if (!expected) return { ok: false, error: "验证码已过期或不存在" };
-  if (expected !== code) return { ok: false, error: "验证码不对" };
-  await kv.delete(key); // 用过就删
-  return { ok: true };
-}
-
 async function handleRegister(request, env, JWT_SECRET) {
-  const { email, password, nickname, code } = await readBody(request);
-  if (!email || !password || password.length < 6) {
-    return json({ error: "邮箱 + 密码（≥6 位）必填" }, 400);
-  }
-  if (!EMAIL_RE.test(email)) return json({ error: "邮箱格式不对" }, 400);
-  if (!code) return json({ error: "请先获取验证码" }, 400);
-
-  // 验验证码
-  const verify = await consumeVerifyCode(env, email, String(code));
-  if (!verify.ok) return json({ error: verify.error }, 400);
+  const { email, password, nickname } = await readBody(request);
+  if (!email || !password || password.length < 6) return json({ error: "email and password(≥6) required" }, 400);
 
   const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
-  if (existing) return json({ error: "邮箱已注册" }, 409);
+  if (existing) return json({ error: "email already registered" }, 409);
 
   const salt = genSalt();
   const pwHash = await hashPassword(password, salt);
@@ -491,6 +358,9 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
         console.error("[handleSaveDiary] ⚠️ plan 双写失败（不影响日记）:", pe.message);
       }
     }
+
+    // 异步 embedding（不阻塞主流程）
+    embedDiaryInBackground(env, diaryId, user.uid, body);
 
     return json({ id: diaryId, ok: true });
   } catch (e) {
@@ -1054,4 +924,158 @@ async function handleListSummaries(request, env, JWT_SECRET) {
   ).bind(user.uid).all();
 
   return json({ summaries: rows.results });
+}
+// ======= AI 知识库问答模块 =======
+
+function extractDiaryText(diary) {
+  if (!diary) return '';
+  const parts = [];
+  if (diary.title) parts.push(diary.title);
+  try {
+    const blocks = typeof diary.body === 'string' ? JSON.parse(diary.body) : diary.body;
+    if (Array.isArray(blocks)) {
+      for (const b of blocks) {
+        if (b?.type === 'text' && b.text) parts.push(b.text);
+        if (b?.type === 'paragraph' && b.text) parts.push(b.text);
+      }
+    }
+  } catch {}
+  return parts.join('\n').trim();
+}
+
+function cosineSimilarity(a, b) {
+  if (!a || !b || a.length !== b.length) return 0;
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; normA += a[i] * a[i]; normB += b[i] * b[i]; }
+  if (normA === 0 || normB === 0) return 0;
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+function float32ToJson(arr) { return JSON.stringify(Array.from(arr)); }
+function jsonToFloat32(text) { return new Float32Array(JSON.parse(text)); }
+
+const EMBEDDING_MODEL = '@cf/baai/bge-m3';
+const LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
+
+async function embedText(env, text) {
+  if (!text || !text.trim()) return null;
+  const r = await env.AI.run(EMBEDDING_MODEL, { text });
+  return r.data[0];
+}
+
+async function upsertEmbedding(env, diaryId, userId, content) {
+  if (!content || content.trim().length < 2) return;
+  const vec = await embedText(env, content);
+  if (!vec) return;
+  const json = float32ToJson(vec);
+  await env.DB.prepare(
+    'INSERT INTO diary_embeddings (diary_id, user_id, content, vector) VALUES (?, ?, ?, ?) ON CONFLICT(diary_id) DO UPDATE SET content=excluded.content, vector=excluded.vector'
+  ).bind(diaryId, userId, content, json).run();
+}
+
+async function embedDiaryInBackground(env, diaryId, userId, body) {
+  try {
+    const row = await env.DB.prepare('SELECT title, body FROM diaries WHERE id = ?').bind(diaryId).first();
+    const content = extractDiaryText({ title: row?.title, body: row?.body });
+    if (!content) return;
+    await upsertEmbedding(env, diaryId, userId, content);
+  } catch (e) { console.error('[embedDiaryInBackground] 失败:', e.message); }
+}
+
+// 问候/闲聊关键词（命中则不查日记，直接友好回复）
+const GREETING_PATTERNS = [
+  /^(你好|您好|哈喽|嗨|hi|hello|hey|早上好|下午好|晚上好|在吗|在不在|哦|嗯|ok|好的|好)\??$/i,
+  /你是谁|你叫什么|你是什么|介绍.*自己|自我介绍/,
+  /谢谢|感谢|thx|thanks|再见|拜拜|bye|goodbye/,
+  /吃了吗|吃饭了吗|睡了吗|冷吗|热吗|天气怎么样|天气好吗/,
+];
+function isGreeting(q) {
+  const t = q.trim().toLowerCase();
+  return GREETING_PATTERNS.some((re) => re.test(t));
+}
+// 不带日记的友好回复（给问候/闲聊用）
+async function callChatFriendly(env, question) {
+  const sys = '你是温暖的日记 AI 助手。友好、简洁、口语化，适当加 emoji。可以介绍自己能帮用户找日记、统计、回忆。';
+  const r = await env.AI.run(LLM_MODEL, {
+    messages: [{ role: 'system', content: sys }, { role: 'user', content: question }],
+    max_tokens: 256,
+  });
+  return r.response || '';
+}
+
+async function callWorkersAI_LLM(env, question, context, totalCount, indexedCount) {
+  const sys = `你是温暖的日记 AI 助手。
+
+规则：
+1. 依据给你的日记片段回答问题，口语化，可加少量 emoji
+2. 统计/计数类问题（多少、几篇、总共、统计）：先告诉用户"你一共有 N 篇日记"（N=indexedCount），然后说"我看到了其中 M 篇"（M=totalCount），再基于这 M 篇回答
+3. 如果没找到相关日记，也要友好说"这个好像没找到呢～你可以试试别的问题，比如'最近花了多少钱'、'我最开心的一天'之类的 😊"，不要干巴巴说"没找到"
+4. 如果片段内容和问题不相关，诚实说"我看到的片段里好像没有相关内容哦"`;
+  const user = `【事实】
+- 用户一共有 **${indexedCount}** 篇已索引日记
+- 下面只列出最相关的 ${totalCount} 篇（其余 ${Math.max(0, indexedCount - totalCount)} 篇和这个问题不直接相关）
+
+${context}
+
+问题：${question}
+
+回答统计类问题（多少/几篇/总共）时，必须先说"你一共有 ${indexedCount} 篇日记"。`;
+  const r = await env.AI.run(LLM_MODEL, {
+    messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
+    max_tokens: 512,
+  });
+  return r.response || '';
+}
+
+async function handleAsk(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const { question } = await request.json();
+  if (!question || !question.trim()) return json({ error: 'question required' }, 400);
+  // 问候/闲聊 → 直接友好回复，不查日记
+  if (isGreeting(question)) {
+    try {
+      const answer = await callChatFriendly(env, question);
+      return json({ answer, sources: [] });
+    } catch (e) {
+      return json({ answer: '你好呀～我在呢 😊 你可以问我关于你日记的问题哦' });
+    }
+  }
+  try {
+    const qVec = await embedText(env, question);
+    if (!qVec) return json({ error: 'embed failed' }, 500);
+    const rows = await env.DB.prepare(
+      'SELECT diary_id, content, vector FROM diary_embeddings WHERE user_id = ? ORDER BY diary_id DESC LIMIT 50'
+    ).bind(user.uid).all();
+    const scored = rows.results
+      .map(r => ({ ...r, score: cosineSimilarity(qVec, jsonToFloat32(r.vector)) }))
+      .sort((a, b) => b.score - a.score);
+    const top = scored.slice(0, 5);
+    const totalIndexed = rows.results.length;
+    const contextParts = top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
+    const context = contextParts.join('\n\n');
+    let answer;
+    try { answer = await callWorkersAI_LLM(env, question, context, top.length || 5, totalIndexed || 0); }
+    catch (e) { answer = 'LLM 错: ' + e.message; }
+    return json({ answer, sources: top.map(s => ({ diary_id: s.diary_id, score: Math.round(s.score*1000)/1000 })) });
+  } catch (e) { return json({ error: e.message }, 500); }
+}
+
+async function handleReindex(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  try {
+    const diaries = await env.DB.prepare(
+      "SELECT id, title, body FROM diaries WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY created_at DESC"
+    ).bind(user.uid).all();
+    const total = diaries.results.length;
+    let done = 0;
+    for (const d of diaries.results) {
+      try {
+        const content = extractDiaryText({ title: d.title, body: d.body });
+        if (content) { await upsertEmbedding(env, d.id, user.uid, content); done++; }
+      } catch (e) { console.error('[reindex] 失败:', d.id, e.message); }
+    }
+    return json({ ok: true, total, done });
+  } catch (e) { return json({ error: e.message }, 500); }
 }
