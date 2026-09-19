@@ -1349,9 +1349,11 @@ async function handleAsk(request, env, JWT_SECRET) {
     return json({
       answer,
       sources: bestScore < 0.15 ? [] : top.map(s => ({ diary_id: s.diary_id, score: Math.round(s.score*1000)/1000 })),
-      keywords, // debug: 返回提取到的关键词，方便验证
+      keywords,
     });
-    return json({ answer, sources, keywords, _memCount: $("SELECT COUNT(*) FROM user_memory WHERE user_id=?").all().then(r => r.results[0]["COUNT(*)"]) });
+  } catch (e) {
+    return json({ answer: '抱歉，出错了：' + (e.message || 'unknown') });
+  }
 }
 
 async function handleReindex(request, env, JWT_SECRET) {

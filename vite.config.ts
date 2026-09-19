@@ -1,21 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-const TS = Date.now().toString();
-
 export default defineConfig({
   plugins: [react()],
   base: "./",
   define: {
-    __APP_VERSION__: JSON.stringify("0.4.1-" + TS),
-  },
-  build: {
-    rollupOptions: {
-      output: {
-        entryFileNames: `assets/index-${TS}.js`,
-        chunkFileNames: `assets/chunk-${TS}.js`,
-      },
-    },
+    __APP_VERSION__: JSON.stringify("0.4.1"),
   },
   server: {
     host: true,
