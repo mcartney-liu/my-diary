@@ -360,7 +360,7 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
     }
 
     // 异步 embedding（不阻塞主流程）
-    embedDiaryInBackground(env, diaryId, user.uid, body);
+    embedDiaryInBackground(env, diaryId, user.uid);
 
     return json({ id: diaryId, ok: true });
   } catch (e) {
@@ -931,8 +931,10 @@ function extractDiaryText(diary) {
   if (!diary) return '';
   const parts = [];
   if (diary.title) parts.push(diary.title);
+  // body 和 blocks 都可能是 JSON 数组，prod 用 blocks，dev 用 body
+  const raw = diary.blocks ?? diary.body;
   try {
-    const blocks = typeof diary.body === 'string' ? JSON.parse(diary.body) : diary.body;
+    const blocks = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (Array.isArray(blocks)) {
       for (const b of blocks) {
         if (b?.type === 'text' && b.text) parts.push(b.text);
@@ -973,10 +975,10 @@ async function upsertEmbedding(env, diaryId, userId, content) {
   ).bind(diaryId, userId, content, json).run();
 }
 
-async function embedDiaryInBackground(env, diaryId, userId, body) {
+async function embedDiaryInBackground(env, diaryId, userId) {
   try {
-    const row = await env.DB.prepare('SELECT title, body FROM diaries WHERE id = ?').bind(diaryId).first();
-    const content = extractDiaryText({ title: row?.title, body: row?.body });
+    const row = await env.DB.prepare('SELECT title, blocks FROM diaries WHERE id = ?').bind(diaryId).first();
+    const content = extractDiaryText({ title: row?.title, blocks: row?.blocks });
     if (!content) return;
     await upsertEmbedding(env, diaryId, userId, content);
   } catch (e) { console.error('[embedDiaryInBackground] 失败:', e.message); }
@@ -1075,13 +1077,13 @@ async function handleReindex(request, env, JWT_SECRET) {
   if (!user) return json({ error: 'unauthorized' }, 401);
   try {
     const diaries = await env.DB.prepare(
-      "SELECT id, title, body FROM diaries WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY created_at DESC"
+      "SELECT id, title, blocks FROM diaries WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY created_at DESC"
     ).bind(user.uid).all();
     const total = diaries.results.length;
     let done = 0;
     for (const d of diaries.results) {
       try {
-        const content = extractDiaryText({ title: d.title, body: d.body });
+        const content = extractDiaryText({ title: d.title, blocks: d.blocks });
         if (content) { await upsertEmbedding(env, d.id, user.uid, content); done++; }
       } catch (e) { console.error('[reindex] 失败:', d.id, e.message); }
     }
