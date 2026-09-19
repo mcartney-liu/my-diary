@@ -106,8 +106,8 @@ export default function AiChatView() {
     setLoading(true);
     try {
       // 传最近 6 轮历史（不含当前 question），让 AI 能接上下文
-      const recent = [...active.msgs].slice(-6).map((m) => ({
-        role: m.role === "ai" ? "assistant" : ("user" as const),
+      const recent = [...active.msgs].slice(-6).map((m): { role: "user" | "assistant"; content: string } => ({
+        role: m.role === "ai" ? "assistant" : "user",
         content: m.content,
       }));
       const r = await askDiary(question, recent);
