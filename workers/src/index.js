@@ -1006,24 +1006,22 @@ async function callChatFriendly(env, question) {
 }
 
 async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history) {
+  // 事实 + 片段放进 system，保持 messages 里只有一条最后的 user（当前问题）
+  const facts = `【事实】
+- 用户一共有 **${totalIndexed}** 篇已索引日记
+- 语义检索到 ${topK} 篇日记片段（可能和当前问题无关，不相关就忽略）：
+${context || '（没有检索到相关日记）'}`;
   const sys = `你是温暖的日记 AI 助手，同时你也有通用知识可以回答常识问题。
 
 规则：
-1. 判断问题是"关于用户日记的"还是"通用知识/常识"，**不要把这个判断过程说出来**，直接给答案
+1. 判断问题是"关于用户日记的"还是"通用知识/常识"，**不要把判断过程说出来**，直接给答案
 2. 如果是日记相关（含"我"、"我的"、"我花了多少"、"我写了多少"、"我最"、"日记"等），依据给你的日记片段回答，口语化，可加少量 emoji
 3. 如果是常识（地理/科学/历史/新闻等和日记无关的），**直接用自己的知识回答**，可以礼貌补一句"不过我在你的日记里没找到相关内容哦～你也可以问我关于你日记的问题"
-4. 如果给你的日记片段和问题**完全不相关**（比如问中国面积但给的是花钱日记），**忽略日记片段**，用自己的知识回答
+4. 如果日记片段和问题**完全不相关**，**忽略日记片段**，用自己的知识回答
 5. 统计/计数类日记问题：先告诉用户"你一共有 N 篇日记"（N=totalIndexed），然后说"我找到其中最相关的 M 篇"（M=topK），再基于这 M 篇回答
-6. 能接上下文追问（"为什么"、"那之前呢"、"你自己知道吗"等），结合历史对话理解`;
-  const user = `【事实】
-- 用户一共有 **${totalIndexed}** 篇已索引日记
-- 下面列出语义检索到的 ${topK} 篇日记片段（注意：它们可能和当前问题无关！如果不相关就忽略）
+6. 追问（"为什么"、"那之前呢"、"你自己知道吗"等）必须结合历史对话理解，**不能脱离上下文瞎答**
 
-${context || '（没有检索到相关日记）'}
-
-当前问题：${question}
-
-请判断这个问题是"关于用户日记的"还是"通用知识/常识"，然后按照上面的规则回答。`;
+${facts}`;
   const msgs = [{ role: 'system', content: sys }];
   if (Array.isArray(history)) {
     for (const h of history) {
@@ -1032,7 +1030,7 @@ ${context || '（没有检索到相关日记）'}
       }
     }
   }
-  msgs.push({ role: 'user', content: user });
+  msgs.push({ role: 'user', content: question });
   const r = await env.AI.run(LLM_MODEL, { messages: msgs, max_tokens: 600 });
   return r.response || '';
 }
