@@ -1006,24 +1006,24 @@ async function callChatFriendly(env, question) {
 }
 
 async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history) {
-  const sys = `你是温暖的日记 AI 助手。
+  const sys = `你是温暖的日记 AI 助手，同时你也有通用知识可以回答常识问题。
 
 规则：
-1. 依据给你的日记片段回答问题，口语化，可加少量 emoji
-2. 统计/计数类问题（多少、几篇、总共、统计）：先告诉用户"你一共有 N 篇日记"（N=totalIndexed），然后说"我找到其中最相关的 M 篇"（M=topK），再基于这 M 篇回答
-3. "我找到 M 篇"是指语义检索后最相关的 M 篇，不是总共只有 M 篇——不要让用户误以为剩下的日记丢失了
-4. 如果没找到相关日记，也要友好说"这个好像没找到呢～你可以试试别的问题，比如'最近花了多少钱'、'我最开心的一天'之类的 😊"，不要干巴巴说"没找到"
-5. 如果片段内容和问题不相关，诚实说"我看到的片段里好像没有相关内容哦"
-6. 能接上下文追问（"为什么"、"那之前呢"等），结合历史对话理解`;
+1. 判断问题是"关于用户日记的"还是"通用知识/常识"，**不要把这个判断过程说出来**，直接给答案
+2. 如果是日记相关（含"我"、"我的"、"我花了多少"、"我写了多少"、"我最"、"日记"等），依据给你的日记片段回答，口语化，可加少量 emoji
+3. 如果是常识（地理/科学/历史/新闻等和日记无关的），**直接用自己的知识回答**，可以礼貌补一句"不过我在你的日记里没找到相关内容哦～你也可以问我关于你日记的问题"
+4. 如果给你的日记片段和问题**完全不相关**（比如问中国面积但给的是花钱日记），**忽略日记片段**，用自己的知识回答
+5. 统计/计数类日记问题：先告诉用户"你一共有 N 篇日记"（N=totalIndexed），然后说"我找到其中最相关的 M 篇"（M=topK），再基于这 M 篇回答
+6. 能接上下文追问（"为什么"、"那之前呢"、"你自己知道吗"等），结合历史对话理解`;
   const user = `【事实】
 - 用户一共有 **${totalIndexed}** 篇已索引日记
-- 下面列出语义最相关的 ${topK} 篇（其余 ${Math.max(0, totalIndexed - topK)} 篇和这个问题不直接相关）
+- 下面列出语义检索到的 ${topK} 篇日记片段（注意：它们可能和当前问题无关！如果不相关就忽略）
 
-${context}
+${context || '（没有检索到相关日记）'}
 
-问题：${question}
+当前问题：${question}
 
-回答统计类问题（多少/几篇/总共）时，必须先说"你一共有 ${totalIndexed} 篇日记"。`;
+请判断这个问题是"关于用户日记的"还是"通用知识/常识"，然后按照上面的规则回答。`;
   const msgs = [{ role: 'system', content: sys }];
   if (Array.isArray(history)) {
     for (const h of history) {
@@ -1033,8 +1033,27 @@ ${context}
     }
   }
   msgs.push({ role: 'user', content: user });
-  const r = await env.AI.run(LLM_MODEL, { messages: msgs, max_tokens: 512 });
+  const r = await env.AI.run(LLM_MODEL, { messages: msgs, max_tokens: 600 });
   return r.response || '';
+}
+
+// 判断是否是追问/短句（用历史上下文来补充检索词）
+const FOLLOWUP_PATTERNS = [/^为什么/, /^那/, /^然后/, /^后来/, /^你自己/, /^你知道/, /^你呢/, /^还有/, /^那你/, /^再/, /^为什么呢/, /^为啥/];
+function isFollowup(q) {
+  const t = q.trim();
+  if (t.length <= 6) return true;
+  return FOLLOWUP_PATTERNS.some(re => re.test(t));
+}
+// 从 history 里找最后一轮用户的原始问题（用于追问时的 RAG 检索）
+function findLastUserQuestion(history) {
+  if (!Array.isArray(history)) return null;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const h = history[i];
+    if (h?.role === 'user' && h.content && !isFollowup(h.content)) {
+      return String(h.content).slice(0, 100);
+    }
+  }
+  return null;
 }
 
 async function handleAsk(request, env, JWT_SECRET) {
@@ -1048,11 +1067,15 @@ async function handleAsk(request, env, JWT_SECRET) {
       const answer = await callChatFriendly(env, question);
       return json({ answer, sources: [] });
     } catch (e) {
-      return json({ answer: '你好呀～我在呢 😊 你可以问我关于你日记的问题哦' });
+      return json({ answer: '你好呀～我在呢 😊 你可以问我关于你日记的问题，或者随便聊聊天～' });
     }
   }
   try {
-    const qVec = await embedText(env, question);
+    // 追问时用"上一轮原始问题 + 当前问题"一起检索，避免语义跑偏
+    const ragQuery = isFollowup(question)
+      ? (findLastUserQuestion(history) ? `${findLastUserQuestion(history)} ${question}` : question)
+      : question;
+    const qVec = await embedText(env, ragQuery);
     if (!qVec) return json({ error: 'embed failed' }, 500);
     const rows = await env.DB.prepare(
       'SELECT diary_id, content, vector FROM diary_embeddings WHERE user_id = ? ORDER BY diary_id DESC LIMIT 50'
@@ -1061,14 +1084,19 @@ async function handleAsk(request, env, JWT_SECRET) {
       .map(r => ({ ...r, score: cosineSimilarity(qVec, jsonToFloat32(r.vector)) }))
       .sort((a, b) => b.score - a.score);
     const totalIndexed = rows.results.length;
-    const topK = Math.min(10, totalIndexed);   // 放宽到最多 10 篇
+    const topK = Math.min(10, totalIndexed);
     const top = scored.slice(0, topK);
-    const contextParts = top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
+    // 如果最高分都 < 0.15，说明真没相关日记，context 传空让 LLM 自由发挥
+    const bestScore = top[0]?.score ?? 0;
+    const contextParts = bestScore < 0.15 ? [] : top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
     const context = contextParts.join('\n\n');
     let answer;
-    try { answer = await callWorkersAI_LLM(env, question, context, topK, totalIndexed, history); }
+    try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history); }
     catch (e) { answer = 'LLM 错: ' + e.message; }
-    return json({ answer, sources: top.map(s => ({ diary_id: s.diary_id, score: Math.round(s.score*1000)/1000 })) });
+    return json({
+      answer,
+      sources: bestScore < 0.15 ? [] : top.map(s => ({ diary_id: s.diary_id, score: Math.round(s.score*1000)/1000 })),
+    });
   } catch (e) { return json({ error: e.message }, 500); }
 }
 
