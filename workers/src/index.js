@@ -960,30 +960,32 @@ const EMBEDDING_MODEL = '@cf/baai/bge-m3';
 const LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
 const LLM_MODEL_NAME = 'agnes-3.0-flash';
 
-// 统一 LLM 调用：优先走用户配的 agnes-3.0-flash，没有 key 时 fallback 到 Workers AI llama
+// 统一 LLM 调用：优先走 agnes-3.0-flash，失败/fallback 用 Workers AI llama-3.1-8b
 async function callLLM(env, messages, maxTokens = 512) {
-  if (env.AGNES_API_KEY && env.AGNES_ENDPOINT) {
+  // strip BOM + trim（PowerShell 管道设 secret 会带 BOM）
+  const endpoint = String(env.AGNES_ENDPOINT || '').replace(/^\uFEFF+/, '').trim();
+  const apiKey = String(env.AGNES_API_KEY || '').replace(/^\uFEFF+/, '').trim();
+  if (apiKey && endpoint) {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 20000);
-      const res = await fetch(env.AGNES_ENDPOINT, {
+      const res = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${env.AGNES_API_KEY}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ model: LLM_MODEL_NAME, messages, max_tokens: maxTokens, temperature: 0.7 }),
         signal: controller.signal,
       });
       clearTimeout(timer);
-      if (!res.ok) throw new Error(`agnes API ${res.status}`);
-      const data = await res.json();
-      return data?.choices?.[0]?.message?.content || '';
+      if (res.ok) {
+        const data = await res.json();
+        const content = data?.choices?.[0]?.message?.content || '';
+        if (content) return content;
+      }
     } catch (e) {
-      console.warn('[callLLM] agnes 失败，fallback Workers AI:', e.message);
+      console.warn('[callLLM] agnes 失败，fallback:', e.message);
     }
   }
-  // fallback: Workers AI
+  // fallback: Workers AI llama
   const r = await env.AI.run(LLM_MODEL, { messages, max_tokens: maxTokens });
   return r.response || '';
 }
@@ -1100,9 +1102,14 @@ async function handleAsk(request, env, JWT_SECRET) {
     }
   }
   // 判断是否是"关于用户日记"的问题——没有任何个人关键词就是纯常识，跳过 RAG
-  const DIARY_KEYWORDS = ['我', '我的', '我花', '我写', '我最', '日记', '笔记', '我计划', '我要', '我想', '我今天', '昨天', '今天', '最近', '总共', '一共', '多少篇', '几篇'];
-  const isDiaryRelated = DIARY_KEYWORDS.some(kw => question.includes(kw))
-    || (Array.isArray(history) && history.some(h => h?.role === 'user' && DIARY_KEYWORDS.some(kw => h.content?.includes(kw))));
+  const DIARY_KW = ['我的', '我花', '我写', '我最', '我计划', '我要', '我想', '我今天', '我昨天', '我最近', '我花了', '我记了', '日记', '笔记', '写了', '昨天', '今天', '最近', '总共', '一共', '多少篇', '几篇', '花了', '赚了'];
+  const hasDiaryKw = (q) => DIARY_KW.some(kw => q.includes(kw));
+  // 只看当前 question，不看 history（否则多轮常识对话也会命中 history 里的"我"等）
+  let isDiaryRelated = hasDiaryKw(question);
+  // 但如果是追问且历史里有日记关键词，还是走 RAG（例如 "我花了多少" → "那上个月呢"）
+  if (!isDiaryRelated && isFollowup(question) && Array.isArray(history)) {
+    isDiaryRelated = history.some(h => h?.role === 'user' && hasDiaryKw(String(h.content || '')));
+  }
   if (!isDiaryRelated) {
     // 纯常识/通用问题，直接让 LLM 自由发挥，不查日记
     try {
