@@ -11,7 +11,7 @@
 生产（真实用户在用）：   https://mydiary-web.pages.dev
 
 改前端 → 本地测 → wrangler pages deploy dist --project-name mydiary-web-dev → 你说 OK → mydiary-web
-改后端 → wrangler deploy --env dev → tunnel 测 → 你说 OK → wrangler deploy（默认 prod）
+改后端 → wrangler deploy --env dev → tunnel 测 → 你说 OK → wrangler deploy --env=""（prod）
 改 D1  → dev D1 跑 SQL → 测 → prod D1 跑 SQL
 
 每次改完必须：git add -A && git commit && git push
@@ -101,9 +101,7 @@ mydiary-web/
 │   │   ├── index.js              # Worker 主路由
 │   │   └── auth.js               # PBKDF2 + JWT
 │   ├── migrations/
-│   │   ├── 0001_init.sql
-│   │   ├── 0002_feedback.sql
-│   │   └── 0003_templates.sql
+│   │   └── 0001 ~ 0009_*.sql           # D1 迁移（手动 execute 跑，不用 migrations apply）
 │   └── wrangler.toml             # ⭐ prod (默认) + [env.dev] 双环境
 │
 ├── worker/                       # 后端 Worker (TypeScript + AI) — 开发中/并行
@@ -131,12 +129,12 @@ npm run dev
 
 # 2. 测 OK（你说 OK）→ 先推测试环境
 npm run build
-wrangler pages deploy dist --project-name mydiary-web-dev
+wrangler pages deploy dist --project-name mydiary-web-dev --commit-dirty=true --skip-caching
 
 # 3. 你在 dev 环境再确认一遍（iPhone 浏览器开 https://mydiary-web-dev.pages.dev）
 
 # 4. 没问题 → 推生产
-wrangler pages deploy dist --project-name mydiary-web
+wrangler pages deploy dist --project-name mydiary-web --commit-dirty=true --skip-caching
 
 # 5. commit + push
 git add -A && git commit -m "feat: xxx" && git push
@@ -160,7 +158,7 @@ wrangler deploy --env dev
 #    直接测就行
 
 # 3. 测 OK → 推生产 Worker
-wrangler deploy         # 默认就是 prod（wrangler.toml 顶层配置）
+wrangler deploy --env=""           # prod Worker（空 env = 顶层配置，消除 warning）
 
 # 4. commit + push
 cd ..
@@ -177,13 +175,13 @@ cd workers && wrangler deploy --env dev && cd ..
 
 # 2. 推 dev 前端 + 整体测
 npm run build
-wrangler pages deploy dist --project-name mydiary-web-dev
+wrangler pages deploy dist --project-name mydiary-web-dev --commit-dirty=true --skip-caching
 # → 你在 mydiary-web-dev.pages.dev 测
 
 # 3. 测 OK → 生产 Worker + 生产前端
-cd workers && wrangler deploy && cd ..
+cd workers && wrangler deploy --env="" && cd ..
 npm run build
-wrangler pages deploy dist --project-name mydiary-web
+wrangler pages deploy dist --project-name mydiary-web --commit-dirty=true --skip-caching
 
 # 4. commit + push
 git add -A && git commit -m "feat: xxx (frontend + worker)" && git push
@@ -197,16 +195,16 @@ git add -A && git commit -m "feat: xxx (frontend + worker)" && git push
 cd workers
 
 # 1. 改 dev D1（随便玩，坏了就删）
-wrangler d1 execute mydiary-db-dev --remote --file=migrations/0004_xxx.sql
+wrangler d1 execute mydiary-db-dev --remote --file migrations/xxxx.sql
 
 # 2. dev Worker 部署 + 测试
 wrangler deploy --env dev
 
 # 3. 测 OK → 改 prod D1（⚠️ 不可逆！先确认 SQL 正确！）
-wrangler d1 execute mydiary-db --remote --file=migrations/0004_xxx.sql
+wrangler d1 execute mydiary-db --remote --file migrations/xxxx.sql
 
 # 4. prod Worker 部署
-wrangler deploy
+wrangler deploy --env=""
 
 # 5. commit + push（SQL 文件也要入库）
 cd ..
@@ -249,13 +247,13 @@ database_id = "fb45cce8-c051-4f20-a560-ea2dc3cadb26"
 ```bash
 # === 前端 ===
 npm run build                                           # 构建 dist/
-wrangler pages deploy dist --project-name mydiary-web-dev     # 推测试前端
-wrangler pages deploy dist --project-name mydiary-web        # 推生产前端
+wrangler pages deploy dist --project-name mydiary-web-dev --commit-dirty=true --skip-caching     # 推测试前端
+wrangler pages deploy dist --project-name mydiary-web --commit-dirty=true --skip-caching        # 推生产前端
 
 # === 后端 workers/ ===
 cd workers
 wrangler deploy --env dev                               # 推 dev Worker
-wrangler deploy                                        # 推 prod Worker
+wrangler deploy --env=""                                  # 推 prod Worker（空 env = 顶层配置）
 cd ..
 
 # === D1 ===
@@ -310,7 +308,7 @@ npm run dev                                             # localhost:5173 (Vite)
 | App 内弹窗 | `src/components/ProfilePage.tsx` | 用户点「关于 → 版本」弹出的 changelog |
 | Git 仓库 | `CHANGELOG.md` | 根目录的版本记录文件 |
 
-**版本号三处对齐：**
+**版本号两处对齐：**
 
 | 位置 | 文件 |
 |------|------|
@@ -375,14 +373,13 @@ npm run dev                                             # localhost:5173 (Vite)
 ```
 □ 1. CHANGELOG.md 最顶部新增当前版本块（旧版本不动）
 □ 2. ProfilePage.tsx changelog 弹窗最顶部新增当前版本块（旧版本不动）
-□ 3. package.json version 号 +1
-□ 4. vite.config.ts __APP_VERSION__ 同步 +1
-□ 5. npm run build → 无报错
-□ 6. git add -A && git commit -m "release: vX.X.X — 描述"
-□ 7. wrangler pages deploy dist --project-name mydiary-web-dev → dev 测
-□ 8. 用户在 dev 环境确认 OK
-□ 9. wrangler pages deploy dist --project-name mydiary-web → 推生产
-□ 10. git push origin main
+□ 3. vite.config.ts __APP_VERSION__ +1  ← 唯一真实来源
+□ 4. npm run build → 无报错
+□ 5. git add -A && git commit -m "release: vX.X.X — 描述"
+□ 6. wrangler pages deploy dist --project-name mydiary-web-dev --commit-dirty=true --skip-caching → dev 测
+□ 7. 用户在 dev 环境确认 OK
+□ 8. wrangler pages deploy dist --project-name mydiary-web --commit-dirty=true --skip-caching → 推生产
+□ 9. git push origin main
 ```
 
 ---
