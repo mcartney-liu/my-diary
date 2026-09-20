@@ -1067,9 +1067,17 @@ async function saveMemories(env, uid, candidates) {
        confidence = MAX(confidence, excluded.confidence),
        updated_at = datetime('now','localtime')`
   );
-  const batch = candidates.map(c => stmt.bind(uid, c.type, c.content, c.confidence));
-  try { await env.DB.batch(batch); } catch { return 0; }
-  return candidates.length;
+  let ok = 0;
+  for (const c of candidates) {
+    try {
+      const r = await stmt.bind(uid, c.type, c.content, c.confidence).run();
+      ok += r.meta?.changed_db ? 1 : 0;
+      console.log('[saveMemories] OK content=', c.content.slice(0,30), 'changed=', r.meta?.changed_db);
+    } catch (e) {
+      console.log('[saveMemories] FAIL content=', c.content.slice(0,30), 'err=', e.message);
+    }
+  }
+  return ok;
 }
 
 // ===== Memory API handlers =====
