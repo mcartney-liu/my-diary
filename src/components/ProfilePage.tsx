@@ -638,7 +638,7 @@ export default function ProfilePage() {
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>💬 <b>小麦 — 你的 AI 助手</b> — 首页顶栏 Tab「💬 小麦」正式命名，多会话管理 / 历史抽屉 / 自动保存全部保留</li>
+                    <li>💬 <b>日记知识库改名为「小麦」</b> — 原 v0.4.0 新增的「日记知识库」正式更名为「💬 小麦」，多会话管理 / 历史抽屉 / 自动保存全部保留，功能不变</li>
                     <li>🧠 <b>小麦会记住你了 — 长期记忆系统</b> — 聊天时提到自己的事会自动提取成记忆存下来，下次聊到相关的自动用上；我的页面新增「🧠 记忆」tab：手动加、看全部、删除；五种记忆类型：💫 偏好 / 📋 个人 / 📌 事实 / ✅ 待办 / 🎨 兴趣</li>
                     <li>🔍 <b>回答更准了 — 检索三层升级</b> — 向量相似度（0.7）+ 关键词匹配（0.3）加权融合，再加 bge-reranker-base 精排（初筛 top12 → 专家精选 top5）；常识问题自动跳过日记检索</li>
                   </ul>
@@ -652,11 +652,10 @@ export default function ProfilePage() {
               </div>
 
               {/* === v0.4.0 === */}
-              <div>
+              <div className="border-t border-paper-line pt-4">
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v{__APP_VERSION__}</span>
+                  <span className="font-bold text-paper-ink">v0.4.0</span>
                   <span className="text-paper-ink3 text-xs">2026年09月19日</span>
-                  <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
@@ -855,5 +854,6 @@ function formatNumber(n: number): string {
 }
 
 // rebuild trigger 07:41:03
+
 
 
