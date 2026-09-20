@@ -1,10 +1,10 @@
-﻿# MyDiary 版本更新记录
+# MyDiary 版本更新记录
 
-## v0.4.2 — 2026-09-20
+## v0.4.1 — 2026-09-20
 
 ### 🎉 新功能
 
-- **💬 小麦 — 你的 AI 助手** — 原"日记知识库"正式命名为"小麦"，首页顶栏 Tab「💬 小麦」和月历 / 年度回顾并列；多会话管理 / 历史抽屉 / 自动保存全部保留
+- **💬 日记知识库改名为「小麦」** — v0.4.0 新增的「日记知识库」正式更名为「💬 小麦」，多会话管理 / 历史抽屉 / 自动保存全部保留，功能不变
 - **🧠 小麦会记住你了 — 长期记忆系统**
   - 聊天时提到自己的事（"我讨厌加班"），小麦会自动提取成记忆存下来
   - 下次聊到相关的自动用上，不用重复说
@@ -12,8 +12,8 @@
   - 「我的」页面新增 **🧠 记忆** tab：手动加、看全部、点一下删除
   - 五种记忆类型：💫 偏好 / 📋 个人 / 📌 事实 / ✅ 待办 / 🎨 兴趣
 - **🔍 回答更准了 — 检索三层升级**
-  - **P0 混合检索**：向量相似度（0.7）+ 关键词匹配（0.3）加权融合。之前"还了 3000 信用卡"会被"花了 3000 吃饭"干扰，现在精确命中
-  - **P3 ReRank 精排**：bge-reranker-base 对初筛 top12 条候选专家精选 top5，喂给 LLM 的每条都真正相关
+  - **混合检索**：向量相似度（0.7）+ 关键词匹配（0.3）加权融合。之前"还了 3000 信用卡"会被"花了 3000 吃饭"干扰，现在精确命中
+  - **ReRank 精排**：bge-reranker-base 对初筛 top12 条候选专家精选 top5，喂给 LLM 的每条都真正相关
   - **常识问题自动跳过**："中国面积多大"直接让 LLM 自由发挥，不查日记
 
 ### 🐛 Bug 修复
@@ -28,11 +28,46 @@
 |------|------|
 | workers/migrations/0009_diary_embeddings.sql | 新增 diary_embeddings 表（向量存储） |
 | workers/src/index.js | 混合检索 + ReRank + 长期记忆 CRUD + 关键词路由 + BOM strip |
-| src/components/ProfilePage.tsx | 新增「🧠 记忆」tab + v0.4.2 版本更新弹窗 |
+| src/components/ProfilePage.tsx | 新增「🧠 记忆」tab + v0.4.1 版本更新弹窗 |
 | src/components/AiChatView.tsx | 改名为「💬 小麦」+ 空状态文案 + 记忆提取集成 |
 | src/components/CalendarPage.tsx | 顶栏 Tab「知识库」→「💬 小麦」 |
 | src/api.ts | 新增 listMemory / addMemory / deleteMemory 接口 |
-| vite.config.ts | 版本 0.4.1 → 0.4.2 |
+| vite.config.ts | 版本 0.4.0 → 0.4.1 |
+
+---
+
+## v0.4.0 — 2026-09-19
+
+### 🎉 新功能
+
+- **💬 日记知识库** — 首页顶部 Tab 新增「💬 知识库」入口，和月历 / 年度回顾并列
+  - 能从所有日记里按语义找片段回答问题，附带引用来源
+  - 多会话管理：点左上角 ☰ 打开历史抽屉，「＋ 新对话」新建空白，点历史项切换回去，鼠标悬停可删除单个会话
+  - 聊天记录自动保存，刷新页面、重新登录都不丢
+  - 问候不再死板："你好"、"你是谁" 不再说"没找到相关内容"，会友好介绍自己能帮什么
+
+### 🧭 交互调整
+
+- 顶栏导航变成三 Tab（📅 月历 / 📊 年度回顾 / 💬 知识库），AI 入口从底部导航移除，保持底部三项不变
+- 知识库内嵌在 Tab 切换区，不再是右侧抽屉，和月历 / 年度回顾同级同宽
+
+### 🏗️ 后端架构
+
+- Workers AI bge-m3 embedding + cosine similarity 检索
+- Agnes LLM（优先）+ Workers AI llama fallback
+- D1 BLOB 存向量，reindex 全量重算
+
+### 📦 本次改动文件
+
+| 文件 | 改动 |
+|------|------|
+| workers/src/index.js | AI 问答核心：embedText / cosineSimilarity / handleAsk / extractDiaryText |
+| workers/wrangler.toml | 新增 `[ai] binding = "AI"` 绑定 Workers AI |
+| src/components/AiChatView.tsx | 全新 — 知识库聊天组件 |
+| src/components/CalendarPage.tsx | 顶栏新增知识库 Tab + 条件渲染 |
+| src/api.ts | 新增 askDiary / getSessions / createSession 等接口 |
+| src/types.ts | 新增 ChatSession / ChatMessage 类型 |
+| vite.config.ts | 版本 0.3.1 → 0.4.0 |
 
 ---
 
@@ -212,4 +247,3 @@
 - 10 种 Block 组件：文本 / 标题 / 分割线 / 待办 / 数字 / 记账 / 图片 / 音频 / 读书 / 摘抄
 - 8 个官方模板：日记 / 记账 / 读书 / 旅行 / 运动 / 每日计划 / 感恩日记 / 健康记录
 - 底部 Tab Bar：我的 | AI速记 | 写日记
-

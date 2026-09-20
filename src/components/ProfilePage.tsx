@@ -628,7 +628,7 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-              {/* === v0.4.2 当前版本（高亮） === */}
+              {/* === v0.4.1 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-bold text-paper-accent">v{__APP_VERSION__}</span>
@@ -854,6 +854,7 @@ function formatNumber(n: number): string {
 }
 
 // rebuild trigger 07:41:03
+
 
 
 
