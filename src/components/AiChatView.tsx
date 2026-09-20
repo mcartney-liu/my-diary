@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+﻿import { useState, useRef, useEffect, useMemo } from "react";
 import { askDiary, addMemory } from "../api";
 import { useAuth } from "../AuthContext";
 
@@ -200,7 +200,7 @@ export default function AiChatView() {
         >
           ☰
         </button>
-        <span className="text-sm text-paper-ink2 truncate mx-2">{active?.title || "💬 我的日记知识库"}</span>
+        <span className="text-sm text-paper-ink2 truncate mx-2">{active?.title || "💬 小麦"}</span>
         <button
           onClick={newChat}
           className="text-xs px-3 py-1.5 rounded-full border border-paper-line bg-white text-paper-ink2 hover:bg-paper-line/40 transition active:scale-95"
@@ -255,7 +255,7 @@ export default function AiChatView() {
         {active?.msgs.length === 0 && (
           <>
             <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line">
-              💬 这是你的日记知识库。写下的每一篇都可以被我找到。试试问点什么吧～
+              💬 这是小麦，你的 AI 助手。写下的每一篇日记都可以被我找到。试试问点什么吧～
             </div>
             <div className="flex flex-wrap gap-2">
               {SUGGESTIONS.map((s) => (
@@ -329,4 +329,6 @@ export default function AiChatView() {
     </section>
   );
 }
+
+
 

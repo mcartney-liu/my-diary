@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+﻿import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { monthCells, moodById, fmtDate } from "../data";
@@ -312,7 +312,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
                 : "text-paper-ink2 hover:text-paper-ink"
             }`}
           >
-            💬 知识库
+            💬 小麦
           </button>
         </div>
 
@@ -483,3 +483,5 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
     </div>
   );
 }
+
+
