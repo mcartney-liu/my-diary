@@ -1325,9 +1325,36 @@ async function handleAsk(request, env, JWT_SECRET) {
     }).sort((a, b) => b.score - a.score);
 
     const totalIndexed = rows.results.length;
-    const topK = Math.min(10, totalIndexed);
-    const top = scored.slice(0, topK);
-    // 相关度太低 → 传空片段让 LLM 自己判断（阈值 0.15 比纯向量低一点，因为融合分会低些）
+    // 先多捞几条候选，给 reranker 精排的空间
+    const CANDIDATE_COUNT = Math.min(12, totalIndexed);
+    let candidates = scored.slice(0, CANDIDATE_COUNT);
+
+    // ===== P3 ReRank: bge-reranker-base 精排 =====
+    const FINAL_TOP_K = Math.min(5, candidates.length);
+    let rerankStatus = 'skipped';
+    try {
+      const contexts = candidates.map(c => ({ text: c.content.slice(0, 500) }));
+      const rerankResp = await Promise.race([
+        env.AI.run('@cf/baai/bge-reranker-base', { query: ragQuery, contexts, top_k: FINAL_TOP_K }),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('rerank timeout')), 4000)),
+      ]);
+      // reranker 返回 [{id: 0, score: 0.59}, ...] 按 score 降序排列
+      if (rerankResp?.response?.length) {
+        const reranked = rerankResp.response
+          .map(r => candidates[r.id])
+          .filter(Boolean);
+        if (reranked.length >= FINAL_TOP_K) { candidates = reranked; rerankStatus = 'ok'; }
+        else { rerankStatus = `partial:${reranked.length}/${FINAL_TOP_K}`; }
+      } else {
+        rerankStatus = 'empty_response';
+      }
+    } catch (rerankErr) {
+      rerankStatus = 'fallback:' + rerankErr.message;
+      console.warn('[rerank] 失败，fallback 到混合检索排序:', rerankErr.message);
+    }
+
+    const top = candidates.slice(0, FINAL_TOP_K);
+    // 相关度太低 → 传空片段让 LLM 自己判断（阈值 0.15）
     const bestScore = top[0]?.score ?? 0;
     const contextParts = bestScore < 0.15 ? [] : top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
     const context = contextParts.join('\n\n');
@@ -1350,6 +1377,7 @@ async function handleAsk(request, env, JWT_SECRET) {
       answer,
       sources: bestScore < 0.15 ? [] : top.map(s => ({ diary_id: s.diary_id, score: Math.round(s.score*1000)/1000 })),
       keywords,
+      _debug: { rerank: rerankStatus, candidates: CANDIDATE_COUNT, finalK: FINAL_TOP_K, totalIndexed },
     });
   } catch (e) {
     return json({ answer: '抱歉，出错了：' + (e.message || 'unknown') });
