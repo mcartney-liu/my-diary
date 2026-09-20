@@ -341,7 +341,7 @@ export async function askDiaryStreaming(
   }
 ) {
   const token = localStorage.getItem('mydiary_token');
-  const base = (import.meta as any).env.VITE_API_URL || '';
+  const base = API_BASE;
   const resp = await fetch(base + '/api/ai/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
