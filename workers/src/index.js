@@ -98,6 +98,7 @@ export default {
       ["GET",    "/api/memory",          handleListMemory],
       ["POST",   "/api/memory",          handleAddMemory],
       ["DELETE", "/api/memory",          handleDeleteMemory],
+      ["POST",   "/api/memory/extract",   handleExtractMemory],
     ];
 
     for (const [method, p, handler] of routes) {
@@ -1104,6 +1105,21 @@ async function handleDeleteMemory(request, env, JWT_SECRET) {
   if (!id) return json({ error: 'missing id' }, 400);
   await env.DB.prepare("DELETE FROM user_memory WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
   return json({ ok: true });
+}
+
+// 手动提取记忆：前端「💾 记住这句话」按钮调用
+async function handleExtractMemory(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const body = await request.json();
+  const text = (body.text || '').trim();
+  if (!text) return json({ error: 'missing text' }, 400);
+  // 复用 extractMemoryCandidates，aiReply 传空
+  const candidates = await extractMemoryCandidates(env, text, '');
+  if (!candidates.length) return json({ memories: [] });
+  // 自动存 + 返回（省得前端再调一次 POST /api/memory）
+  await saveMemories(env, user.uid, candidates);
+  return json({ memories: candidates });
 }
 
 function float32ToJson(arr) { return JSON.stringify(Array.from(arr)); }

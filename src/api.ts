@@ -1,4 +1,4 @@
-// Cloud API client — talks to Cloudflare Workers
+﻿// Cloud API client — talks to Cloudflare Workers
 // 开发环境: 直连 dev Worker 绝对地址 (绕开 Vite proxy —— Node.js 在本 Windows 上连不了海外 HTTPS)
 // 生产环境: 相对路径走 Pages Functions 同域代理 (绕开 iPhone Safari 对 workers.dev 的封锁)
 
@@ -342,4 +342,12 @@ export function addMemory(type: string, content: string, confidence = 0.7) {
 }
 export function deleteMemory(id: number) {
   return request<{ ok: boolean }>(`/api/memory?id=${id}`, { method: 'DELETE' });
+}
+
+// 让 LLM 从用户原话里解析出简洁的记忆（前端「💾 记住这句话」按钮用）
+export function extractMemory(text: string) {
+  return request<{ memories: { type: string; content: string; confidence: number }[] }>('/api/memory/extract', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
 }

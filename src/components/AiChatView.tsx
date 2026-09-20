@@ -1,5 +1,5 @@
-﻿import { useState, useRef, useEffect, useMemo } from "react";
-import { askDiary, addMemory } from "../api";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { askDiary, extractMemory } from "../api";
 import { useAuth } from "../AuthContext";
 
 interface Msg {
@@ -25,18 +25,21 @@ const SUGGESTIONS = [
 function RememberButton({ content }: { content: string }) {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [memContent, setMemContent] = useState<string>("");
   const handleSave = async () => {
     if (saving || saved) return;
     setSaving(true);
     try {
-      // 猜类型：含"喜欢/爱/讨厌"→ preference，含"我是/我叫/我有"→ profile，含"要/计划/目标"→ task，默认 fact
-      let type = "fact";
-      if (/喜欢|爱|讨厌|偏好|习惯|风格/.test(content)) type = "preference";
-      else if (/我是|我叫|我姓|我今年|我来自|我有/.test(content)) type = "profile";
-      else if (/要|计划|目标|打算|准备/.test(content)) type = "task";
-      await addMemory(type, content, 0.8);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      // 让后端 LLM 从原话里解析出简洁的记忆（自动存 DB）
+      const res = await extractMemory(content);
+      const mems = res?.memories || [];
+      if (mems.length > 0) {
+        setMemContent(mems[0].content);
+        setSaved(true);
+        setTimeout(() => { setSaved(false); setMemContent(""); }, 3000);
+      } else {
+        // LLM 没提取到，静默跳过
+      }
     } catch {
       // 静默失败
     } finally {
@@ -48,9 +51,9 @@ function RememberButton({ content }: { content: string }) {
       onClick={handleSave}
       disabled={saved || saving}
       className="mt-1.5 text-[11px] text-paper-bg/70 hover:text-paper-bg transition opacity-60 hover:opacity-100"
-      title="点击保存为长期记忆，AI 下次会记住"
+      title="AI 会把这句话解析成简洁记忆存下来"
     >
-      {saved ? "💾 已记住！会成为我的记忆 🌟" : saving ? "保存中…" : "💾 记住这句话"}
+      {saved ? `💾 已记住：${memContent || ""} 🌟` : saving ? "解析并保存中…" : "💾 记住这句话"}
     </button>
   );
 }
