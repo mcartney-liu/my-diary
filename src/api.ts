@@ -340,7 +340,7 @@ export async function askDiaryStreaming(
     onError?: (err: string) => void;
   }
 ) {
-  const token = localStorage.getItem('mydiary_token');
+  const token = getToken();
   const base = API_BASE;
   const resp = await fetch(base + '/api/ai/ask', {
     method: 'POST',
