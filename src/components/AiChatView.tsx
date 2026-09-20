@@ -1,11 +1,11 @@
-import { useState, useRef, useEffect, useMemo } from "react";
-import { askDiary, extractMemory } from "../api";
+﻿import { useState, useRef, useEffect, useMemo } from "react";
+import { askDiaryStreaming, extractMemory } from "../api";
 import { useAuth } from "../AuthContext";
 
 interface Msg {
   role: "user" | "ai";
   content: string;
-  sources?: { diary_id: string; score: number }[];
+  sources?: { diary_id: string; date: string; score: number; content: string }[];
 }
 
 interface Session {
@@ -141,26 +141,48 @@ export default function AiChatView() {
       msgs: [...s.msgs, userMsg],
     }));
     setLoading(true);
+    setLoading(true);
     try {
-      // 传最近 6 轮历史（不含当前 question），让 AI 能接上下文
       const recent = [...active.msgs].slice(-6).map((m): { role: "user" | "assistant"; content: string } => ({
         role: m.role === "ai" ? "assistant" : "user",
         content: m.content,
       }));
-      const r = await askDiary(question, recent);
-      const aiMsg: Msg = {
-        role: "ai",
-        content: r.answer || "（没有回复）",
-        sources: r.sources,
-      };
+      const aiMsg: Msg = { role: 'ai', content: '', sources: [] };
       updateActive((s) => ({ ...s, msgs: [...s.msgs, aiMsg] }));
+      setLoading(false);
+      try {
+        await askDiaryStreaming(question, recent, {
+          onSources: (sources) => {
+            updateActive((s) => ({
+              ...s,
+              msgs: s.msgs.map((m, idx) => idx === s.msgs.length - 1 ? { ...m, sources } : m),
+            }));
+          },
+          onChunk: (text) => {
+            updateActive((s) => ({
+              ...s,
+              msgs: s.msgs.map((m, idx) => idx === s.msgs.length - 1 ? { ...m, content: m.content + text } : m),
+            }));
+          },
+          onDone: () => {},
+          onError: (err) => {
+            updateActive((s) => ({
+              ...s,
+              msgs: s.msgs.map((m, idx) => idx === s.msgs.length - 1 ? { ...m, content: '抱歉，出了点问题：' + err } : m),
+            }));
+          },
+        });
+      } catch (e: any) {
+        updateActive((s) => ({
+          ...s,
+          msgs: s.msgs.map((m, idx) => idx === s.msgs.length - 1 ? { ...m, content: '抱歉，出了点问题：' + (e?.message || '请求失败') } : m),
+        }));
+      }
     } catch (e: any) {
       updateActive((s) => ({
         ...s,
-        msgs: [...s.msgs, { role: "ai", content: "抱歉，出了点问题：" + (e?.message || "请求失败") }],
+        msgs: s.msgs.map((m, idx) => idx === s.msgs.length - 1 ? { ...m, content: "抱歉，出了点问题：" + (e?.message || "请求失败") } : m),
       }));
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -285,8 +307,23 @@ export default function AiChatView() {
             >
               {m.content}
               {m.sources?.length ? (
-                <div className="mt-2 pt-2 border-t border-paper-line/60 text-[11px] text-paper-ink2">
-                  📎 引用 {m.sources.length} 篇日记
+                <div className="mt-2 pt-2 border-t border-paper-line/60 space-y-1.5">
+                  <div className="text-[11px] text-paper-ink2">📎 引用 {m.sources.length} 篇日记</div>
+                  {m.sources.map((s, i) => (
+                    <details key={i} className="group rounded-lg border border-paper-line/60 bg-paper-surface/40 overflow-hidden">
+                      <summary className="cursor-pointer list-none px-2.5 py-1.5 text-[11px] text-paper-ink2 flex items-center justify-between hover:bg-paper-surface/80 transition-colors">
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-paper-accent">{s.date?.slice(5) || '未知'}</span>
+                          <span className="text-paper-ink2/60">·</span>
+                          <span>相关度 {Math.round(s.score * 100)}%</span>
+                        </span>
+                        <span className="text-paper-ink2/40 transition-transform group-open:rotate-180">▾</span>
+                      </summary>
+                      <div className="px-2.5 py-2 text-[11px] leading-relaxed text-paper-ink2 border-t border-paper-line/40 bg-white/60">
+                        {s.content}
+                      </div>
+                    </details>
+                  ))}
                 </div>
               ) : null}
               {m.role === "user" && (

@@ -1,4 +1,4 @@
-﻿// Cloud API client — talks to Cloudflare Workers
+// Cloud API client — talks to Cloudflare Workers
 // 开发环境: 直连 dev Worker 绝对地址 (绕开 Vite proxy —— Node.js 在本 Windows 上连不了海外 HTTPS)
 // 生产环境: 相对路径走 Pages Functions 同域代理 (绕开 iPhone Safari 对 workers.dev 的封锁)
 
@@ -320,15 +320,58 @@ export function listSummaries() {
   return request<{ summaries: DailySummary[] }>('/api/summaries');
 }
 
-// AI 知识库问答
-export function askDiary(question: string, history?: { role: "user" | "assistant"; content: string }[]) {
-  return request<{ answer: string; sources: { diary_id: string; score: number }[] }>('/api/ai/ask', {
+// AI 问答（普通版）
+export function askDiary(question: string, history?: { role: 'user' | 'assistant'; content: string }[]) {
+  return request<{ answer: string; sources: { diary_id: string; date: string; score: number; content: string }[] }>('/api/ai/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question, history }),
   });
 }
 
+// AI 问答（流式版 SSE）
+export async function askDiaryStreaming(
+  question: string,
+  history: { role: 'user' | 'assistant'; content: string }[],
+  callbacks: {
+    onSources?: (sources: any[], keywords: string[]) => void;
+    onChunk?: (text: string) => void;
+    onDone?: (answer: string) => void;
+    onError?: (err: string) => void;
+  }
+) {
+  const token = localStorage.getItem('mydiary_token');
+  const base = (import.meta as any).env.VITE_API_URL || '';
+  const resp = await fetch(base + '/api/ai/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+    body: JSON.stringify({ question, history }),
+  });
+  if (!resp.ok || !resp.body) { callbacks.onError?.('请求失败'); return; }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullAnswer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const events = buffer.split('\\n\\n');
+    buffer = events.pop() || '';
+    for (const ev of events) {
+      const dataLine = ev.split('\\n').find(l => l.startsWith('data: '));
+      if (!dataLine) continue;
+      try {
+        const obj = JSON.parse(dataLine.slice(6));
+        if (obj.sources) { callbacks.onSources?.(obj.sources, obj.keywords || []); }
+        if (obj.text) { fullAnswer += obj.text; callbacks.onChunk?.(obj.text); }
+        if (obj.error) { callbacks.onError?.(obj.error); }
+        if (obj.done) { callbacks.onDone?.(obj.answer || fullAnswer); }
+      } catch {}
+    }
+  }
+  if (!fullAnswer) callbacks.onError?.('没有收到回复');
+}
 // 长期记忆
 export function listMemory() {
   return request<{ memories: { id: number; type: string; content: string; confidence: number; status: string; created_at: string }[] }>('/api/memory');

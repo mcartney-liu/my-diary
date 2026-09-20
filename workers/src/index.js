@@ -1167,7 +1167,34 @@ async function callLLM(env, messages, maxTokens = 512) {
   return r.response || '';
 }
 
-async function embedText(env, text) {
+
+// 流式 LLM：返回 ReadableStream（SSE 格式）
+async function callLLMStreaming(env, messages, maxTokens, onChunk) {
+  // 优先 Workers AI streaming（免费 + 稳定）
+  const stream = await env.AI.run(LLM_MODEL, { messages, max_tokens: maxTokens, stream: true });
+  let buffer = '';
+  let fullText = '';
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    // Workers AI streaming 每块格式: { response: "..." }
+    for (const line of chunk.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const obj = JSON.parse(line);
+        const text = obj.response || obj.delta?.content || '';
+        if (text) {
+          fullText += text;
+          onChunk(text);
+        }
+      } catch {}
+    }
+  }
+  return fullText;
+}async function embedText(env, text) {
   if (!text || !text.trim()) return null;
   const r = await env.AI.run(EMBEDDING_MODEL, { text });
   return r.data[0];
@@ -1384,25 +1411,67 @@ async function handleAsk(request, env, JWT_SECRET) {
     const context = contextParts.join('\n\n');
     // 加载记忆 → 拼进 prompt
     const memoriesText = await loadMemories(env, user.uid);
-    let answer;
-    try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history, memoriesText); }
-    catch (e) { answer = 'LLM 错: ' + e.message; }
-    // 同步提取并保存记忆（Workers AI 很快，5s timeout 够了）
-    if (answer) {
-      try {
-        const cands = await Promise.race([
-          extractMemoryCandidates(env, question, answer),
-          new Promise(r => setTimeout(() => r([]), 5000)),
-        ]);
-        if (cands.length) await saveMemories(env, user.uid, cands);
-      } catch {}
+    // ===== 构建 prompt（内嵌 callWorkersAI_LLM 的逻辑）=====
+    const facts = `【事实】
+- 用户一共有 **** 篇已索引日记
+- 语义检索到  篇日记片段（可能和当前问题无关，不相关就忽略）：
+`;
+    const memoryBlock = memoriesText ? `\n【关于这个用户，你记住了】\n\n（在回答时自然地用上这些记忆，不要说""根据我的记忆""之类的话）` : '';
+    const sys = `你是温暖的日记 AI 助手，同时你也有通用知识可以回答常识问题。
+
+
+绝对禁止说的话（违反就扣分）：
+- ""这个问题是xx类/xx类型/属于xx""
+- ""这个问题涉及/不涉及""
+- ""我来分类一下""、""判断这个问题""
+- 任何暴露你在做类型判断的话
+
+规则：
+1. 直接给答案，不要说你在判断什么
+2. 日记相关问题（含""我""、""我的""、""我花了多少""、""我写了多少""、""我最""、""日记""等），依据给你的日记片段回答，口语化，可加少量 emoji
+3. 常识问题（地理/科学/历史/新闻等和日记无关的），直接用自己的知识回答，可以礼貌补一句""不过我在你的日记里没找到相关内容哦～你也可以问我关于你日记的问题""
+4. 如果日记片段和问题完全不相关，忽略日记片段，用自己的知识回答
+5. 统计/计数类日记问题：先告诉用户""你一共有 N 篇日记""（N=），然后说""我找到其中最相关的 M 篇""（M=），再基于这 M 篇回答
+6. 追问（""为什么""、""那之前呢""、""你自己知道吗""、""你没搞错吧""等）必须结合历史对话理解，不能脱离上下文瞎答
+7. 对数字/单位/算术要谨慎，不确定就说""我不太确定，建议查证一下""
+8. 如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），回答的结尾可以自然提一句""我会记住这点的～""或者""📝 这会成为我的记忆""（不要每次都说，10次里说2-3次就好，自然不生硬）
+
+`;
+    const msgs = [{ role: 'system', content: sys }];
+    if (Array.isArray(history)) {
+      for (const h of history) {
+        if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
+          msgs.push({ role: h.role, content: String(h.content).slice(0, 500) });
+        }
+      }
     }
-    return json({
-      answer,
-      sources: bestScore < 0.15 ? [] : top.map(s => ({ diary_id: s.diary_id, score: Math.round(s.score*1000)/1000 })),
-      keywords,
-      _debug: { rerank: rerankStatus, candidates: CANDIDATE_COUNT, finalK: FINAL_TOP_K, totalIndexed },
+    msgs.push({ role: 'user', content: question });
+
+    // ===== SSE 流式返回 =====
+    const sseSources = bestScore < 0.15 ? [] : top.map(s => ({ diary_id: s.diary_id, date: s.date || '', score: Math.round(s.score*1000)/1000, content: (s.content || '').slice(0, 300) }));
+    const encoder = new TextEncoder();
+    let fullAnswer = '';
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const send = (obj) => writer.write(encoder.encode('data: ' + JSON.stringify(obj) + '\n\n'));
+    send({ sources: sseSources, keywords, _debug: { rerank: rerankStatus, candidates: CANDIDATE_COUNT, finalK: FINAL_TOP_K, totalIndexed } });
+    callLLMStreaming(env, msgs, 600, (text) => {
+      fullAnswer += text;
+      send({ text });
+    }).then(() => {
+      send({ done: true, answer: fullAnswer });
+      writer.close();
+      if (fullAnswer) {
+        Promise.race([
+          extractMemoryCandidates(env, question, fullAnswer),
+          new Promise(r => setTimeout(() => r([]), 5000)),
+        ]).then(cands => { if (cands?.length) saveMemories(env, user.uid, cands); }).catch(() => {});
+      }
+    }).catch(e => {
+      send({ error: e.message });
+      writer.close();
     });
+    return new Response(readable, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' } });
   } catch (e) {
     return json({ answer: '抱歉，出错了：' + (e.message || 'unknown') });
   }
