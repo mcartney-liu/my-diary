@@ -115,6 +115,10 @@ input::placeholder, textarea::placeholder {
 ::-webkit-scrollbar-thumb { background: #d4c8a8; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #b8a880; }
 
+/* 隐藏滚动条但保留滚动能力 — 用于 tab bar 横向滚动 */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 /* 块动画 */
 @keyframes slide-up {
   from { opacity: 0; transform: translateY(8px); }

@@ -285,7 +285,7 @@ export default function SourcesPanel() {
           >
             ← 返回
           </button>
-          <h1 className="text-paper-ink font-semibold text-lg tracking-wide flex-1">📚 资料库</h1>
+          <h1 className="text-paper-ink font-semibold text-lg tracking-wide flex-1">📎 资料库</h1>
         </div>
       </header>
 

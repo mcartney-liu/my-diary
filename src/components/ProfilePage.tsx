@@ -26,7 +26,8 @@ export default function ProfilePage() {
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState("");
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "templates" | "papers" | "memory" | "knowledge">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "memory" | "knowledge">("profile");
+  const [profileSub, setProfileSub] = useState<"templates" | "papers">("templates");
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [newMemType, setNewMemType] = useState("fact");
@@ -366,15 +367,13 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        {/* Tab bar: 个人 / 模板 / 信纸 */}
+        {/* Tab bar — 模板/信纸合并进个人，只剩 4 个 */}
         <div className="flex gap-1 p-1 bg-paper-card rounded-card shadow-card border border-paper-line/50">
           {[
             { k: "profile", label: "👤 个人" },
-            { k: "templates", label: "📚 模板" },
-            { k: "papers", label: "🎨 信纸" },
             { k: "memory", label: "🧠 记忆" },
-            { k: "sources", label: "📚 资料", external: true },
-            { k: "knowledge", label: "🧠 知识" },
+            { k: "sources", label: "📎 资料", external: true },
+            { k: "knowledge", label: "🌳 知识" },
           ].map((t) => (
             <button
               key={t.k}
@@ -397,20 +396,26 @@ export default function ProfilePage() {
             <StatTile label="累计字数" value={formatNumber(stats.total_words)} />
           </div>
         </section>
-        {/* ⭐ 设置和关于已移到右上角齿轮按钮 */}
+
+        {/* 模板 & 信纸 — 内嵌 toggle */}
+        <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
+          <div className="flex gap-1 mb-4 bg-paper-surface rounded-lg p-1 border border-paper-line/50 w-fit">
+            <button
+              onClick={() => setProfileSub("templates")}
+              className={`px-3 py-1 rounded-md text-sm transition ${
+                profileSub === "templates" ? "bg-white shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
+              }`}
+            >📝 模板</button>
+            <button
+              onClick={() => setProfileSub("papers")}
+              className={`px-3 py-1 rounded-md text-sm transition ${
+                profileSub === "papers" ? "bg-white shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
+              }`}
+            >🎨 信纸</button>
+          </div>
+          {profileSub === "templates" ? <TemplateLibrary /> : <PaperLibrary />}
+        </section>
         </>)}
-
-        {activeTab === "templates" && (
-          <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
-            <TemplateLibrary />
-          </section>
-        )}
-
-        {activeTab === "papers" && (
-          <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
-            <PaperLibrary />
-          </section>
-        )}
 
         {activeTab === "memory" && (
           <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5 space-y-4">

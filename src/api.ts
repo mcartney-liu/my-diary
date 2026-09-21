@@ -320,12 +320,25 @@ export function listSummaries() {
   return request<{ summaries: DailySummary[] }>('/api/summaries');
 }
 
-// AI 知识库问答
+// AI 日记问答
 export function askDiary(question: string, history?: { role: "user" | "assistant"; content: string }[]) {
   return request<{ answer: string; sources: { diary_id: string; date?: string; score: number; content?: string }[] }>('/api/ai/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question, history }),
+  });
+}
+
+// AI 知识库问答（小麦内部切换 source_type 使用）
+export function askWiki(question: string, kbId: string, history?: { role: "user" | "assistant"; content: string }[], web_search = false) {
+  return request<{
+    answer: string;
+    kb_title?: string;
+    sources: { page_id: string; title: string; summary: string; score: number }[];
+  }>('/api/ai/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, history, source_type: 'wiki', kb_id: kbId, web_search }),
   });
 }
 

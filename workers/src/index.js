@@ -1395,8 +1395,16 @@ function findLastUserQuestion(history) {
 async function handleAsk(request, env, JWT_SECRET) {
   const user = await authUser(request, JWT_SECRET);
   if (!user) return json({ error: 'unauthorized' }, 401);
-  const { question, history } = await request.json();
+  const body = await request.json();
+  const { question, history, source_type = "diary", kb_id, web_search = false } = body;
   if (!question || !question.trim()) return json({ error: 'question required' }, 400);
+
+  // 知识库问答路由（新链路）
+  if (source_type === "wiki") {
+    return handleWikiAsk(env, user, question, history || [], kb_id, !!web_search);
+  }
+
+  // === 以下是原日记链路（完全不动）===
   // 问候/闲聊 → 直接友好回复，不查日记
   if (isGreeting(question)) {
     try {
@@ -1548,6 +1556,144 @@ async function handleAsk(request, env, JWT_SECRET) {
     });
   } catch (e) {
     return json({ answer: '抱歉，出错了：' + (e.message || 'unknown') });
+  }
+}
+
+// ===== 知识库问答（新链路）=====
+async function handleWikiAsk(env, user, question, history, kb_id, web_search = false) {
+  try {
+    // 1. 校验 KB 属于用户
+    if (!kb_id) return json({ answer: '请先选择一个知识库', sources: [] });
+    const kb = await env.DB.prepare(
+      "SELECT id, title FROM wiki_knowledge_bases WHERE id=? AND user_id=?"
+    ).bind(kb_id, user.uid).first();
+    if (!kb) return json({ answer: '这个知识库不存在了，请换一个试试', sources: [] });
+
+    // 2. 拉 wiki_pages（过滤掉 is_system 的模板页）
+    const pages = await env.DB.prepare(
+      `SELECT id, title, content, summary, vector, is_system
+       FROM wiki_pages WHERE kb_id=? AND user_id=? AND is_system=0
+       ORDER BY updated_at DESC LIMIT 200`
+    ).bind(kb_id, user.uid).all();
+
+    if (!pages.results.length) {
+      return json({ answer: `「${kb.title}」还是空的～先去添加资料并汇入吧！`, sources: [] });
+    }
+
+    // 3. embed question + 关键词提取
+    const qVec = await embedText(env, question);
+    const keywords = extractKeywords(question);
+
+    // 4. 混合检索：向量 (0.7) + 关键词 (0.3)
+    const USE_VECTOR_W = 0.7, USE_KW_W = 0.3;
+
+    const candidates = pages.results.map(p => {
+      let vecRaw = 0;
+      if (p.vector && qVec) {
+        try { vecRaw = cosineSimilarity(qVec, jsonToFloat32(p.vector)); } catch {}
+      }
+      const searchText = (p.content || '') + ' ' + (p.summary || '') + ' ' + (p.title || '');
+      const kwRaw = keywordScore(searchText, keywords);
+      const score = USE_VECTOR_W * vecRaw + USE_KW_W * kwRaw;
+      return { ...p, score, vecScore: vecRaw };
+    }).sort((a, b) => b.score - a.score);
+
+    // 5. reranker 精排 — 智能跳过！
+    // 候选 ≤ 8 且 top1 分数够高 → 混合检索已经足够，跳过 reranker（省 0.5-1.5s）
+    const CANDIDATE_COUNT = Math.min(12, candidates.length);
+    let finalTop = candidates.slice(0, Math.min(5, candidates.length));
+
+    const topCandidates = candidates.slice(0, CANDIDATE_COUNT);
+    const SMART_SKIP_RERANKER = CANDIDATE_COUNT <= 8 && (candidates[0]?.score ?? 0) >= 0.05;
+    if (!SMART_SKIP_RERANKER && topCandidates.length >= 3) {
+      try {
+        const contexts = topCandidates.map(c => ({
+          text: ((c.title || '') + ' ' + ((c.summary || c.content || '').slice(0, 300)))
+        }));
+        const rerankResp = await Promise.race([
+          env.AI.run('@cf/baai/bge-reranker-base', { query: question, contexts, top_k: Math.min(5, topCandidates.length) }),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
+        ]);
+        if (rerankResp?.response?.length) {
+          const reranked = rerankResp.response.map(r => ({
+            ...topCandidates[r.id],
+            score: r.score ?? topCandidates[r.id].score,
+          })).filter(Boolean);
+          if (reranked.length >= 3) finalTop = reranked;
+        }
+      } catch {}
+    }
+
+    // 6. 拼知识上下文 — 砍到每页 250 chars（prompt 砍一半 → callLLM 快一倍）
+    const contextParts = finalTop.map((s, i) => {
+      const t = (s.title && s.title.trim()) || `页面${i+1}`;
+      const c = (s.content || '').slice(0, 250);
+      return `[${i+1}] [[${t}]]\n${c}`;
+    });
+    const bestScore = finalTop[0]?.score ?? 0;
+    const hasContext = bestScore >= 0.02 && contextParts.length > 0;
+    const context = hasContext ? contextParts.join('\n\n') : '';
+
+    // 7. 根据联网开关生成 System Prompt
+    let sys;
+    if (web_search) {
+      // 联网开：允许 AI 用自身知识补充，但要区分来源
+      sys = `你就是小麦，我的 AI 助手。我正在查我自己建设的「${kb.title}」知识库。
+
+规则：
+1. 说"我帮你查了一下「${kb.title}」知识库里的内容"，**不要说"自己的知识库"**
+2. **绝对不许提及/查日记**、**绝对不许说"日记里没找到"**
+3. 优先根据给你的知识页面回答；知识库里没有的，可以用你自己的知识补充
+4. 回答里要区分：哪些来自知识库（用 [[页面名]] 引用），哪些是你的补充
+5. 简洁清晰，结构分明
+
+知识页面：
+${context || '（知识库里没有相关内容）'}`;
+    } else {
+      // 联网关（默认）：**严禁用自身知识**，只查知识库！
+      sys = `你就是小麦，我的 AI 助手。我正在查我自己建设的「${kb.title}」知识库。
+
+规则：
+1. 说"我帮你查了一下「${kb.title}」知识库里的内容"，**不要说"自己的知识库"**
+2. **绝对不许提及/查日记**、**绝对不许说"日记里没找到"**
+3. ⛔ **严禁使用你自己的知识**，只能根据给你的知识页面回答！
+4. 知识页面里没有相关内容时，直接说"「${kb.title}」知识库里暂时没有这个问题的答案，可以开启联网查询让我用自己的知识回答"
+5. 引用用 [[页面名]] 语法；简洁清晰
+
+知识页面：
+${context || '（知识库里没有相关内容）'}`;
+    }
+
+    // 8. callLLM — history 砍到 3 条 + 200 chars/条（多轮意义不大）
+    const msgs = [{ role: 'system', content: sys }];
+    if (Array.isArray(history) && history.length) {
+      const recent = history.slice(-6);  // 最近 6 条（3 轮）
+      for (const h of recent) {
+        if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
+          msgs.push({ role: h.role, content: String(h.content).slice(0, 200) });
+        }
+      }
+    }
+    msgs.push({ role: 'user', content: question });
+
+    // 8. callLLM
+    let answer;
+    try { answer = await callLLM(env, msgs, 800); }
+    catch (e) { answer = '抱歉，我暂时答不上来这个问题：' + (e.message || ''); }
+
+    // 9. 返回（title 加兜底）
+    return json({
+      answer,
+      sources: finalTop.map(s => ({
+        page_id: s.id,
+        title: (s.title && s.title.trim()) || '(未命名页面)',
+        summary: s.summary || '',
+        score: Math.round((s.score || 0) * 1000) / 1000,
+      })),
+      kb_title: kb.title,
+    });
+  } catch (e) {
+    return json({ answer: '知识库问答出错了：' + (e.message || 'unknown'), sources: [] });
   }
 }
 

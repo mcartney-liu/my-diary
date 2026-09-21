@@ -58,7 +58,7 @@ export default function KnowledgeBase({ minimal = false }: { minimal?: boolean }
       {/* minimal 模式 — 顶部说明 */}
       {minimal && (
         <div className="card p-3 mb-3 flex items-start gap-2">
-          <span className="text-lg shrink-0">🧠</span>
+          <span className="text-lg shrink-0">🌳</span>
           <div className="text-xs text-paper-ink2 leading-relaxed">
             <div className="font-medium text-paper-ink mb-1">知识库</div>
             <div>把零散的资料整理成相互关联的笔记 — AI 帮你分类、建链接、生成页面。</div>
@@ -591,6 +591,16 @@ function PagesTab({ kbs }: { kbs: WikiKB[] }) {
     const r = await wikiGetPage(kbId, pageId);
     setDetail({ kbId, ...r });
   }
+
+  // 监听小麦来源点击 → 打开指定页面
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const d = (ev as CustomEvent).detail as { kbId: string; pageId: string };
+      if (d?.kbId && d?.pageId) openPage(d.kbId, d.pageId);
+    };
+    window.addEventListener('kb-open-page', handler);
+    return () => window.removeEventListener('kb-open-page', handler);
+  }, []);
 
   const pageTitleMap = useMemo(() => {
     const m: Record<string, { kbId: string; id: string }> = {};

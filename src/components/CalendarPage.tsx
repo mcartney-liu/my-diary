@@ -1,4 +1,4 @@
-﻿import { useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { monthCells, moodById, fmtDate } from "../data";
@@ -27,6 +27,23 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [selectedDate, setSelectedDate] = useState<string>(() => fmtDate(now));
   const [view, setView] = useState<"monthly" | "yearly" | "ai" | "wiki">("monthly");
   const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
+
+  // 监听小麦来源点击 → 切到知识库 tab + 延迟重派事件（给 KnowledgeBase 时间 mount）
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail;
+      // 已经是我们延迟重派过的事件 → 只 setView，不再重派（避免无限循环）
+      if (detail?.__reopened) { setView("wiki"); return; }
+      setView("wiki");
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('kb-open-page', {
+          detail: { ...detail, __reopened: true }
+        }));
+      }, 300);
+    };
+    window.addEventListener('kb-open-page', handler);
+    return () => window.removeEventListener('kb-open-page', handler);
+  }, []);
 
   // 🎠 跑马灯 touch 手势：手指拖时停动画 + 手动跟手，松手继续自动跑（接回当前位置）
   const marqueeRef = useRef<HTMLDivElement>(null);
@@ -283,48 +300,50 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
         {/* 打卡徽章 */}
         <StreakBadge diaries={diaries} />
 
-        {/* 视图切换 */}
-        <div className="flex items-center gap-1 p-1 rounded-full bg-paper-surface border border-paper-line w-fit">
-          <button
-            onClick={() => setView("monthly")}
-            className={`px-3.5 py-1.5 rounded-full text-sm transition ${
-              view === "monthly"
-                ? "bg-paper-ink text-paper-bg shadow-sm"
-                : "text-paper-ink2 hover:text-paper-ink"
-            }`}
-          >
-            📅 月历
-          </button>
-          <button
-            onClick={() => setView("yearly")}
-            className={`px-3.5 py-1.5 rounded-full text-sm transition ${
-              view === "yearly"
-                ? "bg-paper-ink text-paper-bg shadow-sm"
-                : "text-paper-ink2 hover:text-paper-ink"
-            }`}
-          >
-            📊 年度回顾
-          </button>
-          <button
-            onClick={() => setView("ai")}
-            className={`px-3.5 py-1.5 rounded-full text-sm transition ${
-              view === "ai"
-                ? "bg-paper-ink text-paper-bg shadow-sm"
-                : "text-paper-ink2 hover:text-paper-ink"
-            }`}
-          >
-            💬 小麦
-          </button>
-          <button
-            onClick={() => setView("wiki")}
-            className={`px-3.5 py-1.5 rounded-full text-sm transition ${
-              view === "wiki"
-                ? "bg-paper-ink text-paper-bg shadow-sm"
-                : "text-paper-ink2 hover:text-paper-ink"
-            }`}
-          >
-            🧠 知识库
-          </button>
+        {/* 视图切换 — 手机横向可滚，PC 正常 */}
+        <div className="overflow-x-auto no-scrollbar -mx-1 px-1">
+          <div className="flex items-center gap-1 p-1 rounded-full bg-paper-surface border border-paper-line w-fit min-w-full">
+            <button
+              onClick={() => setView("monthly")}
+              className={`shrink-0 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition ${
+                view === "monthly"
+                  ? "bg-paper-ink text-paper-bg shadow-sm"
+                  : "text-paper-ink2 hover:text-paper-ink"
+              }`}
+            >
+              📅 月历
+            </button>
+            <button
+              onClick={() => setView("yearly")}
+              className={`shrink-0 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition ${
+                view === "yearly"
+                  ? "bg-paper-ink text-paper-bg shadow-sm"
+                  : "text-paper-ink2 hover:text-paper-ink"
+              }`}
+            >
+              📊 年度回顾
+            </button>
+            <button
+              onClick={() => setView("wiki")}
+              className={`shrink-0 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition ${
+                view === "wiki"
+                  ? "bg-paper-ink text-paper-bg shadow-sm"
+                  : "text-paper-ink2 hover:text-paper-ink"
+              }`}
+            >
+              🌳 知识库
+            </button>
+            <button
+              onClick={() => setView("ai")}
+              className={`shrink-0 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition ${
+                view === "ai"
+                  ? "bg-paper-ink text-paper-bg shadow-sm"
+                  : "text-paper-ink2 hover:text-paper-ink"
+              }`}
+            >
+              💬 小麦
+            </button>
+          </div>
         </div>
 
         {view === "monthly" ? (
