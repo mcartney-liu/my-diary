@@ -21,6 +21,15 @@
  *   PATCH  /api/milestones        更新纪念日
  */
 import { hashPassword, verifyPassword, genSalt, signJWT, verifyJWT, authUser } from "./auth.js";
+import {
+  handleWikiListKbs, handleWikiAddKb, handleWikiUpdateKb, handleWikiDeleteKb,
+  handleWikiListCategories, handleWikiAddCategory, handleWikiUpdateCategory, handleWikiDeleteCategory,
+  handleWikiListSources, handleWikiAddSourceText, handleWikiUploadSourceFile, handleWikiDeleteSource, handleWikiBatchDeleteSources, handleWikiGlobalListSources, handleWikiGlobalAddSource, handleWikiGlobalDeleteSource, handleWikiUpdateSourceTags,
+  saveDiaryToWikiSources,
+  handleWikiListPages, handleWikiGetPage, handleWikiUpdatePage, handleWikiGenerateEntity, handleWikiSearch, handleWikiGraph,
+  handleWikiIngestAll,
+  handleWikiListTemplates, handleWikiAddTemplate, handleWikiDeleteTemplate, handleWikiBindTemplate,
+} from "./wiki.js";
 
 const ALLOWED_ORIGINS = [
   "https://mydiary-web.pages.dev",
@@ -98,15 +107,61 @@ export default {
       ["GET",    "/api/memory",          handleListMemory],
       ["POST",   "/api/memory",          handleAddMemory],
       ["DELETE", "/api/memory",          handleDeleteMemory],
-      ["POST",   "/api/memory/extract",   handleExtractMemory],
+
+      // ====== Wiki 知识库 v4 ======
+      ["GET",    "/api/wiki/kbs",                              handleWikiListKbs],
+      ["POST",   "/api/wiki/kbs",                              handleWikiAddKb],
+      ["PATCH",  "/api/wiki/kbs/:kb_id",                       handleWikiUpdateKb],
+      ["DELETE", "/api/wiki/kbs/:kb_id",                       handleWikiDeleteKb],
+      ["GET",    "/api/wiki/kbs/:kb_id/categories",            handleWikiListCategories],
+      ["POST",   "/api/wiki/kbs/:kb_id/categories",            handleWikiAddCategory],
+      ["PATCH",  "/api/wiki/kbs/:kb_id/categories",            handleWikiUpdateCategory],
+      ["DELETE", "/api/wiki/kbs/:kb_id/categories",            handleWikiDeleteCategory],
+      ["GET",    "/api/wiki/kbs/:kb_id/sources",               handleWikiListSources],
+      ["POST",   "/api/wiki/kbs/:kb_id/sources/text",          handleWikiAddSourceText],
+      ["POST",   "/api/wiki/kbs/:kb_id/sources/file",          handleWikiUploadSourceFile],
+      ["DELETE", "/api/wiki/kbs/:kb_id/sources/batch",         handleWikiBatchDeleteSources],
+      ["DELETE", "/api/wiki/kbs/:kb_id/sources/:source_id",   handleWikiDeleteSource],
+      // 全局资料（标签式绑定）
+      ["GET",    "/api/wiki/sources",                          handleWikiGlobalListSources],
+      ["POST",   "/api/wiki/sources",                          handleWikiGlobalAddSource],
+      ["DELETE", "/api/wiki/sources/:source_id",               handleWikiGlobalDeleteSource],
+      ["PATCH",  "/api/wiki/sources/:source_id/tags",          handleWikiUpdateSourceTags],
+      ["GET",    "/api/wiki/kbs/:kb_id/pages",                 handleWikiListPages],
+      ["GET",    "/api/wiki/kbs/:kb_id/pages/:page_id",        handleWikiGetPage],
+      ["PATCH",  "/api/wiki/kbs/:kb_id/pages/:page_id",        handleWikiUpdatePage],
+      ["POST",   "/api/wiki/kbs/:kb_id/generate-entity",       handleWikiGenerateEntity],
+      ["GET",    "/api/wiki/kbs/:kb_id/graph",                 handleWikiGraph],
+      ["GET",    "/api/wiki/kbs/:kb_id/search",                handleWikiSearch],
+      ["POST",   "/api/wiki/kbs/:kb_id/ingest",                handleWikiIngestAll],
+      ["GET",    "/api/wiki/kbs/:kb_id/templates",             handleWikiListTemplates],
+      ["POST",   "/api/wiki/kbs/:kb_id/templates",             handleWikiAddTemplate],
+      ["DELETE", "/api/wiki/kbs/:kb_id/templates",             handleWikiDeleteTemplate],
+      ["POST",   "/api/wiki/kbs/:kb_id/templates/bind",        handleWikiBindTemplate],
     ];
 
+    // 路由器：支持 :id 参数
+    function matchRoute(actualPath, pattern) {
+      const a = actualPath.split('/');
+      const b = pattern.split('/');
+      if (a.length !== b.length) return null;
+      const params = {};
+      for (let i = 0; i < b.length; i++) {
+        if (b[i].startsWith(':')) params[b[i].slice(1)] = a[i];
+        else if (a[i] !== b[i]) return null;
+      }
+      return params;
+    }
+
     for (const [method, p, handler] of routes) {
-      if (request.method === method && path === p) {
-        try {
-          return await handler(request, env, JWT_SECRET);
-        } catch (e) {
-          return json({ error: e.message || "internal error" }, 500);
+      if (request.method === method) {
+        const params = matchRoute(path, p);
+        if (params !== null) {
+          try {
+            return await handler(request, env, JWT_SECRET, params);
+          } catch (e) {
+            return json({ error: e.message || "internal error" }, 500);
+          }
         }
       }
     }
@@ -365,6 +420,10 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
 
     // 异步 embedding（不阻塞主流程）
     embedDiaryInBackground(env, diaryId, user.uid);
+    // 日记存入 wiki_sources（史料），等用户触发汇入
+    saveDiaryToWikiSources(env, diaryId, user.uid).catch(e =>
+      console.error('[wiki] diary source save fail', e.message)
+    );
 
     return json({ id: diaryId, ok: true });
   } catch (e) {
@@ -1007,6 +1066,83 @@ const MEMORY_ENABLED_DEFAULT = false; // 默认关，env.MEMORY_ENABLED='true' �
 const MAX_MEMORIES_IN_PROMPT = 15;     // 最多塞进 prompt 的记忆数
 const MAX_EXTRACT_PER_TURN = 3;        // 每轮对话最多提取的候选记忆
 
+// ===== 多源结构化事实加载：并行查 4 张表 → 格式化文本块 =====
+// 设计原则：每张表独立 try-catch，一张挂了不影响其他；Promise.all 并行，总延迟 ≈ 单表查询
+async function loadStructuredFacts(env, uid) {
+  // 1. profiles：用户统计数据
+  const profileF = env.DB.prepare(
+    "SELECT total_diaries, total_words, streak_days, daily_goal FROM profiles WHERE user_id = ?"
+  ).bind(uid).first().catch(() => null);
+
+  // 2. plans：用户跑马灯里的正式计划
+  const plansF = env.DB.prepare(
+    "SELECT icon, title, target_date, status FROM plans WHERE user_id = ? AND status != 'done' ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'overdue' THEN 1 ELSE 2 END, target_date ASC NULLS LAST LIMIT 10"
+  ).bind(uid).all().catch(() => ({ results: [] }));
+
+  // 3. milestones：纪念日/倒计时
+  const milestonesF = env.DB.prepare(
+    "SELECT icon, title, type, target_date, target_mm, target_dd FROM milestones WHERE user_id = ? ORDER BY target_date ASC NULLS LAST, target_mm ASC NULLS LAST LIMIT 15"
+  ).bind(uid).all().catch(() => ({ results: [] }));
+
+  // 4. daily_summaries：AI 每日总结（最近 3 天）
+  const summariesF = env.DB.prepare(
+    "SELECT date, summary, diary_count FROM daily_summaries WHERE user_id = ? ORDER BY date DESC LIMIT 3"
+  ).bind(uid).all().catch(() => ({ results: [] }));
+
+  try {
+    const [profileRow, plansResp, milestonesResp, summariesResp] = await Promise.all([
+      profileF, plansF, milestonesF, summariesF,
+    ]);
+
+    const blocks = [];
+
+    // ==== 用户统计 ====
+    const profile = profileRow || {};
+    const statLines = [];
+    if (profile.total_diaries) statLines.push(`共写了 ${profile.total_diaries} 篇日记`);
+    if (profile.total_words) statLines.push(`累计 ${profile.total_words} 字`);
+    if (profile.streak_days) statLines.push(`连续写日记 ${profile.streak_days} 天`);
+    if (profile.daily_goal) statLines.push(`每日目标 ${profile.daily_goal} 篇`);
+    if (statLines.length) blocks.push(`【用户统计】\n${statLines.join('、')}`);
+
+    // ==== 正式计划（跑马灯）====
+    const plans = (plansResp?.results || []);
+    if (plans.length) {
+      const lines = plans.map((p, i) => {
+        const date = p.target_date ? `（${p.target_date}）` : '';
+        const st = p.status === 'overdue' ? ' ⚠️已过期' : '';
+        return `[计划${i+1}] ${p.icon || '🎯'} ${p.title}${date}${st}`;
+      });
+      blocks.push(`【用户的正式计划（跑马灯）】\n${lines.join('\n')}\n（这些是用户明确设置的计划，比日记里的提及更权威）`);
+    }
+
+    // ==== 纪念日/倒计时 ====
+    const milestones = (milestonesResp?.results || []);
+    if (milestones.length) {
+      const lines = milestones.map((m, i) => {
+        let date;
+        if (m.target_date) date = `（${m.target_date}）`;
+        else if (m.target_mm && m.target_dd) date = `（每年 ${m.target_mm}月${m.target_dd}日）`;
+        else date = '';
+        return `[纪念${i+1}] ${m.icon || '🎯'} ${m.title}${date}`;
+      });
+      blocks.push(`【用户的纪念日/倒计时】\n${lines.join('\n')}`);
+    }
+
+    // ==== 每日总结 ====
+    const summaries = (summariesResp?.results || []);
+    if (summaries.length) {
+      const lines = summaries.map(s => `[${s.date}] ${s.summary}（当日写了 ${s.diary_count || 0} 篇）`);
+      blocks.push(`【最近几天的 AI 每日总结】\n${lines.join('\n')}`);
+    }
+
+    return blocks.join('\n\n');
+  } catch (e) {
+    console.warn('[loadStructuredFacts] 整体失败:', e.message);
+    return '';
+  }
+}
+
 // 加载用户 active 记忆 → 格式化为 system prompt 片段
 async function loadMemories(env, uid) {
   try {
@@ -1067,17 +1203,9 @@ async function saveMemories(env, uid, candidates) {
        confidence = MAX(confidence, excluded.confidence),
        updated_at = datetime('now','localtime')`
   );
-  let ok = 0;
-  for (const c of candidates) {
-    try {
-      const r = await stmt.bind(uid, c.type, c.content, c.confidence).run();
-      ok += r.meta?.changed_db ? 1 : 0;
-      console.log('[saveMemories] OK content=', c.content.slice(0,30), 'changed=', r.meta?.changed_db);
-    } catch (e) {
-      console.log('[saveMemories] FAIL content=', c.content.slice(0,30), 'err=', e.message);
-    }
-  }
-  return ok;
+  const batch = candidates.map(c => stmt.bind(uid, c.type, c.content, c.confidence));
+  try { await env.DB.batch(batch); } catch { return 0; }
+  return candidates.length;
 }
 
 // ===== Memory API handlers =====
@@ -1113,21 +1241,6 @@ async function handleDeleteMemory(request, env, JWT_SECRET) {
   if (!id) return json({ error: 'missing id' }, 400);
   await env.DB.prepare("DELETE FROM user_memory WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
   return json({ ok: true });
-}
-
-// 手动提取记忆：前端「💾 记住这句话」按钮调用
-async function handleExtractMemory(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRET);
-  if (!user) return json({ error: 'unauthorized' }, 401);
-  const body = await request.json();
-  const text = (body.text || '').trim();
-  if (!text) return json({ error: 'missing text' }, 400);
-  // 复用 extractMemoryCandidates，aiReply 传空
-  const candidates = await extractMemoryCandidates(env, text, '');
-  if (!candidates.length) return json({ memories: [] });
-  // 自动存 + 返回（省得前端再调一次 POST /api/memory）
-  await saveMemories(env, user.uid, candidates);
-  return json({ memories: candidates });
 }
 
 function float32ToJson(arr) { return JSON.stringify(Array.from(arr)); }
@@ -1167,34 +1280,7 @@ async function callLLM(env, messages, maxTokens = 512) {
   return r.response || '';
 }
 
-
-// 流式 LLM：返回 ReadableStream（SSE 格式）
-async function callLLMStreaming(env, messages, maxTokens, onChunk) {
-  // 优先 Workers AI streaming（免费 + 稳定）
-  const stream = await env.AI.run(LLM_MODEL, { messages, max_tokens: maxTokens, stream: true });
-  let buffer = '';
-  let fullText = '';
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = decoder.decode(value, { stream: true });
-    // Workers AI streaming 每块格式: { response: "..." }
-    for (const line of chunk.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const obj = JSON.parse(line);
-        const text = obj.response || obj.delta?.content || '';
-        if (text) {
-          fullText += text;
-          onChunk(text);
-        }
-      } catch {}
-    }
-  }
-  return fullText;
-}async function embedText(env, text) {
+async function embedText(env, text) {
   if (!text || !text.trim()) return null;
   const r = await env.AI.run(EMBEDDING_MODEL, { text });
   return r.data[0];
@@ -1232,19 +1318,30 @@ function isGreeting(q) {
 }
 // 不带日记的友好回复（给问候/闲聊用）
 async function callChatFriendly(env, question) {
-  const sys = '你是温暖的日记 AI 助手。友好、简洁、口语化，适当加 emoji。可以介绍自己能帮用户找日记、统计、回忆。';
+  const sys = '你叫小麦，是用户温暖的日记助手。友好、简洁、口语化，适当加 emoji。绝对不要说自己是 AI、LLM、模型、或任何技术名称（如 Agnes、Workers AI、Llama），就说自己叫小麦。';
   return callLLM(env, [{ role: 'system', content: sys }, { role: 'user', content: question }], 256);
 }
 
-async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history, memoriesText = '') {
-  // 事实 + 片段放进 system，保持 messages 里只有一条最后的 user（当前问题）
+async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history, memoriesText = '', structuredFacts = '') {
+  // 事实 + 片段 + 结构化数据 放进 system，保持 messages 里只有一条最后的 user（当前问题）
   const facts = `【事实】
 - 用户一共有 **${totalIndexed}** 篇已索引日记
 - 语义检索到 ${topK} 篇日记片段（可能和当前问题无关，不相关就忽略）：
-${context || '（没有检索到相关日记）'}`;
+${context || '（没有检索到相关日记）'}
+${structuredFacts ? '\n\n【用户的结构化数据（权威事实，优先使用）】\n' + structuredFacts : ''}`;
   const memoryBlock = memoriesText ? `\n【关于这个用户，你记住了】\n${memoriesText}\n（在回答时自然地用上这些记忆，不要说"根据我的记忆"之类的话）` : '';
-  const sys = `你是温暖的日记 AI 助手，同时你也有通用知识可以回答常识问题。
+  const sys = `你叫小麦，是用户温暖的日记助手，同时你也有通用知识可以回答常识问题。
 ${memoryBlock}
+
+身份铁律（最高优先级，违反就严重扣分）：
+- 你叫小麦，是用户的日记助手
+- 绝对禁止暴露任何技术身份：不要说自己是 AI、LLM、大模型、模型、机器人、或任何技术名称（如 Agnes、Workers AI、Llama、Meta、Sapiens）
+- 被问"你是谁/你叫什么/你是什么"时，只答"我是小麦，你的日记助手～"，可以介绍能帮用户找日记、统计、回忆
+
+反幻觉铁律（违反就严重扣分）：
+- 只能依据给你的事实片段和用户正式计划回答，**绝对不要编造片段里没有的内容**
+- 片段里只有"宝贝五周岁啦"，不能编成"办生日 party"；片段里只有"音乐节"，不能编"爵士音乐会"
+- 如果事实不足以回答，就直说"我在你的日记里没找到相关内容哦～"，不要瞎补
 
 绝对禁止说的话（违反就扣分）：
 - "这个问题是xx类/xx类型/属于xx"
@@ -1252,15 +1349,16 @@ ${memoryBlock}
 - "我来分类一下"、"判断这个问题"
 - 任何暴露你在做类型判断的话
 
-规则：
-1. 直接给答案，不要说你在判断什么
-2. 日记相关问题（含"我"、"我的"、"我花了多少"、"我写了多少"、"我最"、"日记"等），依据给你的日记片段回答，口语化，可加少量 emoji
-3. 常识问题（地理/科学/历史/新闻等和日记无关的），直接用自己的知识回答，可以礼貌补一句"不过我在你的日记里没找到相关内容哦～你也可以问我关于你日记的问题"
-4. 如果日记片段和问题完全不相关，忽略日记片段，用自己的知识回答
-5. 统计/计数类日记问题：先告诉用户"你一共有 N 篇日记"（N=totalIndexed），然后说"我找到其中最相关的 M 篇"（M=topK），再基于这 M 篇回答
-6. 追问（"为什么"、"那之前呢"、"你自己知道吗"、"你没搞错吧"等）必须结合历史对话理解，不能脱离上下文瞎答
-7. 对数字/单位/算术要谨慎，不确定就说"我不太确定，建议查证一下"
-8. 如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），回答的结尾可以自然提一句"我会记住这点的～"或者"📝 这会成为我的记忆"（不要每次都说，10次里说2-3次就好，自然不生硬）
+规则（重要性从上到下）：
+ 1. **结构化数据优先**：如果【用户的结构化数据（权威事实）】里有相关内容，优先依据它回答。结构化数据包括：用户统计（日记数/字数/连续天数）、正式计划（跑马灯）、纪念日/倒计时、每日 AI 总结。这些比日记片段更权威，千万不要忽略！
+ 2. 直接给答案，不要说你在判断什么
+ 3. 日记相关问题（含"我"、"我的"、"我花了多少"、"我写了多少"、"我最"、"日记"等），在结构化数据不够时，依据日记片段补充回答
+ 4. 常识问题（地理/科学/历史/新闻等和日记无关的），直接用自己的知识回答，可以礼貌补一句"不过我在你的日记里没找到相关内容哦～你也可以问我关于你日记的问题"
+ 5. 如果日记片段和问题完全不相关，忽略日记片段，用自己的知识回答
+ 6. 统计/计数类问题：优先用结构化数据里的用户统计；没有才说"我找到 N 篇相关的日记片段"
+ 7. 追问（"为什么"、"那之前呢"、"你自己知道吗"、"你没搞错吧"等）必须结合历史对话理解，不能脱离上下文瞎答
+ 8. 对数字/单位/算术要谨慎，不确定就说"我不太确定，建议查证一下"
+ 9. 如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），回答的结尾可以自然提一句"我会记住这点的～"或者"📝 这会成为我的记忆"（不要每次都说，10次里说2-3次就好，自然不生硬）
 
 ${facts}`;
   const msgs = [{ role: 'system', content: sys }];
@@ -1309,7 +1407,7 @@ async function handleAsk(request, env, JWT_SECRET) {
     }
   }
   // 判断是否是"关于用户日记"的问题——没有任何个人关键词就是纯常识，跳过 RAG
-  const DIARY_KW = ['我的', '我花', '我写', '我最', '我计划', '我要', '我想', '我今天', '我昨天', '我最近', '我花了', '我记了', '日记', '笔记', '写了', '昨天', '今天', '最近', '总共', '一共', '多少篇', '几篇', '花了', '赚了'];
+  const DIARY_KW = ['我的', '我花', '我写', '我最', '我计划', '我要', '我想', '我今天', '我昨天', '我最近', '我花了', '我记了', '日记', '笔记', '写了', '昨天', '今天', '最近', '总共', '一共', '多少篇', '几篇', '花了', '赚了', '计划', '安排', '待办', '要做', '要干嘛', '想做', '有什么', '想干嘛'];
   const hasDiaryKw = (q) => DIARY_KW.some(kw => q.includes(kw));
   // 只看当前 question，不看 history（否则多轮常识对话也会命中 history 里的"我"等）
   let isDiaryRelated = hasDiaryKw(question);
@@ -1320,9 +1418,22 @@ async function handleAsk(request, env, JWT_SECRET) {
   if (!isDiaryRelated) {
     // 纯常识/通用问题，直接让 LLM 自由发挥，不查日记
     try {
-      const memoriesText = await loadMemories(env, user.uid);
+      // 并行加载结构化事实 + 记忆
+      const [structuredFacts, memoriesText] = await Promise.all([
+        loadStructuredFacts(env, user.uid),
+        loadMemories(env, user.uid),
+      ]);
       const memBlock = memoriesText ? `\n\n【关于这个用户，你记住了】\n${memoriesText}\n（自然用上，不要说"根据我的记忆"）` : '';
-      const sys = `你是温暖友好的 AI 助手。准确回答问题，简洁口语化，可加少量 emoji。如果是数字/单位/算术要特别小心，不确定就说"我不太确定，建议查证一下"。如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），回答结尾自然提一句"我会记住这点的～"（不要每次都说，10次里2-3次就好）。${memBlock}`;
+      const factsBlock = structuredFacts ? `\n\n【用户的结构化数据（权威事实，优先使用）】\n${structuredFacts}\n（即使是常识分支，也可能包含用户自己的数据——如果问题涉及，优先依据这些回答）` : '';
+      const sys = `你叫小麦，是用户温暖友好的日记助手。准确回答问题，简洁口语化，可加少量 emoji。如果是数字/单位/算术要特别小心，不确定就说"我不太确定，建议查证一下"。如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），回答结尾自然提一句"我会记住这点的～"（不要每次都说，10次里2-3次就好）。${memBlock}${factsBlock}
+
+身份铁律（最高优先级）：
+- 你叫小麦，是用户的日记助手
+- 绝对禁止暴露任何技术身份：不要说自己是 AI、LLM、大模型、模型、机器人、或任何技术名称（如 Agnes、Workers AI、Llama、Meta、Sapiens）
+- 被问"你是谁/你叫什么/你是什么"时，只答"我是小麦，你的日记助手～"
+
+反幻觉铁律：
+- 只能依据给你的事实片段和用户数据回答，绝对不要编造片段里没有的内容`;
       const msgs = [{ role: 'system', content: sys }];
       if (Array.isArray(history)) {
         for (const h of history) {
@@ -1354,8 +1465,8 @@ async function handleAsk(request, env, JWT_SECRET) {
     const qVec = await embedText(env, ragQuery);
     if (!qVec) return json({ error: 'embed failed' }, 500);
     const rows = await env.DB.prepare(
-      'SELECT diary_id, content, vector FROM diary_embeddings WHERE user_id = ? ORDER BY diary_id DESC LIMIT 50'
-    ).bind(user.uid).all();
+       "SELECT e.diary_id, e.content, e.vector, d.date FROM diary_embeddings e LEFT JOIN diaries d ON e.diary_id = d.id WHERE e.user_id = ? ORDER BY e.diary_id DESC LIMIT 50"
+     ).bind(user.uid).all();
 
     // ===== 混合检索：向量 (0.7) + 关键词 (0.3) =====
     const keywords = extractKeywords(ragQuery);
@@ -1409,69 +1520,32 @@ async function handleAsk(request, env, JWT_SECRET) {
     const bestScore = top[0]?.score ?? 0;
     const contextParts = bestScore < 0.15 ? [] : top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
     const context = contextParts.join('\n\n');
-    // 加载记忆 → 拼进 prompt
-    const memoriesText = await loadMemories(env, user.uid);
-    // ===== 构建 prompt（内嵌 callWorkersAI_LLM 的逻辑）=====
-    const facts = `【事实】
-- 用户一共有 **** 篇已索引日记
-- 语义检索到  篇日记片段（可能和当前问题无关，不相关就忽略）：
-`;
-    const memoryBlock = memoriesText ? `\n【关于这个用户，你记住了】\n\n（在回答时自然地用上这些记忆，不要说""根据我的记忆""之类的话）` : '';
-    const sys = `你是温暖的日记 AI 助手，同时你也有通用知识可以回答常识问题。
 
+    // ===== 并行加载：结构化事实 + 记忆 =====
+    const [structuredFacts, memoriesText] = await Promise.all([
+      loadStructuredFacts(env, user.uid),
+      loadMemories(env, user.uid),
+    ]);
 
-绝对禁止说的话（违反就扣分）：
-- ""这个问题是xx类/xx类型/属于xx""
-- ""这个问题涉及/不涉及""
-- ""我来分类一下""、""判断这个问题""
-- 任何暴露你在做类型判断的话
-
-规则：
-1. 直接给答案，不要说你在判断什么
-2. 日记相关问题（含""我""、""我的""、""我花了多少""、""我写了多少""、""我最""、""日记""等），依据给你的日记片段回答，口语化，可加少量 emoji
-3. 常识问题（地理/科学/历史/新闻等和日记无关的），直接用自己的知识回答，可以礼貌补一句""不过我在你的日记里没找到相关内容哦～你也可以问我关于你日记的问题""
-4. 如果日记片段和问题完全不相关，忽略日记片段，用自己的知识回答
-5. 统计/计数类日记问题：先告诉用户""你一共有 N 篇日记""（N=），然后说""我找到其中最相关的 M 篇""（M=），再基于这 M 篇回答
-6. 追问（""为什么""、""那之前呢""、""你自己知道吗""、""你没搞错吧""等）必须结合历史对话理解，不能脱离上下文瞎答
-7. 对数字/单位/算术要谨慎，不确定就说""我不太确定，建议查证一下""
-8. 如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），回答的结尾可以自然提一句""我会记住这点的～""或者""📝 这会成为我的记忆""（不要每次都说，10次里说2-3次就好，自然不生硬）
-
-`;
-    const msgs = [{ role: 'system', content: sys }];
-    if (Array.isArray(history)) {
-      for (const h of history) {
-        if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
-          msgs.push({ role: h.role, content: String(h.content).slice(0, 500) });
-        }
-      }
-    }
-    msgs.push({ role: 'user', content: question });
-
-    // ===== SSE 流式返回 =====
-    const sseSources = bestScore < 0.15 ? [] : top.map(s => ({ diary_id: s.diary_id, date: s.date || '', score: Math.round(s.score*1000)/1000, content: (s.content || '').slice(0, 300) }));
-    const encoder = new TextEncoder();
-    let fullAnswer = '';
-    const { readable, writable } = new TransformStream();
-    const writer = writable.getWriter();
-    const send = (obj) => writer.write(encoder.encode('data: ' + JSON.stringify(obj) + '\n\n'));
-    send({ sources: sseSources, keywords, _debug: { rerank: rerankStatus, candidates: CANDIDATE_COUNT, finalK: FINAL_TOP_K, totalIndexed } });
-    callLLMStreaming(env, msgs, 600, (text) => {
-      fullAnswer += text;
-      send({ text });
-    }).then(() => {
-      send({ done: true, answer: fullAnswer });
-      writer.close();
-      if (fullAnswer) {
-        Promise.race([
-          extractMemoryCandidates(env, question, fullAnswer),
+    let answer;
+    try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history, memoriesText, structuredFacts); }
+    catch (e) { answer = 'LLM 错: ' + e.message; }
+    // 同步提取并保存记忆（Workers AI 很快，5s timeout 够了）
+    if (answer) {
+      try {
+        const cands = await Promise.race([
+          extractMemoryCandidates(env, question, answer),
           new Promise(r => setTimeout(() => r([]), 5000)),
-        ]).then(cands => { if (cands?.length) saveMemories(env, user.uid, cands); }).catch(() => {});
-      }
-    }).catch(e => {
-      send({ error: e.message });
-      writer.close();
+        ]);
+        if (cands.length) await saveMemories(env, user.uid, cands);
+      } catch {}
+    }
+    return json({
+      answer,
+      sources: bestScore < 0.15 ? [] : top.map(s => ({ diary_id: s.diary_id, date: s.date || '', score: Math.round(s.score*1000)/1000, content: (s.content || '').slice(0, 300) })),
+      keywords,
+      _debug: { rerank: rerankStatus, candidates: CANDIDATE_COUNT, finalK: FINAL_TOP_K, totalIndexed },
     });
-    return new Response(readable, { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' } });
   } catch (e) {
     return json({ answer: '抱歉，出错了：' + (e.message || 'unknown') });
   }

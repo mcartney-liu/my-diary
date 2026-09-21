@@ -1,11 +1,11 @@
 ﻿import { useState, useRef, useEffect, useMemo } from "react";
-import { askDiaryStreaming, extractMemory } from "../api";
+import { askDiary, extractMemory } from "../api";
 import { useAuth } from "../AuthContext";
 
 interface Msg {
   role: "user" | "ai";
   content: string;
-  sources?: { diary_id: string; date: string; score: number; content: string }[];
+  sources?: { diary_id: string; date?: string; score: number; content?: string }[];
 }
 
 interface Session {
@@ -141,48 +141,23 @@ export default function AiChatView() {
       msgs: [...s.msgs, userMsg],
     }));
     setLoading(true);
-    setLoading(true);
     try {
       const recent = [...active.msgs].slice(-6).map((m): { role: "user" | "assistant"; content: string } => ({
         role: m.role === "ai" ? "assistant" : "user",
         content: m.content,
       }));
-      const aiMsg: Msg = { role: 'ai', content: '', sources: [] };
-      updateActive((s) => ({ ...s, msgs: [...s.msgs, aiMsg] }));
-      setLoading(false);
-      try {
-        await askDiaryStreaming(question, recent, {
-          onSources: (sources) => {
-            updateActive((s) => ({
-              ...s,
-              msgs: s.msgs.map((m, idx) => idx === s.msgs.length - 1 ? { ...m, sources } : m),
-            }));
-          },
-          onChunk: (text) => {
-            updateActive((s) => ({
-              ...s,
-              msgs: s.msgs.map((m, idx) => idx === s.msgs.length - 1 ? { ...m, content: m.content + text } : m),
-            }));
-          },
-          onDone: () => {},
-          onError: (err) => {
-            updateActive((s) => ({
-              ...s,
-              msgs: s.msgs.map((m, idx) => idx === s.msgs.length - 1 ? { ...m, content: '抱歉，出了点问题：' + err } : m),
-            }));
-          },
-        });
-      } catch (e: any) {
-        updateActive((s) => ({
-          ...s,
-          msgs: s.msgs.map((m, idx) => idx === s.msgs.length - 1 ? { ...m, content: '抱歉，出了点问题：' + (e?.message || '请求失败') } : m),
-        }));
-      }
+      const res = await askDiary(question, recent);
+      updateActive((s) => ({
+        ...s,
+        msgs: [...s.msgs, { role: 'ai', content: res.answer, sources: res.sources || [] }],
+      }));
     } catch (e: any) {
       updateActive((s) => ({
         ...s,
-        msgs: s.msgs.map((m, idx) => idx === s.msgs.length - 1 ? { ...m, content: "抱歉，出了点问题：" + (e?.message || "请求失败") } : m),
+        msgs: [...s.msgs, { role: 'ai', content: '抱歉，出了点问题：' + (e?.message || '请求失败'), sources: [] }],
       }));
+    } finally {
+      setLoading(false);
     }
   }
 

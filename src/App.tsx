@@ -14,6 +14,7 @@ import MilestonesPage from "./components/MilestonesPage";
 import PlanPage from "./components/PlanPage";
 import FinancePage from "./components/FinancePage";
 import ProfilePage from "./components/ProfilePage";
+import SourcesPanel from "./components/SourcesPanel";
 
 // 后台写入 localStorage（不阻塞主线程）
 let saveQueue = Promise.resolve();
@@ -290,6 +291,7 @@ export default function App() {
         <Route path="/plans" element={<PlanPage />} />
 <Route path="/finance" element={<FinancePage diaries={diaries} />} />
         <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/sources" element={<SourcesPanel />} />
         <Route
           path="/editor"
           element={<EditorPageWrapper mode="new" allDiaries={allDiaries} onUpsert={handleUpsert} onSoftDelete={handleSoftDelete} />}

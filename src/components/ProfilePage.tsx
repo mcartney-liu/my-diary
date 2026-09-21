@@ -5,6 +5,7 @@ import { getProfile, patchProfile, submitFeedback, type ProfileStats, listMemory
 import { polishFeedback, getAiProvider } from "../ai";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
+import KnowledgeBase from "./KnowledgeBase";
 
 interface MemoryItem { id: number; type: string; content: string; confidence: number; status: string; created_at: string; }
 
@@ -25,7 +26,7 @@ export default function ProfilePage() {
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState("");
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "templates" | "papers" | "memory">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "templates" | "papers" | "memory" | "knowledge">("profile");
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [newMemType, setNewMemType] = useState("fact");
@@ -365,17 +366,19 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        {/* Tab bar: 个人 / 模板库 / 信纸库 */}
+        {/* Tab bar: 个人 / 模板 / 信纸 */}
         <div className="flex gap-1 p-1 bg-paper-card rounded-card shadow-card border border-paper-line/50">
           {[
             { k: "profile", label: "👤 个人" },
-            { k: "templates", label: "📚 模板库" },
-            { k: "papers", label: "🎨 信纸库" },
+            { k: "templates", label: "📚 模板" },
+            { k: "papers", label: "🎨 信纸" },
             { k: "memory", label: "🧠 记忆" },
+            { k: "sources", label: "📚 资料", external: true },
+            { k: "knowledge", label: "🧠 知识" },
           ].map((t) => (
             <button
               key={t.k}
-              onClick={() => setActiveTab(t.k as any)}
+              onClick={() => t.external ? nav("/sources") : setActiveTab(t.k as any)}
               className={`flex-1 py-2 rounded-md text-sm transition ${
                 activeTab === t.k ? "bg-white shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
               }`}
@@ -482,6 +485,10 @@ export default function ProfilePage() {
               </div>
             )}
           </section>
+        )}
+
+        {activeTab === "knowledge" && (
+          <KnowledgeBase />
         )}
 
         {/* 退出登录（始终显示） */}
@@ -628,12 +635,35 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-              {/* === v0.4.1 当前版本（高亮） === */}
+              {/* === v0.5.0 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-bold text-paper-accent">v{__APP_VERSION__}</span>
-                  <span className="text-paper-ink3 text-xs">2026年09月20日</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月21日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">🎉 新功能</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>🧠 <b>知识库系统（完整版）</b> — AI 帮你把零散的资料整理成一套相互关联、便于查找的笔记；多知识库管理、Obsidian 风格双向链接、知识图谱（可拖拽缩放）、反链上下文摘要、页面可编辑、重复汇入自动合并</li>
+                    <li>📚 <b>全局资料库</b> — 从知识库里独立出来，所有原始资料统一管理；支持粘贴文本和上传文件（.txt .md .docx 等）；KB 标签式绑定，一篇资料可以打多个知识库的标签；批量汇入，完成后显示新建/更新/链接数量</li>
+                    <li>📋 <b>范本独立管理</b> — 范本从分类里抽出来作为单独 tab；6 个官方范本全部中文化占位符（<code className="bg-paper-surface px-1 rounded">{'{{身份}}'}</code>、<code className="bg-paper-surface px-1 rounded">{'{{参与人}}'}</code>）；可以自己创建、删除，分类直接引用</li>
+                    <li>🏠 <b>首页多了「🧠 知识」入口</b> — 和月历 / 年度回顾 / 小麦并列；直接展示知识结果（树形层级 + 图谱）</li>
+                  </ul>
+                  <div><b className="text-paper-ink">🔧 交互改进</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>知识库配置 UI 重排 — KB 选择器默认无框下拉（只有点"修改"才进入编辑态），按钮布局重新调整更符合手机屏幕</li>
+                    <li>分类编辑器表单 — 顺序改成「名称 → 套用范本 → 格式预览」，格式模板加了实时 Markdown 预览区</li>
+                    <li>我的 tab 去掉冗余的「库」字 — 模板 / 信纸 / 知识（原来叫模板库 / 信纸库 / 知识库）</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* === v0.4.1 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.4.1</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月20日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
@@ -641,12 +671,6 @@ export default function ProfilePage() {
                     <li>💬 <b>日记知识库改名为「小麦」</b> — 原 v0.4.0 新增的「日记知识库」正式更名为「💬 小麦」，多会话管理 / 历史抽屉 / 自动保存全部保留，功能不变</li>
                     <li>🧠 <b>小麦会记住你了 — 长期记忆系统</b> — 聊天时提到自己的事会自动提取成记忆存下来，下次聊到相关的自动用上；我的页面新增「🧠 记忆」tab：手动加、看全部、删除；五种记忆类型：💫 偏好 / 📋 个人 / 📌 事实 / ✅ 待办 / 🎨 兴趣</li>
                     <li>🔍 <b>回答更准了 — 检索三层升级</b> — 向量相似度（0.7）+ 关键词匹配（0.3）加权融合，再加 bge-reranker-base 精排（初筛 top12 → 专家精选 top5）；常识问题自动跳过日记检索</li>
-                  </ul>
-                  <div><b className="text-paper-ink">🐛 修复</b></div>
-                  <ul className="list-disc pl-5 space-y-1">
-                    <li>Agnes LLM 偶尔返回乱码 — BOM 头没剥干净</li>
-                    <li>关键词路由不准 — "我想加班"里的"我想"被误判成日记关键词</li>
-                    <li>边界情况请求直接炸 — handleAsk try-catch 没闭合</li>
                   </ul>
                 </div>
               </div>

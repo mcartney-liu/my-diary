@@ -10,6 +10,7 @@ import MoodHeatmap from "./MoodHeatmap";
 import DayList from "./DayList";
 import VoiceQuickEntry from "./VoiceQuickEntry";
 import AiChatView from "./AiChatView";
+import KnowledgeBase from "./KnowledgeBase";
 
 interface Props {
   diaries: Diary[];
@@ -24,7 +25,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [selectedDate, setSelectedDate] = useState<string>(() => fmtDate(now));
-  const [view, setView] = useState<"monthly" | "yearly" | "ai">("monthly");
+  const [view, setView] = useState<"monthly" | "yearly" | "ai" | "wiki">("monthly");
   const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
 
   // 🎠 跑马灯 touch 手势：手指拖时停动画 + 手动跟手，松手继续自动跑（接回当前位置）
@@ -314,6 +315,16 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           >
             💬 小麦
           </button>
+          <button
+            onClick={() => setView("wiki")}
+            className={`px-3.5 py-1.5 rounded-full text-sm transition ${
+              view === "wiki"
+                ? "bg-paper-ink text-paper-bg shadow-sm"
+                : "text-paper-ink2 hover:text-paper-ink"
+            }`}
+          >
+            🧠 知识库
+          </button>
         </div>
 
         {view === "monthly" ? (
@@ -403,8 +414,10 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           </>
         ) : view === "yearly" ? (
           <MoodHeatmap diaries={diaries} />
-        ) : (
+        ) : view === "ai" ? (
           <AiChatView />
+        ) : (
+          <KnowledgeBase minimal />
         )}
       </main>
 
@@ -483,5 +496,3 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
     </div>
   );
 }
-
-

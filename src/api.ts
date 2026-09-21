@@ -1,4 +1,4 @@
-// Cloud API client — talks to Cloudflare Workers
+﻿// Cloud API client — talks to Cloudflare Workers
 // 开发环境: 直连 dev Worker 绝对地址 (绕开 Vite proxy —— Node.js 在本 Windows 上连不了海外 HTTPS)
 // 生产环境: 相对路径走 Pages Functions 同域代理 (绕开 iPhone Safari 对 workers.dev 的封锁)
 
@@ -320,58 +320,15 @@ export function listSummaries() {
   return request<{ summaries: DailySummary[] }>('/api/summaries');
 }
 
-// AI 问答（普通版）
-export function askDiary(question: string, history?: { role: 'user' | 'assistant'; content: string }[]) {
-  return request<{ answer: string; sources: { diary_id: string; date: string; score: number; content: string }[] }>('/api/ai/ask', {
+// AI 知识库问答
+export function askDiary(question: string, history?: { role: "user" | "assistant"; content: string }[]) {
+  return request<{ answer: string; sources: { diary_id: string; date?: string; score: number; content?: string }[] }>('/api/ai/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question, history }),
   });
 }
 
-// AI 问答（流式版 SSE）
-export async function askDiaryStreaming(
-  question: string,
-  history: { role: 'user' | 'assistant'; content: string }[],
-  callbacks: {
-    onSources?: (sources: any[], keywords: string[]) => void;
-    onChunk?: (text: string) => void;
-    onDone?: (answer: string) => void;
-    onError?: (err: string) => void;
-  }
-) {
-  const token = getToken();
-  const base = API_BASE;
-  const resp = await fetch(base + '/api/ai/ask', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-    body: JSON.stringify({ question, history }),
-  });
-  if (!resp.ok || !resp.body) { callbacks.onError?.('请求失败'); return; }
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let fullAnswer = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split('\\n\\n');
-    buffer = events.pop() || '';
-    for (const ev of events) {
-      const dataLine = ev.split('\\n').find(l => l.startsWith('data: '));
-      if (!dataLine) continue;
-      try {
-        const obj = JSON.parse(dataLine.slice(6));
-        if (obj.sources) { callbacks.onSources?.(obj.sources, obj.keywords || []); }
-        if (obj.text) { fullAnswer += obj.text; callbacks.onChunk?.(obj.text); }
-        if (obj.error) { callbacks.onError?.(obj.error); }
-        if (obj.done) { callbacks.onDone?.(obj.answer || fullAnswer); }
-      } catch {}
-    }
-  }
-  if (!fullAnswer) callbacks.onError?.('没有收到回复');
-}
 // 长期记忆
 export function listMemory() {
   return request<{ memories: { id: number; type: string; content: string; confidence: number; status: string; created_at: string }[] }>('/api/memory');
@@ -386,11 +343,127 @@ export function addMemory(type: string, content: string, confidence = 0.7) {
 export function deleteMemory(id: number) {
   return request<{ ok: boolean }>(`/api/memory?id=${id}`, { method: 'DELETE' });
 }
-
-// 让 LLM 从用户原话里解析出简洁的记忆（前端「💾 记住这句话」按钮用）
 export function extractMemory(text: string) {
   return request<{ memories: { type: string; content: string; confidence: number }[] }>('/api/memory/extract', {
     method: 'POST',
     body: JSON.stringify({ text }),
   });
+}
+
+// ====== Wiki 知识库 v4 ======
+export interface WikiKB { id: string; title: string; created_at: number; updated_at: number; }
+export interface WikiCategory {
+  id: string; kb_id: string; user_id: string; name: string; slug: string;
+  sort_order: number; extract_hints: string; page_format: string;
+  created_at: number; updated_at: number;
+}
+export interface WikiSource {
+  id: string; kb_id?: string | null; user_id?: string; kind: string;
+  ref_id?: string | null; title?: string | null; raw_text: string;
+  tags?: string | null; ingested: number; ingested_at?: number | null; created_at: number;
+}
+export interface WikiPage {
+  id: string; kb_id: string; category_id: string | null; title: string;
+  content: string; is_system: number; created_at: number; updated_at: number; summary?: string;
+}
+export interface WikiLink { from_title: string; to_title: string; relation: string; }
+
+export function wikiListKbs() { return request<{ kbs: WikiKB[] }>('/api/wiki/kbs'); }
+export function wikiAddKb(title: string) { return request<WikiKB>('/api/wiki/kbs', { method: 'POST', body: JSON.stringify({ title }) }); }
+export function wikiUpdateKb(kbId: string, title: string) { return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId, { method: 'PATCH', body: JSON.stringify({ title }) }); }
+export function wikiDeleteKb(kbId: string) { return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId, { method: 'DELETE' }); }
+
+export function wikiListCategories(kbId: string) { return request<{ categories: WikiCategory[]; kb: WikiKB }>('/api/wiki/kbs/' + kbId + '/categories'); }
+export function wikiAddCategory(kbId: string, cat: { name: string; page_format?: string }) {
+  return request<{ id: string; name: string; slug: string; ok: boolean }>('/api/wiki/kbs/' + kbId + '/categories', { method: 'POST', body: JSON.stringify(cat) });
+}
+export function wikiUpdateCategory(kbId: string, patch: { id: string; name?: string; page_format?: string }) {
+  return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId + '/categories', { method: 'PATCH', body: JSON.stringify(patch) });
+}
+export function wikiDeleteCategory(kbId: string, id: string) {
+  return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId + '/categories?id=' + encodeURIComponent(id), { method: 'DELETE' });
+}
+
+export function wikiListSources(kbId: string) { return request<{ sources: WikiSource[] }>('/api/wiki/kbs/' + kbId + '/sources'); }
+export function wikiAddSourceText(kbId: string, text: string, title?: string) {
+  return request<{ source_id: string; ok: boolean }>('/api/wiki/kbs/' + kbId + '/sources/text', { method: 'POST', body: JSON.stringify({ text, title }) });
+}
+export async function wikiUploadSourceFile(kbId: string, file: File) {
+  const token = localStorage.getItem('token') || '';
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch('/api/wiki/kbs/' + kbId + '/sources/file', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token },
+    body: fd,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data as { id: string; ok: boolean; title: string; chars: number };
+}
+export function wikiDeleteSource(kbId: string, sourceId: string) {
+  return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId + '/sources/' + sourceId, { method: 'DELETE' });
+}
+export function wikiBatchDeleteSources(kbId: string, ids: string[]) {
+  return request<{ ok: boolean; deleted: number }>('/api/wiki/kbs/' + kbId + '/sources/batch', { method: 'DELETE', body: JSON.stringify({ ids }) });
+}
+
+export function wikiListPages(kbId: string) { return request<{ pages: WikiPage[] }>('/api/wiki/kbs/' + kbId + '/pages'); }
+export function wikiGetPage(kbId: string, pageId: string) {
+  return request<{ page: WikiPage; outlinks: WikiLink[]; backlinks: WikiLink[] }>('/api/wiki/kbs/' + kbId + '/pages/' + pageId);
+}
+export function wikiSearch(kbId: string, q: string) {
+  return request<{ results: { id: string; title: string; summary: string; updated_at: number }[] }>('/api/wiki/kbs/' + kbId + '/search?q=' + encodeURIComponent(q));
+}
+
+export interface WikiGraphNode {
+  id: string; title: string; category: string | null; is_system: boolean;
+}
+export interface WikiGraphEdge { source: string; target: string; }
+export function wikiGraph(kbId: string) {
+  return request<{ nodes: WikiGraphNode[]; links: WikiGraphEdge[] }>('/api/wiki/kbs/' + kbId + '/graph');
+}
+export function wikiIngestAll(kbId: string, ids?: string[]) {
+  const body = ids ? JSON.stringify({ ids }) : undefined;
+  return request<{ ok: boolean; message?: string; ingested_count: number; created: number; updated: number; links_added: number; pages: { title: string; category_slug: string; summary: string }[] }>('/api/wiki/kbs/' + kbId + '/ingest', { method: 'POST', body });
+}
+
+// ====== 范本库 v4.1 ======
+export interface WikiTemplate {
+  id: string; name: string; description?: string; extract_hints: string; page_format: string;
+  kind: 'official' | 'user'; builtin_key?: string;
+}
+export function wikiListTemplates(kbId: string) {
+  return request<{ official: WikiTemplate[]; mine: WikiTemplate[] }>('/api/wiki/kbs/' + kbId + '/templates');
+}
+export function wikiAddTemplate(kbId: string, tpl: { name: string; description?: string; extract_hints?: string; page_format?: string }) {
+  return request<{ id: string; name: string; ok: boolean }>('/api/wiki/kbs/' + kbId + '/templates', { method: 'POST', body: JSON.stringify(tpl) });
+}
+export function wikiDeleteTemplate(kbId: string, id: string) {
+  return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId + '/templates?id=' + encodeURIComponent(id), { method: 'DELETE' });
+}
+export function wikiBindTemplate(kbId: string, templateId: string, categoryId: string) {
+  return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId + '/templates/bind', { method: 'POST', body: JSON.stringify({ template_id: templateId, category_id: categoryId }) });
+}
+export async function wikiUpdatePage(kbId: string, pageId: string, data: { content?: string; summary?: string; title?: string; category_id?: string | null }) {
+  return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId + '/pages/' + pageId, { method: 'PATCH', body: JSON.stringify(data) });
+}
+
+export async function wikiGenerateEntity(kbId: string, data: { entity_name: string; source_text: string; category_id?: string }) {
+  return request<{ ok: boolean; page_id?: string; already_exists?: boolean }>('/api/wiki/kbs/' + kbId + '/generate-entity', { method: 'POST', body: JSON.stringify(data) });
+}
+
+// ====== 全局资料（不绑定某个 KB） ======
+export function wikiGlobalListSources(tag?: string) {
+  const q = tag ? '?tag=' + encodeURIComponent(tag) : '';
+  return request<{ sources: WikiSource[] }>('/api/wiki/sources' + q);
+}
+export function wikiGlobalAddSource(data: { title?: string; text: string; kind?: string; tags?: string[]; kb_id?: string | null }) {
+  return request<{ source_id: string; ok: boolean }>('/api/wiki/sources', { method: 'POST', body: JSON.stringify(data) });
+}
+export function wikiGlobalDeleteSource(sourceId: string) {
+  return request<{ ok: boolean }>('/api/wiki/sources/' + sourceId, { method: 'DELETE' });
+}
+export function wikiUpdateSourceTags(sourceId: string, tags: string[]) {
+  return request<{ ok: boolean }>('/api/wiki/sources/' + sourceId + '/tags', { method: 'PATCH', body: JSON.stringify({ tags }) });
 }
