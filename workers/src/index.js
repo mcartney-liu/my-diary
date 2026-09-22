@@ -1,4 +1,4 @@
-﻿/**
+/**
  * MyDiary API — Cloudflare Worker
  * Routes:
  *   POST   /api/auth/register    注册
@@ -73,9 +73,11 @@ export default {
 
     // 路由表（method + path → handler）
     const routes = [
-      ["POST",   "/api/auth/register",  handleRegister],
-      ["POST",   "/api/auth/login",     handleLogin],
-      ["GET",    "/api/auth/me",        handleMe],
+      ["POST",   "/api/auth/send-code",      handleSendCode],
+      ["POST",   "/api/auth/register",       handleRegister],
+      ["POST",   "/api/auth/login",          handleLogin],
+      ["POST",   "/api/auth/change-password", handleChangePassword],
+      ["GET",    "/api/auth/me",             handleMe],
       ["GET",    "/api/diaries",        handleListDiaries],
       ["POST",   "/api/diaries",        handleSaveDiary],
       ["DELETE", "/api/diaries",        handleDeleteDiary],
@@ -183,9 +185,127 @@ async function readBody(request) {
 }
 
 // ====== Auth ======
+
+// 邮箱格式校验（宽松版，够挡明显假邮箱）
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+// 取当前环境的 KV namespace（prod 叫 verify_codes，dev 叫 verify_codes_dev）
+function getVerifyKV(env) {
+  return env.verify_codes || env.verify_codes_dev;
+}
+
+// 验证码邮件 HTML 模板
+function buildVerifyEmail(code, nickname = "朋友") {
+  const safeName = nickname ? `，${nickname}` : "";
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+<body style="margin:0;padding:0;background:#faf6f1;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;">
+  <div style="max-width:440px;margin:40px auto;background:#fff;border-radius:16px;padding:36px 32px;box-shadow:0 4px 24px rgba(0,0,0,.06);">
+    <div style="font-size:26px;font-weight:700;color:#1a1a1a;margin-bottom:6px;">📖 欢迎来到我的日记</div>
+    <div style="font-size:14px;color:#9e9e9e;margin-bottom:24px;">每一天，都值得被记录</div>
+    <div style="font-size:14px;color:#6b6b6b;line-height:1.7;margin-bottom:24px;">
+      Hi${safeName} 👋，感谢你选择我们！<br/>
+      用下面这 6 位验证码完成注册，开启你的日记之旅吧 ✨
+    </div>
+    <div style="font-size:14px;color:#9e9e9e;margin-bottom:8px;">你的注册验证码</div>
+    <div style="font-size:38px;font-weight:700;letter-spacing:10px;color:#1a1a1a;padding:18px 24px;background:#faf6f1;border-radius:12px;text-align:center;margin-bottom:24px;border:1px solid #f0ece6;">${code}</div>
+    <div style="font-size:12px;color:#9e9e9e;margin-bottom:28px;">⏱️ 5 分钟内有效 · 如果不是你发起的注册，请忽略此邮件</div>
+    <div style="background:#faf6f1;border-radius:12px;padding:20px 24px;margin-bottom:24px;">
+      <div style="font-size:13px;color:#1a1a1a;font-weight:600;margin-bottom:12px;">🌟 注册后你可以</div>
+      <div style="font-size:12px;color:#6b6b6b;line-height:2;">
+        ✍️ 随时随地写日记，云端永不丢失<br/>
+        🎨 手绘信纸 · 手写字体 · 心情记录<br/>
+        🎯 纪念日提醒 · 计划管理 · 时间胶囊<br/>
+        🤖 AI 每日总结 · 模板库共享
+      </div>
+    </div>
+    <div style="font-size:12px;color:#bfbfbf;margin-top:8px;border-top:1px solid #f0ece6;padding-top:16px;text-align:center;">
+      来自 <b>我的日记</b> team<br/>
+      每天写一篇，让生活有迹可循 📝
+    </div>
+  </div>
+</body></html>`;
+  const text = `【我的日记】Hi${safeName}，欢迎加入！你的注册验证码是：${code}（5 分钟内有效）。每天写一篇，让生活有迹可循。`;
+  return { html, text };
+}
+
+// 用 Resend HTTP API 发邮件
+async function sendEmail(env, to, subject, htmlBody, textBody) {
+  const fromEmail = env.FROM_EMAIL || "noreply@callmydiary.online";
+  const fromName = env.FROM_NAME || "我的日记";
+  const apiKey = env.RESEND_API_KEY;
+
+  if (!apiKey) {
+    console.log(`[EMAIL MOCK] → ${to}  code=${htmlBody.match(/\d{6}/)?.[0] || "?"}`);
+    return { mock: true };
+  }
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: `${fromName} <${fromEmail}>`,
+      to: [to],
+      subject,
+      html: htmlBody,
+      text: textBody,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Resend ${res.status}: ${err}`);
+  }
+  return { ok: true };
+}
+
+// POST /api/auth/send-code — 生成验证码 + 发邮件
+async function handleSendCode(request, env) {
+  const { email } = await readBody(request);
+  if (!email || !EMAIL_RE.test(email)) return json({ error: "邮箱格式不对" }, 400);
+
+  const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+  if (existing) return json({ error: "这个邮箱已经注册过了" }, 409);
+
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const kv = getVerifyKV(env);
+  if (!kv) return json({ error: "验证码服务未配置" }, 503);
+
+  await kv.put(`code:${email}`, code, { expirationTtl: 300 }); // 5 分钟
+
+  const { html, text } = buildVerifyEmail(code);
+  const subject = "【我的日记】注册验证码";
+  try {
+    await sendEmail(env, email, subject, html, text);
+  } catch (e) {
+    return json({ error: `邮件发送失败：${e.message || e}` }, 500);
+  }
+
+  return json({ ok: true, dev_code: env.RESEND_API_KEY ? null : code });
+}
+
+// 校验验证码 + 清理
+async function consumeVerifyCode(env, email, code) {
+  const kv = getVerifyKV(env);
+  const key = `code:${email}`;
+  const expected = await kv.get(key);
+  if (!expected) return { ok: false, error: "验证码已过期或不存在" };
+  if (expected !== code) return { ok: false, error: "验证码不对" };
+  await kv.delete(key);
+  return { ok: true };
+}
+
 async function handleRegister(request, env, JWT_SECRET) {
-  const { email, password, nickname } = await readBody(request);
+  const { email, password, nickname, code } = await readBody(request);
   if (!email || !password || password.length < 6) return json({ error: "email and password(≥6) required" }, 400);
+  if (!EMAIL_RE.test(email)) return json({ error: "邮箱格式不对" }, 400);
+  if (!code) return json({ error: "请先获取验证码" }, 400);
+
+  const verify = await consumeVerifyCode(env, email, String(code));
+  if (!verify.ok) return json({ error: verify.error }, 400);
 
   const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
   if (existing) return json({ error: "email already registered" }, 409);
@@ -219,7 +339,37 @@ async function handleLogin(request, env, JWT_SECRET) {
   if (!ok) return json({ error: "invalid credentials" }, 401);
 
   const token = await signJWT({ uid: row.id, email: row.email }, JWT_SECRET);
+  // 更新登录时间（用于 DAU 统计）
+  try {
+    await env.DB.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").bind(Date.now(), row.id).run();
+  } catch {}
   return json({ token, user: { id: row.id, email: row.email, nickname: row.nickname } });
+}
+
+async function handleChangePassword(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const { old_password, new_password } = await readBody(request);
+  if (!old_password || !new_password) return json({ error: "旧密码和新密码都需要" }, 400);
+  if (new_password.length < 6) return json({ error: "新密码至少 6 位" }, 400);
+
+  const row = await env.DB.prepare("SELECT password_hash FROM users WHERE id = ?").bind(user.uid).first();
+  if (!row) return json({ error: "用户不存在" }, 404);
+
+  // 验证旧密码
+  const [salt, storedHash] = row.password_hash.split("$");
+  const ok = await verifyPassword(old_password, storedHash, salt);
+  if (!ok) return json({ error: "旧密码不对" }, 401);
+
+  // 生成新 hash 并更新
+  const newSalt = genSalt();
+  const newHash = await hashPassword(new_password, newSalt);
+  const now = Date.now();
+  await env.DB.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
+    .bind(`${newSalt}$${newHash}`, now, user.uid).run();
+
+  return json({ ok: true });
 }
 
 async function handleMe(request, env, JWT_SECRET) {
@@ -492,7 +642,7 @@ async function handlePatchProfile(request, env, JWT_SECRET) {
   const now = Date.now();
 
   // 更新 profiles 表
-  const allowedProfile = ["bio", "theme", "default_mood", "daily_goal"];
+  const allowedProfile = ["bio", "theme", "default_mood", "daily_goal", "remind_enabled", "remind_time", "font"];
   const patches = allowedProfile.filter(k => body[k] !== undefined).map(k => `${k} = ?`);
   if (patches.length) {
     const values = allowedProfile.filter(k => body[k] !== undefined).map(k => body[k]);

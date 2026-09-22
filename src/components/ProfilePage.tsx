@@ -1,11 +1,12 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
-import { getProfile, patchProfile, submitFeedback, type ProfileStats, listMemory, addMemory, deleteMemory } from "../api";
+import { getProfile, patchProfile, submitFeedback, changePassword, type ProfileStats, listMemory, addMemory, deleteMemory } from "../api";
 import { polishFeedback, getAiProvider } from "../ai";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
 import KnowledgeBase from "./KnowledgeBase";
+import Captcha from "./Captcha";
 
 interface MemoryItem { id: number; type: string; content: string; confidence: number; status: string; created_at: string; }
 
@@ -13,7 +14,7 @@ declare const __APP_VERSION__: string;
 
 interface ProfileData {
   user: { id: string; email: string; nickname?: string; avatar?: string };
-  profile: { bio?: string; theme?: string; default_mood?: string; daily_goal?: number } | null;
+  profile: { bio?: string; theme?: string; default_mood?: string; daily_goal?: number; remind_enabled?: number; remind_time?: string; font?: string } | null;
   stats: ProfileStats;
 }
 
@@ -42,6 +43,22 @@ export default function ProfilePage() {
   const [fontSetting, setFontSetting] = useState(localStorage.getItem("mydiary_font") || "hand");
   const [showFontPicker, setShowFontPicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false); // ⭐ 齿轮弹出菜单
+  // 设置弹窗
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showThemeModal, setShowThemeModal] = useState(false);
+  const [showRemindModal, setShowRemindModal] = useState(false);
+  const [themeSetting, setThemeSetting] = useState(localStorage.getItem("mydiary_theme") || "paper");
+  // 修改密码表单
+  const [pwOld, setPwOld] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwSubmitting, setPwSubmitting] = useState(false);
+  const [pwMsg, setPwMsg] = useState<string | null>(null);
+  const [pwCaptcha, setPwCaptcha] = useState("");
+  const [pwCaptchaInput, setPwCaptchaInput] = useState("");
+  // 每日提醒
+  const [remindEnabled, setRemindEnabled] = useState(false);
+  const [remindTime, setRemindTime] = useState("21:00");
   const [fbSubmitting, setFbSubmitting] = useState(false);
   const [fbSent, setFbSent] = useState(false);
   // 语音录入
@@ -65,6 +82,28 @@ export default function ProfilePage() {
     document.documentElement.setAttribute("data-font", fontSetting);
     document.body.setAttribute("data-font", fontSetting);
   }, [fontSetting]);
+
+  // ===== 主题切换 =====
+  useEffect(() => {
+    localStorage.setItem("mydiary_theme", themeSetting);
+    document.documentElement.setAttribute("data-theme", themeSetting);
+  }, [themeSetting]);
+
+  // ===== 加载资料后初始化提醒状态 =====
+  useEffect(() => {
+    if (data?.profile) {
+      setRemindEnabled(!!data.profile.remind_enabled);
+      setRemindTime(data.profile.remind_time || "21:00");
+      // 如果后端存了 theme，覆盖 localStorage
+      if (data.profile.theme && data.profile.theme !== themeSetting) {
+        setThemeSetting(data.profile.theme);
+      }
+      // 如果后端存了 font，覆盖 localStorage（换设备同步用）
+      if (data.profile.font && data.profile.font !== fontSetting) {
+        setFontSetting(data.profile.font);
+      }
+    }
+  }, [data]);
 
   // ===== 切换到记忆 tab 时加载 =====
   useEffect(() => {
@@ -269,15 +308,27 @@ export default function ProfilePage() {
                     </span>
                     <span className="text-paper-ink3">›</span>
                   </button>
-                  <button disabled className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink3 cursor-not-allowed">
+                  <button
+                    onClick={() => { setShowSettings(false); setShowThemeModal(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink hover:bg-paper-surface transition"
+                  >
                     <span>🎨</span>
                     <span className="flex-1 text-left">主题色</span>
-                    <span className="text-[10px]">即将上线</span>
+                    <span className="text-xs text-paper-ink2">
+                      {themeSetting === "paper" ? "纸笺" : themeSetting === "forest" ? "墨林" : "月白"}
+                    </span>
+                    <span className="text-paper-ink3">›</span>
                   </button>
-                  <button disabled className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink3 cursor-not-allowed">
+                  <button
+                    onClick={() => { setShowSettings(false); setShowRemindModal(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink hover:bg-paper-surface transition"
+                  >
                     <span>🔔</span>
                     <span className="flex-1 text-left">每日提醒</span>
-                    <span className="text-[10px]">即将上线</span>
+                    <span className="text-xs text-paper-ink2">
+                      {remindEnabled ? `已开启 ${remindTime}` : "未开启"}
+                    </span>
+                    <span className="text-paper-ink3">›</span>
                   </button>
                   <button disabled className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink3 cursor-not-allowed">
                     <span>📤</span>
@@ -285,7 +336,7 @@ export default function ProfilePage() {
                     <span className="text-[10px]">即将上线</span>
                   </button>
                   <button
-                    onClick={() => { setShowSettings(false); alert("功能开发中..."); }}
+                    onClick={() => { setShowSettings(false); setShowPasswordModal(true); }}
                     className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink hover:bg-paper-surface transition"
                   >
                     <span>🔐</span>
@@ -830,7 +881,7 @@ export default function ProfilePage() {
                 return (
                   <button
                     key={o.key}
-                    onClick={() => { setFontSetting(o.key); setShowFontPicker(false); }}
+                    onClick={() => { setFontSetting(o.key); patchProfile({ font: o.key }); setShowFontPicker(false); }}
                     className={[
                       "w-full text-left p-4 rounded-xl border-2 transition flex items-center gap-4",
                       active
@@ -857,6 +908,175 @@ export default function ProfilePage() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 修改密码弹窗 ===== */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowPasswordModal(false)}>
+          <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
+            <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
+              <h3 className="text-paper-ink font-semibold text-lg">🔐 修改密码</h3>
+              <button onClick={() => setShowPasswordModal(false)} className="text-paper-ink3 hover:text-paper-ink text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-paper-surface transition">×</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-paper-ink2 mb-1">当前密码</label>
+                <input type="password" value={pwOld} onChange={e => setPwOld(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-paper-line bg-paper-card text-paper-ink focus:outline-none focus:border-paper-accent"
+                  placeholder="输入当前密码" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-paper-ink2 mb-1">新密码（至少 6 位）</label>
+                <input type="password" value={pwNew} onChange={e => setPwNew(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-paper-line bg-paper-card text-paper-ink focus:outline-none focus:border-paper-accent"
+                  placeholder="输入新密码" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-paper-ink2 mb-1">确认新密码</label>
+                <input type="password" value={pwConfirm} onChange={e => setPwConfirm(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-paper-line bg-paper-card text-paper-ink focus:outline-none focus:border-paper-accent"
+                  placeholder="再次输入新密码" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-paper-ink2 mb-1">验证码</label>
+                <div className="flex gap-2 items-center pw-captcha">
+                  <input type="text" value={pwCaptchaInput} onChange={e => setPwCaptchaInput(e.target.value)}
+                    placeholder="输入图中字符" maxLength={4}
+                    className="flex-1 px-3 py-2 rounded-lg border border-paper-line bg-paper-card text-paper-ink focus:outline-none focus:border-paper-accent tracking-widest" />
+                  <Captcha onCodeChange={setPwCaptcha} />
+                </div>
+              </div>
+              {pwMsg && (
+                <div className={`text-xs px-3 py-2 rounded-lg ${pwMsg.startsWith("✅") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>{pwMsg}</div>
+              )}
+              <button
+                disabled={pwSubmitting}
+                onClick={async () => {
+                  setPwMsg(null);
+                  if (!pwOld || !pwNew || !pwConfirm) { setPwMsg("请填写所有字段"); return; }
+                  if (pwNew.length < 6) { setPwMsg("新密码至少 6 位"); return; }
+                  if (pwNew !== pwConfirm) { setPwMsg("两次密码输入不一致"); return; }
+                  if (pwOld === pwNew) { setPwMsg("新密码不能和旧密码相同"); return; }
+                  if (!pwCaptchaInput.trim()) { setPwMsg("请输入验证码"); return; }
+                  if (pwCaptchaInput.toUpperCase() !== pwCaptcha.toUpperCase()) {
+                    setPwMsg("验证码错误");
+                    setPwCaptchaInput("");
+                    // 刷新验证码
+                    const canvas = document.querySelector(".pw-captcha canvas") as HTMLCanvasElement;
+                    canvas?.click();
+                    return;
+                  }
+                  setPwSubmitting(true);
+                  try {
+                    await changePassword(pwOld, pwNew);
+                    setPwMsg("✅ 密码修改成功");
+                    setPwOld(""); setPwNew(""); setPwConfirm(""); setPwCaptchaInput("");
+                    setTimeout(() => { setShowPasswordModal(false); setPwMsg(null); }, 1200);
+                  } catch (e: any) {
+                    setPwMsg(e?.message || "修改失败");
+                  } finally { setPwSubmitting(false); }
+                }}
+                className="w-full py-2.5 rounded-lg bg-paper-accent text-paper-card font-medium hover:opacity-90 transition disabled:opacity-50"
+              >{pwSubmitting ? "保存中..." : "确认修改"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 主题色弹窗 ===== */}
+      {showThemeModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowThemeModal(false)}>
+          <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
+            <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
+              <h3 className="text-paper-ink font-semibold text-lg">🎨 主题色</h3>
+              <button onClick={() => setShowThemeModal(false)} className="text-paper-ink3 hover:text-paper-ink text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-paper-surface transition">×</button>
+            </div>
+            <div className="p-5 grid grid-cols-3 gap-3">
+              {[
+                { key: "paper",  label: "纸笺", desc: "温暖米黄", swatch: "#8b6f47" },
+                { key: "forest", label: "墨林", desc: "绿意盎然", swatch: "#4a6741" },
+                { key: "moon",   label: "月白", desc: "冷淡高级", swatch: "#5c6b7a" },
+              ].map(o => {
+                const active = themeSetting === o.key;
+                return (
+                  <button key={o.key}
+                    onClick={() => { setThemeSetting(o.key); patchProfile({ theme: o.key }); setShowThemeModal(false); }}
+                    className={[
+                      "p-4 rounded-xl border-2 transition flex flex-col items-center gap-2",
+                      active ? "border-paper-accent bg-paper-surface" : "border-paper-line bg-paper-card hover:border-paper-ink3",
+                    ].join(" ")}
+                  >
+                    <div className="w-10 h-10 rounded-full shadow-sm" style={{ backgroundColor: o.swatch }} />
+                    <div className="text-sm font-medium text-paper-ink">{o.label}</div>
+                    <div className="text-[10px] text-paper-ink2">{o.desc}</div>
+                    {active && <span className="text-paper-accent text-sm">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 每日提醒弹窗 ===== */}
+      {showRemindModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowRemindModal(false)}>
+          <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
+            <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
+              <h3 className="text-paper-ink font-semibold text-lg">🔔 每日提醒</h3>
+              <button onClick={() => setShowRemindModal(false)} className="text-paper-ink3 hover:text-paper-ink text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-paper-surface transition">×</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-paper-ink2 leading-relaxed">
+                到了设定时间，浏览器会弹个小通知提醒你写日记。
+                需要浏览器允许通知权限，关掉页面也能收到。
+              </p>
+              <div className="flex items-center justify-between p-3 rounded-lg border border-paper-line bg-paper-card">
+                <div>
+                  <div className="text-sm font-medium text-paper-ink">开启提醒</div>
+                  <div className="text-[11px] text-paper-ink2">{remindEnabled ? `每天 ${remindTime} 提醒` : "开启后在设定时间弹窗通知"}</div>
+                </div>
+                <button
+                  onClick={async () => {
+                    const newVal = !remindEnabled;
+                    if (newVal) {
+                      // 请求通知权限
+                      if (!("Notification" in window)) { alert("这个浏览器不支持通知"); return; }
+                      const perm = await Notification.requestPermission();
+                      if (perm !== "granted") { alert("通知权限被拒绝了，请到浏览器设置里手动开启"); return; }
+                    }
+                    setRemindEnabled(newVal);
+                    patchProfile({ remind_enabled: newVal ? 1 : 0, remind_time: remindTime });
+                  }}
+                  className={[
+                    "relative w-12 h-7 rounded-full transition",
+                    remindEnabled ? "bg-paper-accent" : "bg-paper-line",
+                  ].join(" ")}
+                >
+                  <span className={[
+                    "absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition",
+                    remindEnabled ? "left-[22px]" : "left-0.5",
+                  ].join(" ")} />
+                </button>
+              </div>
+              {remindEnabled && (
+                <div className="flex items-center gap-3 p-3 rounded-lg border border-paper-line bg-paper-card">
+                  <label className="text-sm font-medium text-paper-ink shrink-0">提醒时间</label>
+                  <input
+                    type="time"
+                    value={remindTime}
+                    onChange={e => { setRemindTime(e.target.value); patchProfile({ remind_time: e.target.value }); }}
+                    className="flex-1 px-3 py-1.5 rounded-lg border border-paper-line bg-paper-surface text-paper-ink text-sm focus:outline-none focus:border-paper-accent"
+                  />
+                </div>
+              )}
+              <button
+                onClick={() => setShowRemindModal(false)}
+                className="w-full py-2.5 rounded-lg bg-paper-accent text-paper-card font-medium hover:opacity-90 transition"
+              >完成</button>
             </div>
           </div>
         </div>

@@ -1,3 +1,23 @@
+/* === 主题色变量 === */
+:root, [data-theme="paper"] {
+  --paper-accent: #8b6f47;
+  --paper-accent2: #a68656;
+  --paper-bg: #faf6ef;
+  --paper-surface: #fdfaf3;
+}
+[data-theme="forest"] {
+  --paper-accent: #4a6741;
+  --paper-accent2: #6b8e5a;
+  --paper-bg: #f3f7f0;
+  --paper-surface: #f8fbf5;
+}
+[data-theme="moon"] {
+  --paper-accent: #5c6b7a;
+  --paper-accent2: #8a9aad;
+  --paper-bg: #f4f6f9;
+  --paper-surface: #f8fafc;
+}
+
 /* === 本地字体（永远秒开，不受网络影响） === */
 @font-face {
   font-family: "Ma Shan Zheng";

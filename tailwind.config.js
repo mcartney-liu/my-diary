@@ -1,20 +1,20 @@
-﻿/** @type {import('tailwindcss').Config} */
+/** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   theme: {
     extend: {
       colors: {
         paper: {
-          bg: "#faf6ef",
-          surface: "#fdfaf3",
+          bg: "var(--paper-bg, #faf6ef)",
+          surface: "var(--paper-surface, #fdfaf3)",
           card: "#ffffff",
           line: "#e8e0cc",
           redline: "#e57373",
           ink: "#2d1f14",
           ink2: "#7a6a54",
           ink3: "#b0a28a",
-          accent: "#8b6f47",
-          accent2: "#a68656",
+          accent: "var(--paper-accent, #8b6f47)",
+          accent2: "var(--paper-accent2, #a68656)",
         },
         mood: {
           happy: "#ffd93d",

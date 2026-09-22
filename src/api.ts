@@ -1,4 +1,4 @@
-﻿// Cloud API client — talks to Cloudflare Workers
+// Cloud API client — talks to Cloudflare Workers
 // 开发环境: 直连 dev Worker 绝对地址 (绕开 Vite proxy —— Node.js 在本 Windows 上连不了海外 HTTPS)
 // 生产环境: 相对路径走 Pages Functions 同域代理 (绕开 iPhone Safari 对 workers.dev 的封锁)
 
@@ -46,15 +46,25 @@ async function request<T>(path: string, init?: RequestInit, auth = true): Promis
 export interface AuthUser { id: string; email: string; nickname: string }
 export interface AuthResult { token: string; user: AuthUser }
 
-export function register(email: string, password: string, nickname?: string) {
+export function sendVerificationCode(email: string) {
+  return request<{ ok: boolean; dev_code?: string | null }>("/api/auth/send-code", {
+    method: "POST", body: JSON.stringify({ email }),
+  }, false);
+}
+export function register(email: string, password: string, code: string, nickname?: string) {
   return request<AuthResult>("/api/auth/register", {
-    method: "POST", body: JSON.stringify({ email, password, nickname }),
+    method: "POST", body: JSON.stringify({ email, password, code, nickname }),
   }, false);
 }
 export function login(email: string, password: string) {
   return request<AuthResult>("/api/auth/login", {
     method: "POST", body: JSON.stringify({ email, password }),
   }, false);
+}
+export function changePassword(old_password: string, new_password: string) {
+  return request<{ ok: boolean }>("/api/auth/change-password", {
+    method: "POST", body: JSON.stringify({ old_password, new_password }),
+  });
 }
 export function me() {
   return request<{ user: AuthUser }>("/api/auth/me");
