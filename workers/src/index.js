@@ -180,6 +180,22 @@ function json(obj, status = 200) {
 function uuid() {
   return crypto.randomUUID();
 }
+
+// ====== 活动日志（用于运营统计） ======
+// action 类型：register, login, save_diary, delete_diary, wiki_ingest, wiki_ask, ask, save_template, delete_template, share_template, change_password
+async function logActivity(env, userId, action, detail = null) {
+  try {
+    await env.DB.prepare(
+      "INSERT INTO activity_logs (id, user_id, action, detail, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).bind(uuid(), userId, action, detail ? JSON.stringify(detail).slice(0, 500) : null, Date.now()).run();
+  } catch (e) {
+    // activity_logs 表可能还没建（旧 Worker 跑新代码前），静默跳过
+    if (e.message && !e.message.includes("no such table")) {
+      console.error("[logActivity] failed:", e.message, action);
+    }
+  }
+}
+
 async function readBody(request) {
   try { return await request.json(); } catch { return {}; }
 }
@@ -316,14 +332,16 @@ async function handleRegister(request, env, JWT_SECRET) {
   const id = uuid();
 
   await env.DB.prepare(
-    "INSERT INTO users (id, email, password_hash, nickname, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-  ).bind(id, email, `${salt}$${pwHash}`, nickname || "", now, now).run();
+    "INSERT INTO users (id, email, password_hash, nickname, created_at, updated_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, email, `${salt}$${pwHash}`, nickname || "", now, now, now).run();
 
   await env.DB.prepare(
     "INSERT INTO profiles (user_id, updated_at) VALUES (?, ?)"
   ).bind(id, now).run();
 
   const token = await signJWT({ uid: id, email }, JWT_SECRET);
+  // 记录注册活动
+  try { await logActivity(env, id, "register", null); } catch {}
   return json({ token, user: { id, email, nickname: nickname || "" } }, 201);
 }
 
@@ -342,7 +360,11 @@ async function handleLogin(request, env, JWT_SECRET) {
   // 更新登录时间（用于 DAU 统计）
   try {
     await env.DB.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").bind(Date.now(), row.id).run();
-  } catch {}
+  } catch (e) {
+    console.error("[login] last_login_at update failed:", e);
+  }
+  // 记录登录活动
+  try { await logActivity(env, row.id, "login", null); } catch {}
   return json({ token, user: { id: row.id, email: row.email, nickname: row.nickname } });
 }
 
@@ -369,6 +391,7 @@ async function handleChangePassword(request, env, JWT_SECRET) {
   await env.DB.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
     .bind(`${newSalt}$${newHash}`, now, user.uid).run();
 
+  try { await logActivity(env, user.uid, "change_password", null); } catch {}
   return json({ ok: true });
 }
 
@@ -575,6 +598,7 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
       console.error('[wiki] diary source save fail', e.message)
     );
 
+    try { await logActivity(env, user.uid, "save_diary", { id: diaryId, template_id: tplId }); } catch {}
     return json({ id: diaryId, ok: true });
   } catch (e) {
     console.error("[handleSaveDiary] ❌ 主流程异常:", e.message, e.stack);
@@ -599,6 +623,7 @@ async function handleDeleteDiary(request, env, JWT_SECRET) {
     // 默认软删（设 deleted_at，拉列表时前端自己过滤）
     await env.DB.prepare("UPDATE diaries SET deleted_at = ? WHERE id = ? AND user_id = ?").bind(Date.now(), id, user.uid).run();
   }
+  try { await logActivity(env, user.uid, "delete_diary", { id, force }); } catch {}
   return json({ ok: true });
 }
 
