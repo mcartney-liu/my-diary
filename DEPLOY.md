@@ -8,7 +8,7 @@
 
 ```
 测试（先验证、无风险）：  https://mydiary-web-dev.pages.dev
-生产（真实用户在用）：   https://mydiary-web.pages.dev
+生产（真实用户在用）：   https://app.callmydiary.online
 
 改前端 → 本地测 → wrangler pages deploy dist --project-name mydiary-web-dev → 你说 OK → mydiary-web
 改后端 → wrangler deploy --env dev → tunnel 测 → 你说 OK → wrangler deploy --env=""（prod）
@@ -24,7 +24,7 @@
 ```
 用户浏览器
     │
-    ├─ 访问 mydiary-web.pages.dev (生产)
+    ├─ 访问 app.callmydiary.online (生产)
     │   ├── 静态资源 (HTML/CSS/JS/字体)
     │   └── Pages Functions (/api/*) ──► mydiary-api.mcartneyliu.workers.dev
     │                                    + D1: mydiary (真实用户数据)
@@ -59,7 +59,9 @@ const workerHost = isDev
 
 | 类型 | 测试环境 | 生产环境 | 备注 |
 |------|---------|---------|------|
-| **前端 Pages** | **https://mydiary-web-dev.pages.dev** | **https://mydiary-web.pages.dev** | 给用户发这个 |
+| **官网（落地页）** | — | **https://callmydiary.online** | 独立 Pages 项目 mydiary-site |
+| **前端 Pages** | **https://mydiary-web-dev.pages.dev** | **https://app.callmydiary.online** | 注册/登录/主应用 |
+| 前端 Pages（旧） | — | https://mydiary-web.pages.dev | 已绑定 app.callmydiary.online，旧地址仍可访问 |
 | **后端 Worker** | https://mydiary-api-dev.mcartneyliu.workers.dev | https://mydiary-api.mcartneyliu.workers.dev | 前端不直连，走 Pages Functions 同域代理 |
 | **D1 数据库** | `mydiary-db-dev` | `mydiary-db` | 完全隔离 |
 | GitHub | https://github.com/mcartney-liu/my-diary | 同左 | |
@@ -101,7 +103,7 @@ mydiary-web/
 │   │   ├── index.js              # Worker 主路由
 │   │   └── auth.js               # PBKDF2 + JWT
 │   ├── migrations/
-│   │   └── 0001 ~ 0009_*.sql           # D1 迁移（手动 execute 跑，不用 migrations apply）
+│   │   └── 0001 ~ 0018_*.sql           # D1 迁移（手动 execute 跑，不用 migrations apply）
 │   └── wrangler.toml             # ⭐ prod (默认) + [env.dev] 双环境
 │
 ├── worker/                       # 后端 Worker (TypeScript + AI) — 开发中/并行
@@ -438,6 +440,44 @@ document.fonts.ready.then(() => {
 html.fonts-loaded * {
   -webkit-text-stroke: 0.001px transparent;
 }
+```
+
+---
+
+## 📊 用户行为追踪
+
+### activity_logs 表（v0.5.2 新增，迁移 0018）
+
+记录用户关键行为，用于运营统计。
+
+| action 值 | 触发 API | detail 字段 |
+|---|---|---|
+| `register` | POST /api/auth/register | null |
+| `login` | POST /api/auth/login | null |
+| `save_diary` | POST /api/diaries | { id, template_id } |
+| `delete_diary` | DELETE /api/diaries | { id, force } |
+| `change_password` | POST /api/auth/change-password | null |
+
+### 常用查询
+
+```bash
+# 今天注册了几个用户？（<今天0点毫秒时间戳> 替换成实际值，比如 2026-09-24 00:00 = 1790438400000）
+wrangler d1 execute mydiary-db --remote --command="SELECT COUNT(*) FROM activity_logs WHERE action='register' AND created_at >= <今天0点毫秒时间戳>"
+
+# 某个用户最近做了什么？
+wrangler d1 execute mydiary-db --remote --command="SELECT action, detail, datetime(created_at/1000,'unixepoch','+8') as time FROM activity_logs WHERE user_id='<用户ID>' ORDER BY created_at DESC"
+
+# 今天谁在写日记？
+wrangler d1 execute mydiary-db --remote --command="SELECT u.email, COUNT(*) as saves FROM activity_logs al JOIN users u ON u.id=al.user_id WHERE al.action='save_diary' AND al.created_at >= <今天0点毫秒时间戳> GROUP BY u.email"
+```
+
+### last_login_at 字段（v0.5.2 修复）
+
+users.last_login_at 在**注册**和**登录**时都会更新（毫秒时间戳）。之前只在登录时更新，注册用户永远为 0。
+
+```bash
+# 查 DAU（今天登录过的唯一用户数）
+wrangler d1 execute mydiary-db --remote --command="SELECT COUNT(*) FROM users WHERE last_login_at >= <今天0点毫秒时间戳>"
 ```
 
 ---
