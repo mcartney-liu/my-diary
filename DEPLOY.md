@@ -60,8 +60,8 @@ const workerHost = isDev
 | 类型 | 测试环境 | 生产环境 | 备注 |
 |------|---------|---------|------|
 | **官网（落地页）** | — | **https://callmydiary.online** | 独立 Pages 项目 mydiary-site |
-| **前端 Pages** | **https://mydiary-web-dev.pages.dev** | **https://app.callmydiary.online** | 注册/登录/主应用 |
-| 前端 Pages（旧） | — | https://mydiary-web.pages.dev | 已绑定 app.callmydiary.online，旧地址仍可访问 |
+| **前端 Pages** | **https://mydiary-web-dev.pages.dev** | **https://app.callmydiary.online** | 注册/登录/主应用（自定义域名，推荐给用户） |
+| ↑ 同一个项目 | — | https://mydiary-web.pages.dev | Cloudflare 自动分配的 pages.dev 地址，和上面是同一个 mydiary-web 项目，两个都能访问 |
 | **后端 Worker** | https://mydiary-api-dev.mcartneyliu.workers.dev | https://mydiary-api.mcartneyliu.workers.dev | 前端不直连，走 Pages Functions 同域代理 |
 | **D1 数据库** | `mydiary-db-dev` | `mydiary-db` | 完全隔离 |
 | GitHub | https://github.com/mcartney-liu/my-diary | 同左 | |
