@@ -482,6 +482,48 @@ wrangler d1 execute mydiary-db --remote --command="SELECT COUNT(*) FROM users WH
 
 ---
 
+## 🎬 官网视频对应表（v0.5.2 新增）
+
+官网 Hero 区 mockup 点击交互对应视频文件，视频源文件在本地：
+`C:\Users\haizhi\WorkBuddy\2026-09-23-11-40-59\mydiary-fresh\output\`
+
+### 视频文件清单
+
+| 本地文件 | 对应 mockup 点击区域 | videoMap label | R2 上传状态 |
+|---------|-------------------|----------------|------------|
+| `MyDiaryIntro.mp4` | ✍️ 写日记按钮 | `写日记` | ❌ 待上传 |
+| `CalendarIntro.mp4` | 📅 月历 tab | `年度回顾` | ❌ 待上传 |
+| `YearlyIntro.mp4` | 📊 年度 tab | `年度回顾` | ❌ 待上传 |
+| `XiaomaiIntro.mp4` | 💬 小麦 tab | `小麦：AI 聊天` | ❌ 待上传 |
+| `WikiIntro.mp4` | 🌳 知识 tab | `知识库：LLM Wiki` | ❌ 待上传 |
+| `DelightIntro.mp4` | 🎠 跑马灯 | `彩蛋：跑马灯与每日一句话` | ❌ 待上传 |
+| `FamilyIntro.mp4` | ❓ 待定（可能是"我的"） | `我的` | ❌ 待上传 |
+| — | 🎤 语音快记按钮 | `语音快记` | ❌ 无单独视频，可能含在 DelightIntro 里 |
+
+**带音乐版本**（bgm/ 子目录）：`*__calm.mp4`、`MyDiaryIntro__piano.mp4`，可选后续替换。
+
+### 当前状态
+
+- 视频 URL 全部为空字符串 `""`，点 mockup 会弹出 Modal 但无视频内容
+- 待上传 R2 后，填到官网 `index.html` 的 `videoMap` 对象里
+
+### 上传命令（待执行）
+
+```powershell
+# R2 bucket 待创建
+# 上传示例：
+npx wrangler r2 object put mydiary-assets/videos/MyDiaryIntro.mp4 --file="C:\Users\haizhi\WorkBuddy\2026-09-23-11-40-59\mydiary-fresh\output\MyDiaryIntro.mp4"
+```
+
+### 官网源码位置
+
+- 官网项目：`mydiary-web-site/`（独立于主 app 的静态站点）
+- 官网地址：`https://callmydiary.online`
+- videoMap 定义：`index.html` 内 `<script>` 块的 `const videoMap = {...}`
+- 视频 Modal HTML：`index.html` 内 `<div id="video-modal">`
+
+---
+
 ## 📝 与 AI 协作时的关键词
 
 | 你说 | 我做 |
