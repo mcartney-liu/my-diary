@@ -79,6 +79,21 @@
   background-image: none !important;
   border-color: rgba(255,255,255,0.1) !important;
 }
+/* glass：底部弹出面板 — 容器完全消失，不做任何视觉 */
+[data-theme="glass"] [class*="inset-x-0"][class*="bottom-0"] {
+  background: transparent !important;
+  border-top: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+/* glass：只有按钮是毛玻璃 */
+[data-theme="glass"] [class*="inset-x-0"][class*="bottom-0"] [class*="bg-paper-surface"] {
+  backdrop-filter: blur(18px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.3) !important;
+  background: rgba(255,255,255,0.06) !important;
+  border-color: rgba(255,255,255,0.18) !important;
+}
 /* glass：跑马灯标签硬编码颜色 → 透明 */
 [data-theme="glass"] [class*="bg-rose-50"],
 [data-theme="glass"] [class*="bg-blue-50"],
@@ -173,11 +188,14 @@
   background: rgba(255,255,255,0.04) !important;
   border-color: rgba(255,255,255,0.12) !important;
 }
-/* glass：顶部 tab 选中按钮 — 紫粉渐变 */
+/* glass：顶部 tab 选中按钮 — 毛玻璃 + 紫粉高光 */
 [data-theme="glass"] [class*="rounded-full"][class*="bg-paper-surface"][class*="border-paper-line"] [class*="bg-paper-ink"] {
   color: #fff !important;
-  background: linear-gradient(135deg, #7C3AED, #EC4899) !important;
-  box-shadow: 0 2px 12px rgba(124,58,237,0.5) !important;
+  background: rgba(124,58,237,0.22) !important;
+  backdrop-filter: blur(18px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.3) !important;
+  border-color: rgba(236,72,153,0.35) !important;
+  box-shadow: 0 0 0 1px rgba(236,72,153,0.25), 0 2px 12px rgba(124,58,237,0.3) !important;
 }
 /* glass：顶部 tab 未选中按钮 hover — 紫发光 */
 [data-theme="glass"] [class*="rounded-full"][class*="bg-paper-surface"][class*="border-paper-line"] button[class*="text-paper-ink2"]:hover {
@@ -206,17 +224,26 @@
   transform: translateY(-2px) !important;
   box-shadow: 0 4px 16px rgba(124,58,237,0.3) !important;
 }
-/* glass：输入框/textarea 可见 */
+/* glass：输入框/textarea — 半透明深底托住白字 */
 [data-theme="glass"] textarea,
 [data-theme="glass"] input[type="text"],
 [data-theme="glass"] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) {
-  background: rgba(255,255,255,0.04) !important;
+  background: rgba(10,11,26,0.35) !important;
   border-color: rgba(255,255,255,0.15) !important;
   color: #F8FAFC !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-radius: 12px;
 }
 [data-theme="glass"] textarea::placeholder,
 [data-theme="glass"] input::placeholder {
-  color: rgba(248,250,252,0.35) !important;
+  color: rgba(248,250,252,0.45) !important;
+}
+/* glass：强制所有 ink 变量类名用白字（兜底） */
+[data-theme="glass"] .text-paper-ink,
+[data-theme="glass"] .text-paper-ink2,
+[data-theme="glass"] .text-paper-ink3 {
+  color: #F8FAFC !important;
 }
 /* glass：Tailwind opacity modifier 与 CSS 变量 alpha 通道冲突时，覆盖为正确的不透明度 */
 [data-theme="glass"] [class*="bg-paper-accent/8"] { background-color: rgba(124,58,237,0.08) !important; }

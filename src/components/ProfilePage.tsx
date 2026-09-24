@@ -691,30 +691,29 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-              {/* === v0.5.0 当前版本（高亮） === */}
+     {/* === v0.5.1 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
                   <span className="font-bold text-paper-accent">v{__APP_VERSION__}</span>
-                  <span className="text-paper-ink3 text-xs">2026年09月21日</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月24日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>🧠 <b>知识库系统（完整版）</b> — AI 帮你把零散的资料整理成一套相互关联、便于查找的笔记；多知识库管理、Obsidian 风格双向链接、知识图谱（可拖拽缩放）、反链上下文摘要、页面可编辑、重复汇入自动合并</li>
-                    <li>📚 <b>全局资料库</b> — 从知识库里独立出来，所有原始资料统一管理；支持粘贴文本和上传文件（.txt .md .docx 等）；KB 标签式绑定，一篇资料可以打多个知识库的标签；批量汇入，完成后显示新建/更新/链接数量</li>
-                    <li>📋 <b>范本独立管理</b> — 范本从分类里抽出来作为单独 tab；6 个官方范本全部中文化占位符（<code className="bg-paper-surface px-1 rounded">{'{{身份}}'}</code>、<code className="bg-paper-surface px-1 rounded">{'{{参与人}}'}</code>）；可以自己创建、删除，分类直接引用</li>
-                    <li>🏠 <b>首页多了「🧠 知识」入口</b> — 和月历 / 年度回顾 / 小麦并列；直接展示知识结果（树形层级 + 图谱）</li>
+                    <li>🪟 <b>毛玻璃主题</b> — 第四套主题，官网同款；深蓝紫渐变背景 + 毛玻璃卡片 + 紫粉高亮；设置 → 主题里最后一个选项</li>
+                    <li>🌐 <b>字体设置同步后端</b> — 字体选择现在会存到数据库，换设备不丢失</li>
+                    <li>🔐 <b>修改密码</b> — 设置里新增修改密码入口（需验证）</li>
+                    <li>⏰ <b>每日提醒</b> — 设置里可以开关 + 设定每日提醒时间</li>
                   </ul>
-                  <div><b className="text-paper-ink">🔧 交互改进</b></div>
+                  <div><b className="text-paper-ink">🐛 Bug 修复</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>知识库配置 UI 重排 — KB 选择器默认无框下拉（只有点"修改"才进入编辑态），按钮布局重新调整更符合手机屏幕</li>
-                    <li>分类编辑器表单 — 顺序改成「名称 → 套用范本 → 格式预览」，格式模板加了实时 Markdown 预览区</li>
-                    <li>我的 tab 去掉冗余的「库」字 — 模板 / 信纸 / 知识（原来叫模板库 / 信纸库 / 知识库）</li>
+                    <li>知识库「汇入」按钮偶发报错 — 内层反引号未转义导致 JS 语法错误</li>
+                    <li>主题切换刷新后丢失 — 新增全局初始化，刷新后不再还原默认主题</li>
+                    <li>日历今天高亮 — 玻璃主题下今天日期默认紫粉渐变，选中其他日期时今天自动变渐变</li>
                   </ul>
                 </div>
               </div>
-
               {/* === v0.4.1 === */}
               <div className="border-t border-paper-line pt-4">
                 <div className="flex items-baseline gap-2 mb-2">

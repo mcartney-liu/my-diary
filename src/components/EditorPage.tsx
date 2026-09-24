@@ -1552,12 +1552,12 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     console.log("[editor] 📦 保存 payload milestone_info:", milestoneInfo ? JSON.stringify(milestoneInfo) : "(无)");
     setSaving(true);
     savingRef.current = true;
-    setSaveToast(true);
-    // toast 2 秒后自动消失
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    toastTimerRef.current = window.setTimeout(() => setSaveToast(false), 2000);
     try {
       await onSave(diary);
+      // ✅ 只有云端也确认了才显示"已保存"（之前是不管云端成没成都先 toast，误导用户）
+      setSaveToast(true);
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = window.setTimeout(() => setSaveToast(false), 2000);
     } finally {
       setSaving(false);
       savingRef.current = false;

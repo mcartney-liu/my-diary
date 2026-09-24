@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Mic, Bot, Loader2, Sparkles, PenLine } from "lucide-react";
 import { detectTemplate, polishTranscript } from "../ai";
@@ -193,19 +194,7 @@ export default function VoiceQuickEntry() {
 
   return (
     <>
-      {/* 🔑 AI 润色中全屏遮罩 — 在本页面 loading，完了再跳 */}
-      {isAiPolishing && (
-        <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-[#faf6ef]/97 backdrop-blur-sm">
-          <div className="w-16 h-16 rounded-full border-4 border-paper-line border-t-paper-accent animate-spin" />
-          <div className="mt-4 text-paper-ink font-medium flex items-center gap-2">
-            <Bot size={18} className="text-paper-ink animate-pulse" />
-            正在整理你的日记...
-          </div>
-          <div className="mt-1 text-sm text-slate-500">稍等几秒，马上好</div>
-        </div>
-      )}
-
-      {/* 底部导航栏按钮 — 点一下打开菜单（或 toggle 录音中/AI 分析中） */}
+      {/* 底部导航栏按钮 — 留在 nav 原位 */}
       <button
         onClick={() => {
           if (phase === "processing" || phase === "match") return;
@@ -222,18 +211,31 @@ export default function VoiceQuickEntry() {
         <span>{btnLabel}</span>
       </button>
 
-      {/* 底部弹出面板 */}
+      {/* Portal：fixed 元素渲染到 body，突破 nav stacking context */}
+      {createPortal(<>
+        {/* 🔑 AI 润色中全屏遮罩 */}
+        {isAiPolishing && (
+          <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-[#faf6ef]/97 backdrop-blur-sm">
+            <div className="w-16 h-16 rounded-full border-4 border-paper-line border-t-paper-accent animate-spin" />
+            <div className="mt-4 text-paper-ink font-medium flex items-center gap-2">
+              <Bot size={18} className="text-paper-ink animate-pulse" />
+              正在整理你的日记...
+            </div>
+            <div className="mt-1 text-sm text-slate-500">稍等几秒，马上好</div>
+          </div>
+        )}
+
+        {/* 底部弹出面板 */}
       {phase !== "idle" && (
+        <>
+        {/* 透明 backdrop — 只负责点外部收起，不挡视觉 */}
+        <div className="fixed inset-0 z-40" onClick={cancel} />
         <div className="fixed inset-x-0 bottom-0 z-50 bg-paper-bg border-t border-paper-line shadow-2xl animate-slide-up">
           <div className="max-w-2xl mx-auto px-4 py-4 space-y-4">
 
             {/* ===== 选项菜单：录音 / 文字 ===== */}
             {phase === "menu" && (
               <>
-                <div className="flex items-center justify-between">
-                  <div className="font-medium text-paper-ink">语音快记</div>
-                  <button onClick={cancel} className="text-paper-ink2 hover:text-paper-ink text-sm">关闭</button>
-                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={startRecording}
@@ -461,7 +463,9 @@ export default function VoiceQuickEntry() {
             )}
           </div>
         </div>
+        </>
       )}
+      </>, document.body)}
     </>
   );
 }

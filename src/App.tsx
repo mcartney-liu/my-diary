@@ -138,11 +138,15 @@ export default function App() {
                 title: d.title || "",
                 moodId: d.mood_id || "calm",
                 tags: Array.isArray(d.tags) ? d.tags : [],
-                weather: d.weather ? JSON.parse(d.weather) : null,
+                // 🔥 天气字段兼容三种格式：JSON 字符串 / 纯文本 / 对象
+                weather: (() => {
+                  if (!d.weather) return null;
+                  if (typeof d.weather === "object") return d.weather;
+                  try { return JSON.parse(d.weather); } catch { return null; }
+                })(),
                 blocks: Array.isArray(d.blocks) ? d.blocks : [],
                 createdAt: d.created_at,
                 updatedAt: d.updated_at,
-                // 🔑 新增 4 个之前只在 localStorage 存的字段
                 deletedAt: d.deleted_at ?? undefined,
                 capsuleUnlockAt: d.capsule_unlock_at ?? undefined,
                 wallpaper: d.wallpaper ?? undefined,
@@ -154,6 +158,9 @@ export default function App() {
                const final = merged.filter((d: Diary) => cloudIds.has(d.id));
                setAllDiaries(final);
                saveLocal(final);
+            } else {
+              // 🔥 补了 else：云端返回空数组也要 set（之前跳过了 → 新设备 localStorage 空 → 主页永远空）
+              setAllDiaries(dedupeDiaries(cleaned));
             }
           })
           .catch(() => { /* 离线或 token 过期，保留本地 */ });
@@ -168,8 +175,8 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [offlineBanner]);
 
-  // 保存/新建（同 id 覆盖）
-  const handleUpsert = (d: Diary) => {
+  // 保存/新建（同 id 覆盖）— return Promise 让 EditorPage 的 await onSave() 真正等云端确认
+  const handleUpsert = (d: Diary): Promise<void> => {
     skipBackgroundSyncRef.current = true;
     setAllDiaries((prev) => {
       const next = upsertLocal(prev, d);
@@ -177,7 +184,7 @@ export default function App() {
       return next;
     });
     // 🔑 处理后端返回的最终 id — 后端可能按 title 语义合并到了另一条
-    apiUpsert(d).then(r => {
+    return apiUpsert(d).then(r => {
       if (r.id && r.id !== d.id) {
         // 后端用了不同的 id（UPDATE existing 而非 INSERT 新的）
         // → 本地 state 要把旧 id 删掉，换上后端返回的新 id
@@ -189,7 +196,12 @@ export default function App() {
           return next;
         });
       }
-    }).catch(() => { /* offline */ });
+    }).catch((err) => {
+      // 🔥 原来这里静默吞掉错误——现在显示离线提示条
+      console.warn("[mydiary] ☁️ 云端保存失败，暂存本地", err);
+      setOfflineBanner(true);
+      throw err; // ← rethrow 让 await onSave() 知道失败了
+    });
   };
 
   // 软删（加 deletedAt 时间戳，不立刻从列表消失）
@@ -284,7 +296,7 @@ export default function App() {
     <>
       {offlineBanner && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-yellow-100 text-yellow-800 text-xs text-center py-1 animate-[fade-in_0.3s]">
-          Offline - saved locally, will sync when online
+⚠️ 云端保存失败，已暂存本地，联网后自动同步
         </div>
       )}
 

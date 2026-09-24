@@ -445,44 +445,39 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
     console.log("[handleSaveDiary] 📥 template_id:", tplId, "milestone_info:", milestone_info ? JSON.stringify(milestone_info) : "(无)");
 
     // Upsert 策略（防重复核心）：
-    // 1. 优先按前端传的 id 查 → 编辑已有日记
-    // 2. 没找到 OR 前端没传 id →
-    //    - finance/milestone/plan 模板 → 查同 date + 同 template_id + 同 title
-    //      （用户点两次"保存"同一笔 → UPDATE 旧的，不 INSERT 新的）
-    //    - 其它模板 → 查同 user_id + date
-    // 说明：migration 0005 已经去掉了 diaries 表的 UNIQUE(user_id, date) 约束，
-    // 所以 finance/milestone/plan 允许多篇/天，但"同标题同日期"应该合并。
-    // time_capsule 特殊处理：按 capsule_unlock_at（解锁日期）作为语义唯一键
+    // 1. 优先按前端传的 id 查 → 编辑已有日记（永远 UPDATE，不新建）
+    // 2. 没传 id（新建）→
+    //    - finance/milestone/plan 模板 → 查同 date + 同 template_id + 同 title 合并
+    //    - time_capsule → 查同 date + 同解锁日期 合并
+    //    - 其它模板（diary 等）→ 直接 INSERT！一天可以写多篇
+    // ⚠️ migration 0019 已经去掉了 UNIQUE(user_id, date)，不再有每天一篇的硬约束
     const isCapsule = tplId === "time_capsule";
-    // milestone/plan/finance → 同日期+同模板+同标题合并；time_capsule → 同日期+同解锁日合并；其它 → 同 user+date 合并
-    const multiPerDay = isCapsule || tplId === "milestone" || tplId === "plan" || tplId === "finance";
+    // 只有这些模板有"语义唯一键合并"需求（重复保存要合并而不是新建）
+    // diary 模板 → 一天可多篇，新建 = INSERT
+    const mergeByTitle = tplId === "milestone" || tplId === "plan" || tplId === "finance";
 
-    // 分支 1：按 id 查（编辑）
+    let existing = null;
+
+    // 分支 1：按 id 查（编辑已有日记）
     if (id) {
       existing = await env.DB.prepare("SELECT id FROM diaries WHERE id = ? AND user_id = ?").bind(id, user.uid).first();
     }
 
-    // 分支 2：没找到 OR 没传 id → 按语义唯一键查
-    // 🔑 关键：不管前端有没有传新 uid，同 title + 同 date + 同 template → UPDATE
+    // 分支 2：没找到 OR 没传 id → 语义唯一键合并（仅 capsule / milestone / plan / finance）
     if (!existing) {
       const normalizedTitle = (title || "").trim();
       if (isCapsule && capsule_unlock_at) {
-        // time_capsule：同 user + 同 date + 同解锁日期 → UPDATE；不同解锁日期 → INSERT 新胶囊
+        // time_capsule：同 user + 同 date + 同解锁日期 → UPDATE
         existing = await env.DB.prepare(
           "SELECT id FROM diaries WHERE user_id = ? AND date = ? AND template_id = ? AND capsule_unlock_at = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1"
         ).bind(user.uid, date, tplId, capsule_unlock_at).first();
-      } else if (multiPerDay && normalizedTitle) {
+      } else if (mergeByTitle && normalizedTitle) {
         // finance/milestone/plan：同日期 + 同模板 + 同标题 → UPDATE
         existing = await env.DB.prepare(
           "SELECT id FROM diaries WHERE user_id = ? AND date = ? AND template_id = ? AND title = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1"
         ).bind(user.uid, date, tplId, normalizedTitle).first();
-      } else if (!multiPerDay) {
-        // 普通模板：同 user + date → UPDATE（每天一篇）
-        existing = await env.DB.prepare(
-          "SELECT id FROM diaries WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1"
-        ).bind(user.uid, date).first();
       }
-      // multiPerDay 且 title/capsule_unlock_at 空 → 确实是新的一篇 → 不设 existing，走 INSERT
+      // diary 模板 & 其它：不合并 → 保持 existing=null → 走 INSERT（一天多篇）
     }
 
     let diaryId = existing?.id;

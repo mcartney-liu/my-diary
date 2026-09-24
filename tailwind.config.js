@@ -57,11 +57,16 @@ export default {
           "0%": { backgroundPosition: "-200% 0" },
           "100%": { backgroundPosition: "200% 0" },
         },
+        "slide-up": {
+          "0%": { opacity: "0", transform: "translateY(100%)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
       },
       animation: {
         "fade-up": "fade-up 0.35s ease-out both",
         "fade-in": "fade-in 0.25s ease-out both",
         "scale-in": "scale-in 0.25s cubic-bezier(0.2,0.8,0.2,1) both",
+        "slide-up": "slide-up 0.3s cubic-bezier(0.2,0.8,0.2,1) both",
       },
     },
   },
