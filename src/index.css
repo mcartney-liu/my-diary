@@ -79,6 +79,14 @@
   background-image: none !important;
   border-color: rgba(255,255,255,0.1) !important;
 }
+/* glass：跑马灯标签硬编码颜色 → 透明 */
+[data-theme="glass"] [class*="bg-rose-50"],
+[data-theme="glass"] [class*="bg-blue-50"],
+[data-theme="glass"] [class*="bg-emerald-50"],
+[data-theme="glass"] [class*="bg-amber-50"] {
+  background: transparent !important;
+  border-color: rgba(255,255,255,0.12) !important;
+}
 /* glass：卡片毛玻璃 + 边框 + 阴影 */
 [data-theme="glass"] .bg-paper-card,
 [data-theme="glass"] [class*="bg-paper-card"] {
@@ -110,7 +118,7 @@
 }
 /* glass：日历选中态 */
 [data-theme="glass"] .ring-2.ring-paper-accent,
-[data-theme="glass"] [class*="ring-2"][class*="ring-paper-accent"] {
+[data-theme="glass"] [class*="ring-2 ring-paper-accent"] {
   color: #F8FAFC !important;
   background: rgba(124,58,237,0.2) !important;
   border-color: rgba(124,58,237,0.5) !important;

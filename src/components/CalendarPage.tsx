@@ -395,11 +395,11 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
                     "relative aspect-square md:aspect-[1/1] rounded-lg md:rounded-xl flex flex-col items-center justify-center",
                     "text-sm md:text-base transition-all duration-150",
                     !inMonth ? "text-paper-ink3/40" : "text-paper-ink",
-                    // 今天优先：不管选不选都用渐变实色
-                    isToday ? "ring-2 ring-paper-accent/60" : "",
-                    // 选中（非今天）：紫底 + ring
-                    isSelected && !isToday ? "bg-paper-accent/20 ring-2 ring-paper-accent" : "",
-                    // 未选中且非今天：hover 效果
+                    // 选中任何日期 → 框框（优先级最高）
+                    isSelected ? "bg-paper-accent/20 ring-2 ring-paper-accent" : "",
+                    // 今天没被选中 → 紫粉渐变
+                    !isSelected && isToday ? "ring-2 ring-paper-accent/60" : "",
+                    // 未选中且非今天 → hover 效果
                     !isSelected && !isToday ? "hover:bg-paper-surface active:bg-paper-line/60" : "",
                   ].join(" ")}
                 >
@@ -495,7 +495,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
         <div className="max-w-3xl mx-auto px-4 py-2 flex items-center justify-around">
           <button
             onClick={() => nav("/profile")}
-            className="flex flex-col items-center gap-0.5 px-4 py-2 rounded-xl text-paper-ink2 hover:text-paper-accent transition active:scale-95"
+            className="flex flex-row items-center gap-1 px-4 py-2 rounded-xl text-paper-ink2 hover:text-paper-accent transition active:scale-95"
           >
             <span className="text-xl leading-none">👤</span>
             <span className="text-[11px] font-medium">我的</span>
@@ -507,7 +507,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
 
           <button
             onClick={() => nav("/editor")}
-            className="flex flex-col items-center gap-0.5 px-4 py-2 rounded-xl text-paper-ink2 hover:text-paper-accent transition active:scale-95"
+            className="flex flex-row items-center gap-1 px-4 py-2 rounded-xl text-paper-ink2 hover:text-paper-accent transition active:scale-95"
           >
             <span className="text-xl leading-none">✏️</span>
             <span className="text-[11px] font-medium">写日记</span>
