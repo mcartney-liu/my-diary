@@ -192,11 +192,14 @@
 [data-theme="glass"] input::placeholder {
   color: rgba(248,250,252,0.35) !important;
 }
-/* glass：Tailwind opacity modifier 强制覆盖 */
-[data-theme="glass"] [class*="bg-paper-accent/"],
-[data-theme="glass"] [class*="bg-paper-ink/"] {
-  --tw-bg-opacity: 1 !important;
-}
+/* glass：Tailwind opacity modifier 与 CSS 变量 alpha 通道冲突时，覆盖为正确的不透明度 */
+[data-theme="glass"] [class*="bg-paper-accent/8"] { background-color: rgba(124,58,237,0.08) !important; }
+[data-theme="glass"] [class*="bg-paper-accent/10"] { background-color: rgba(124,58,237,0.1) !important; }
+[data-theme="glass"] [class*="bg-paper-accent/15"] { background-color: rgba(124,58,237,0.15) !important; }
+[data-theme="glass"] [class*="bg-paper-accent/20"] { background-color: rgba(124,58,237,0.2) !important; }
+[data-theme="glass"] [class*="bg-paper-accent/25"] { background-color: rgba(124,58,237,0.25) !important; }
+[data-theme="glass"] [class*="bg-paper-accent/30"] { background-color: rgba(124,58,237,0.3) !important; }
+[data-theme="glass"] [class*="bg-paper-accent/50"] { background-color: rgba(124,58,237,0.5) !important; }
 
 /* === 本地字体（永远秒开，不受网络影响） === */
 @font-face {
