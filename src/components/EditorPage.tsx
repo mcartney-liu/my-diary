@@ -1581,8 +1581,8 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     const daysLeft = Math.ceil(msLeft / (24 * 60 * 60 * 1000));
     const hoursLeft = Math.ceil((msLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
     return (
-      <div className="min-h-screen bg-[#faf6ef] flex flex-col">
-        <header className="sticky top-0 z-10 bg-[#faf6ef]/95 backdrop-blur border-b border-paper-line">
+      <div className="min-h-screen bg-paper-bg flex flex-col">
+        <header className="sticky top-0 z-10 bg-paper-bg/95 backdrop-blur border-b border-paper-line">
           <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center">
             <button
               onClick={onCancel}
@@ -1620,9 +1620,9 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   }
 
   return (
-    <div className="min-h-screen bg-[#faf6ef] flex flex-col">
+    <div className="min-h-screen bg-paper-bg flex flex-col">
       {/* 顶栏 */}
-      <header className="sticky top-0 z-10 bg-[#faf6ef]/95 backdrop-blur border-b border-paper-line">
+      <header className="sticky top-0 z-10 bg-paper-bg/95 backdrop-blur border-b border-paper-line">
         <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center justify-between">
           <button
             onClick={() => {
@@ -2424,7 +2424,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       )}
 
       {/* 底部添加栏 */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-[#faf6ef]/95 backdrop-blur border-t border-paper-line z-20" style={{ bottom: keyboardOffset }}>
+      <footer className="fixed bottom-0 left-0 right-0 bg-paper-bg/95 backdrop-blur border-t border-paper-line z-20" style={{ bottom: keyboardOffset }}>
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-center gap-3">
           <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
             onChange={(e) => e.target.files?.[0] && handleImagePick(e.target.files[0])} />
@@ -2969,7 +2969,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
               onClick={() => dismissBookPicker()}
             />
             {/* 面板 */}
-            <div className="relative bg-[#faf6ef] rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[85vh] flex flex-col overflow-hidden border border-paper-line">
+            <div className="relative bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[85vh] flex flex-col overflow-hidden border border-paper-line">
               {/* 头部 */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-paper-line shrink-0">
                 <div className="flex items-center gap-2">
