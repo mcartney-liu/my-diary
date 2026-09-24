@@ -84,7 +84,7 @@ export default function PlanLibrary() {
                       ? "bg-red-50 border-red-200"
                       : isUpcoming
                         ? "bg-amber-50 border-amber-200 shadow-sm"
-                        : "bg-white border-paper-line/60"
+                        : "bg-paper-card border-paper-line/60"
                 }`}
               >
                 <div className="flex items-start gap-3">
@@ -110,7 +110,7 @@ export default function PlanLibrary() {
                     </div>
                     <p className={`text-sm mt-0.5 ${
                       isUpcoming ? "text-amber-800 font-medium" :
-                      isDone ? "text-gray-400" :
+                      isDone ? "text-paper-ink3" :
                       isOverdue ? "text-red-600" : "text-paper-ink2"
                     }`}>
                       {d.text}

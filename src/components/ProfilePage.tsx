@@ -315,7 +315,7 @@ export default function ProfilePage() {
                     <span>🎨</span>
                     <span className="flex-1 text-left">主题色</span>
                     <span className="text-xs text-paper-ink2">
-                      {themeSetting === "paper" ? "纸笺" : themeSetting === "forest" ? "墨林" : "月白"}
+                      {themeSetting === "paper" ? "纸笺" : themeSetting === "forest" ? "墨林" : themeSetting === "moon" ? "月白" : themeSetting === "glass" ? "玻璃" : "纸笺"}
                     </span>
                     <span className="text-paper-ink3">›</span>
                   </button>
@@ -430,7 +430,7 @@ export default function ProfilePage() {
               key={t.k}
               onClick={() => t.external ? nav("/sources") : setActiveTab(t.k as any)}
               className={`flex-1 py-2 rounded-md text-sm transition ${
-                activeTab === t.k ? "bg-white shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
+                activeTab === t.k ? "bg-paper-card shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
               }`}
             >{t.label}</button>
           ))}
@@ -454,13 +454,13 @@ export default function ProfilePage() {
             <button
               onClick={() => setProfileSub("templates")}
               className={`px-3 py-1 rounded-md text-sm transition ${
-                profileSub === "templates" ? "bg-white shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
+                profileSub === "templates" ? "bg-paper-card shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
               }`}
             >📝 模板</button>
             <button
               onClick={() => setProfileSub("papers")}
               className={`px-3 py-1 rounded-md text-sm transition ${
-                profileSub === "papers" ? "bg-white shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
+                profileSub === "papers" ? "bg-paper-card shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
               }`}
             >🎨 信纸</button>
           </div>
@@ -482,7 +482,7 @@ export default function ProfilePage() {
                 <select
                   value={newMemType}
                   onChange={e => setNewMemType(e.target.value)}
-                  className="px-2 py-1.5 rounded-lg border border-paper-line bg-white text-xs text-paper-ink focus:outline-none focus:border-paper-ink/40"
+                  className="px-2 py-1.5 rounded-lg border border-paper-line bg-paper-card text-xs text-paper-ink focus:outline-none focus:border-paper-ink/40"
                 >
                   <option value="preference">偏好 💫</option>
                   <option value="profile">个人 📋</option>
@@ -494,7 +494,7 @@ export default function ProfilePage() {
                   value={newMemContent}
                   onChange={e => setNewMemContent(e.target.value)}
                   placeholder="记住一件事，比如：我讨厌加班"
-                  className="flex-1 px-3 py-1.5 rounded-lg border border-paper-line bg-white text-sm text-paper-ink focus:outline-none focus:border-paper-ink/40"
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-paper-line bg-paper-card text-sm text-paper-ink focus:outline-none focus:border-paper-ink/40"
                   onKeyDown={e => { if (e.key === "Enter") handleAddMemory(); }}
                 />
                 <button
@@ -518,11 +518,11 @@ export default function ProfilePage() {
                   <div key={m.id} className="border border-paper-line/60 rounded-xl p-3 hover:border-paper-ink/30 transition group">
                     <div className="flex items-start gap-2">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium shrink-0 ${
-                        m.type === "preference" ? "bg-amber-100 text-amber-700" :
+                        m.type === "preference" ? "bg-paper-surface text-amber-700" :
                         m.type === "profile"    ? "bg-blue-100 text-blue-700" :
                         m.type === "task"       ? "bg-green-100 text-green-700" :
                         m.type === "interest"   ? "bg-pink-100 text-pink-700" :
-                                                  "bg-gray-100 text-gray-700"
+                                                  "bg-paper-surface text-paper-ink2"
                       }`}>
                         {m.type === "preference" ? "偏好" : m.type === "profile" ? "个人" : m.type === "task" ? "待办" : m.type === "interest" ? "兴趣" : "事实"}
                       </span>
@@ -997,8 +997,9 @@ export default function ProfilePage() {
             <div className="p-5 grid grid-cols-3 gap-3">
               {[
                 { key: "paper",  label: "纸笺", desc: "温暖米黄", swatch: "#8b6f47" },
-                { key: "forest", label: "墨林", desc: "绿意盎然", swatch: "#4a6741" },
-                { key: "moon",   label: "月白", desc: "冷淡高级", swatch: "#5c6b7a" },
+        { key: "forest", label: "墨林", desc: "绿意盎然", swatch: "#4a6741" },
+        { key: "moon",   label: "月白", desc: "冷淡高级", swatch: "#5c6b7a" },
+        { key: "glass",  label: "玻璃", desc: "官网同款", swatch: "#7C3AED" },
               ].map(o => {
                 const active = themeSetting === o.key;
                 return (
@@ -1057,7 +1058,7 @@ export default function ProfilePage() {
                   ].join(" ")}
                 >
                   <span className={[
-                    "absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition",
+                    "absolute top-0.5 w-6 h-6 rounded-full bg-paper-card shadow transition",
                     remindEnabled ? "left-[22px]" : "left-0.5",
                   ].join(" ")} />
                 </button>

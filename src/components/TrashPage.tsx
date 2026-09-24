@@ -126,7 +126,7 @@ export default function TrashPage({ diaries, onRestore, onPermanentDelete, onBat
                 <div
                   key={d.id}
                   className={`flex items-center gap-3 p-3 rounded-xl border transition ${
-                    checked ? "bg-paper-accent/10 border-paper-accent" : "bg-gray-50 border-gray-200/70"
+                    checked ? "bg-paper-accent/10 border-paper-accent" : "bg-paper-surface border-paper-line/70"
                   }`}
                 >
                   {selectMode && (
@@ -134,7 +134,7 @@ export default function TrashPage({ diaries, onRestore, onPermanentDelete, onBat
                       onClick={() => toggleSelect(d.id)}
                       className="shrink-0 text-paper-accent active:scale-90"
                     >
-                      {checked ? <CheckSquare size={20} /> : <Square size={20} className="text-gray-400" />}
+                      {checked ? <CheckSquare size={20} /> : <Square size={20} className="text-paper-ink3" />}
                     </button>
                   )}
                   {mood && (
@@ -147,15 +147,15 @@ export default function TrashPage({ diaries, onRestore, onPermanentDelete, onBat
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-medium text-gray-700 truncate">
+                      <h3 className="font-medium text-paper-ink2 truncate">
                         {d.title || (mood ? mood.name : "无题")}
                       </h3>
-                      <span className="text-[10px] text-gray-400 shrink-0">{d.date}</span>
+                      <span className="text-[10px] text-paper-ink3 shrink-0">{d.date}</span>
                     </div>
-                    <p className="text-xs text-gray-500 truncate">
+                    <p className="text-xs text-paper-ink3 truncate">
                       {firstBlockText(d) || "（仅图片/录音）"}
                     </p>
-                    <div className="text-[10px] text-gray-400 mt-0.5">
+                    <div className="text-[10px] text-paper-ink3 mt-0.5">
                       {days === 0 ? "今天删除" : `${days} 天前删除`}
                       {canRestore ? ` · 剩 ${30 - days} 天可恢复` : " · 超过 30 天将被自动清理"}
                     </div>

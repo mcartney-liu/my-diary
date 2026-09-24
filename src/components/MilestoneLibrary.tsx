@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listMilestones, type Milestone } from "../api";
 
@@ -101,8 +101,8 @@ export default function MilestoneLibrary() {
                   isUpcoming
                     ? "bg-amber-50 border-amber-200 shadow-sm"
                     : d.kind === "passed"
-                      ? "bg-gray-50 border-gray-200 opacity-70"
-                      : "bg-white border-paper-line/60"
+                      ? "bg-paper-surface border-paper-line opacity-70"
+                      : "bg-paper-card border-paper-line/60"
                 }`}
               >
                 <div className="flex items-start gap-3">
@@ -116,7 +116,7 @@ export default function MilestoneLibrary() {
                         </span>
                       )}
                     </div>
-                    <p className={`text-sm mt-0.5 ${isUpcoming ? "text-amber-800 font-medium" : d.kind === "passed" ? "text-gray-400" : "text-paper-ink2"}`}>
+                    <p className={`text-sm mt-0.5 ${isUpcoming ? "text-amber-800 font-medium" : d.kind === "passed" ? "text-paper-ink3" : "text-paper-ink2"}`}>
                       {d.text}
                     </p>
                     {m.description && (

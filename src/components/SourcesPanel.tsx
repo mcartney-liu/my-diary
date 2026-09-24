@@ -297,7 +297,7 @@ export default function SourcesPanel() {
             <select
               value={kbFilter}
               onChange={e => setKbFilter(e.target.value)}
-              className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-paper-line bg-white text-sm"
+              className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-paper-line bg-paper-card text-sm"
             >
               <option value="">全部资料</option>
               {kbs.map(k => (
@@ -314,7 +314,7 @@ export default function SourcesPanel() {
               value={newTitle}
               onChange={e => setNewTitle(e.target.value)}
               placeholder="标题（可选）"
-              className="flex-1 px-2 py-1.5 rounded border border-paper-line bg-white text-sm"
+              className="flex-1 px-2 py-1.5 rounded border border-paper-line bg-paper-card text-sm"
             />
           </div>
           <textarea
@@ -322,7 +322,7 @@ export default function SourcesPanel() {
             onChange={e => setNewText(e.target.value)}
             placeholder="粘贴资料文本..."
             rows={3}
-            className="w-full px-2 py-1.5 rounded border border-paper-line bg-white text-sm resize-none"
+            className="w-full px-2 py-1.5 rounded border border-paper-line bg-paper-card text-sm resize-none"
           />
           {/* 打 KB 标签 */}
           {kbs.length > 0 && (
@@ -338,7 +338,7 @@ export default function SourcesPanel() {
                       className={`text-[11px] px-2 py-0.5 rounded-full border transition ${
                         active
                           ? "bg-paper-accent/15 border-paper-accent text-paper-ink"
-                          : "bg-white border-paper-line text-paper-ink2 hover:border-paper-accent/50"
+                          : "bg-paper-card border-paper-line text-paper-ink2 hover:border-paper-accent/50"
                       }`}
                     >{kb.title}</button>
                   );
@@ -446,7 +446,7 @@ export default function SourcesPanel() {
               <select
                 value={ingestTargetKb}
                 onChange={e => setIngestTargetKb(e.target.value)}
-                className="flex-1 min-w-0 px-2 py-1.5 rounded border border-paper-line bg-white text-xs"
+                className="flex-1 min-w-0 px-2 py-1.5 rounded border border-paper-line bg-paper-card text-xs"
               >
                 <option value="">选一个知识库...</option>
                 {kbs.map(k => (
@@ -490,7 +490,7 @@ export default function SourcesPanel() {
       {/* 改标签弹窗 */}
       {editingTagsFor && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setEditingTagsFor(null)}>
-          <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-5 space-y-4" onClick={e => e.stopPropagation()}>
+          <div className="bg-paper-card rounded-lg shadow-xl max-w-sm w-full p-5 space-y-4" onClick={e => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-paper-ink">🏷️ 修改标签</h3>
             {kbs.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
@@ -503,7 +503,7 @@ export default function SourcesPanel() {
                       className={`text-xs px-2.5 py-1 rounded-full border transition ${
                         active
                           ? "bg-paper-accent/15 border-paper-accent text-paper-ink font-medium"
-                          : "bg-white border-paper-line text-paper-ink2 hover:border-paper-accent/50"
+                          : "bg-paper-card border-paper-line text-paper-ink2 hover:border-paper-accent/50"
                       }`}
                     >{kb.title}</button>
                   );
@@ -542,7 +542,7 @@ export default function SourcesPanel() {
       <div
         key={s.id}
         className={`px-3 py-2 rounded-md border ${
-          checked ? "border-paper-accent bg-paper-accent/10" : isDone ? "border-paper-line/50 bg-white/50" : "border-paper-line bg-white"
+          checked ? "border-paper-accent bg-paper-accent/10" : isDone ? "border-paper-line/50 bg-paper-card/50" : "border-paper-line bg-paper-card"
         }`}
       >
         <div className="flex items-start gap-2">
@@ -552,7 +552,7 @@ export default function SourcesPanel() {
               onClick={() => toggleSelect(s.id)}
               className="shrink-0 text-paper-accent active:scale-90 mt-0.5"
             >
-              {checked ? <CheckSquare size={20} /> : <Square size={20} className="text-gray-400" />}
+              {checked ? <CheckSquare size={20} /> : <Square size={20} className="text-paper-ink3" />}
             </button>
           )}
 
@@ -570,7 +570,7 @@ export default function SourcesPanel() {
 
               {/* 状态 */}
               <span className={`text-[10px] px-1.5 py-0.5 rounded ${
-                isDone ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+                isDone ? "bg-green-100 text-green-700" : "bg-paper-surface text-amber-700"
               }`}>
                 {isDone ? "已汇入" : "待汇入"}
               </span>

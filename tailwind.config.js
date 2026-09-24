@@ -7,12 +7,12 @@ export default {
         paper: {
           bg: "var(--paper-bg, #faf6ef)",
           surface: "var(--paper-surface, #fdfaf3)",
-          card: "#ffffff",
-          line: "#e8e0cc",
+          card: "var(--paper-card, #ffffff)",
+          line: "var(--paper-line, #e8e0cc)",
           redline: "#e57373",
-          ink: "#2d1f14",
-          ink2: "#7a6a54",
-          ink3: "#b0a28a",
+          ink: "var(--paper-ink, #2d1f14)",
+          ink2: "var(--paper-ink2, #7a6a54)",
+          ink3: "var(--paper-ink3, #b0a28a)",
           accent: "var(--paper-accent, #8b6f47)",
           accent2: "var(--paper-accent2, #a68656)",
         },
@@ -31,9 +31,9 @@ export default {
   
         },
         boxShadow: {
-        card: "0 2px 12px -2px rgba(45,31,20,0.08), 0 1px 3px rgba(45,31,20,0.04)",
-        cardHover: "0 8px 24px -4px rgba(45,31,20,0.12), 0 2px 6px rgba(45,31,20,0.06)",
-        soft: "0 1px 3px rgba(45,31,20,0.06)",
+        card: "var(--shadow-card, 0 2px 12px -2px rgba(45,31,20,0.08))",
+        cardHover: "var(--shadow-card-hover, 0 8px 24px -4px rgba(45,31,20,0.12))",
+        soft: "var(--shadow-soft, 0 1px 3px rgba(45,31,20,0.06))",
         inset: "inset 0 1px 2px rgba(45,31,20,0.06)",
       },
       borderRadius: {
@@ -67,5 +67,3 @@ export default {
   },
   plugins: [],
 };
-
-

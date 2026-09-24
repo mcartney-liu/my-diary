@@ -68,11 +68,11 @@ export default function PaperLibrary() {
         <div className="flex gap-1 p-1 bg-paper-surface rounded-xl border border-paper-line">
           <button
             onClick={() => setTab("mine")}
-            className={`px-4 py-1.5 rounded-lg text-sm transition ${tab === "mine" ? "bg-white shadow-sm text-paper-ink font-medium" : "text-paper-ink2"}`}
+            className={`px-4 py-1.5 rounded-lg text-sm transition ${tab === "mine" ? "bg-paper-card shadow-sm text-paper-ink font-medium" : "text-paper-ink2"}`}
           >👤 我的 ({mine.length})</button>
           <button
             onClick={() => setTab("public")}
-            className={`px-4 py-1.5 rounded-lg text-sm transition ${tab === "public" ? "bg-white shadow-sm text-paper-ink font-medium" : "text-paper-ink2"}`}
+            className={`px-4 py-1.5 rounded-lg text-sm transition ${tab === "public" ? "bg-paper-card shadow-sm text-paper-ink font-medium" : "text-paper-ink2"}`}
           >🌐 共享 ({pub.length})</button>
         </div>
         {tab === "mine" && (
@@ -111,7 +111,7 @@ export default function PaperLibrary() {
           {list.map((p) => (
             <div key={p.id} className="relative group">
               <div
-                className="aspect-[3/4] rounded-xl border-2 border-paper-line overflow-hidden cursor-pointer bg-white"
+                className="aspect-[3/4] rounded-xl border-2 border-paper-line overflow-hidden cursor-pointer bg-paper-card"
                 style={{
                   backgroundImage: `url(${p.thumbnail || p.image_data})`,
                   backgroundSize: "cover",

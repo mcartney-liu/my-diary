@@ -98,6 +98,12 @@ export default function App() {
   const [offlineBanner, setOfflineBanner] = useState(false);
   const skipBackgroundSyncRef = useRef(false);
 
+  // 全局主题初始化（刷新后不丢失）
+  useEffect(() => {
+    const saved = localStorage.getItem("mydiary_theme") || "paper";
+    document.documentElement.setAttribute("data-theme", saved);
+  }, []);
+
   // 过滤：正常日记（未软删）和回收站（已软删）
   const diaries = allDiaries.filter((d) => !d.deletedAt);
   const deletedDiaries = allDiaries.filter((d) => !!d.deletedAt);

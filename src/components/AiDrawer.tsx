@@ -71,7 +71,7 @@ export default function AiDrawer({ open, onClose }: Props) {
                   <button
                     key={s}
                     onClick={() => send(s)}
-                    className="text-xs px-3 py-1.5 rounded-full border border-paper-line bg-white text-paper-ink2 hover:bg-paper-line/40 transition"
+                    className="text-xs px-3 py-1.5 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition"
                   >
                     {s}
                   </button>
@@ -86,7 +86,7 @@ export default function AiDrawer({ open, onClose }: Props) {
                 className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                   m.role === "user"
                     ? "bg-paper-ink text-paper-bg rounded-br-sm"
-                    : "bg-white border border-paper-line text-paper-ink rounded-bl-sm"
+                    : "bg-paper-card border border-paper-line text-paper-ink rounded-bl-sm"
                 }`}
               >
                 {m.content}
@@ -101,14 +101,14 @@ export default function AiDrawer({ open, onClose }: Props) {
 
           {loading && (
             <div className="flex justify-start">
-              <div className="bg-white border border-paper-line rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-paper-ink2">
+              <div className="bg-paper-card border border-paper-line rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-paper-ink2">
                 <span className="inline-block animate-pulse">思考中…</span>
               </div>
             </div>
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-paper-line bg-white/50">
+        <div className="px-5 py-3 border-t border-paper-line bg-paper-card/50">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -120,7 +120,7 @@ export default function AiDrawer({ open, onClose }: Props) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="问点什么吧…"
-              className="flex-1 px-4 py-2.5 rounded-full border border-paper-line bg-white text-sm focus:outline-none focus:border-paper-ink/50"
+              className="flex-1 px-4 py-2.5 rounded-full border border-paper-line bg-paper-card text-sm focus:outline-none focus:border-paper-ink/50"
             />
             <button
               type="submit"

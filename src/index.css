@@ -1,21 +1,105 @@
-/* === 主题色变量 === */
+/* === 主题色变量（每套 12 变量） === */
 :root, [data-theme="paper"] {
-  --paper-accent: #8b6f47;
-  --paper-accent2: #a68656;
   --paper-bg: #faf6ef;
   --paper-surface: #fdfaf3;
+  --paper-card: #ffffff;
+  --paper-line: #e8e0cc;
+  --paper-ink: #2d1f14;
+  --paper-ink2: #7a6a54;
+  --paper-ink3: #b0a28a;
+  --paper-accent: #8b6f47;
+  --paper-accent2: #a68656;
+  --shadow-card: 0 2px 12px -2px rgba(45,31,20,0.08);
+  --shadow-card-hover: 0 8px 24px -4px rgba(45,31,20,0.12);
+  --shadow-soft: 0 1px 3px rgba(45,31,20,0.06);
 }
 [data-theme="forest"] {
-  --paper-accent: #4a6741;
-  --paper-accent2: #6b8e5a;
   --paper-bg: #f3f7f0;
   --paper-surface: #f8fbf5;
+  --paper-card: #ffffff;
+  --paper-line: #d4e0c8;
+  --paper-ink: #2d3a26;
+  --paper-ink2: #5a6b52;
+  --paper-ink3: #93a48a;
+  --paper-accent: #4a6741;
+  --paper-accent2: #6b8e5a;
+  --shadow-card: 0 2px 12px -2px rgba(45,58,38,0.08);
+  --shadow-card-hover: 0 8px 24px -4px rgba(45,58,38,0.12);
+  --shadow-soft: 0 1px 3px rgba(45,58,38,0.06);
 }
 [data-theme="moon"] {
-  --paper-accent: #5c6b7a;
-  --paper-accent2: #8a9aad;
   --paper-bg: #f4f6f9;
   --paper-surface: #f8fafc;
+  --paper-card: #ffffff;
+  --paper-line: #dce3ea;
+  --paper-ink: #2d3748;
+  --paper-ink2: #5a6b7a;
+  --paper-ink3: #919eab;
+  --paper-accent: #5c6b7a;
+  --paper-accent2: #8a9aad;
+  --shadow-card: 0 2px 12px -2px rgba(45,55,72,0.08);
+  --shadow-card-hover: 0 8px 24px -4px rgba(45,55,72,0.12);
+  --shadow-soft: 0 1px 3px rgba(45,55,72,0.06);
+}
+[data-theme="glass"] {
+  --paper-bg: #0A0B1A;
+  --paper-surface: rgba(255,255,255,0.03);
+  --paper-card: rgba(255,255,255,0.05);
+  --paper-line: rgba(255,255,255,0.12);
+  --paper-ink: #F8FAFC;
+  --paper-ink2: #CBD5E1;
+  --paper-ink3: #94A3B8;
+  --paper-accent: #7C3AED;
+  --paper-accent2: #EC4899;
+  --shadow-card: 0 0 0 1px rgba(255,255,255,0.06), 0 2px 16px -2px rgba(124,58,237,0.2);
+  --shadow-card-hover: 0 0 0 1px rgba(255,255,255,0.1), 0 8px 32px -4px rgba(124,58,237,0.35);
+  --shadow-soft: 0 2px 10px rgba(124,58,237,0.15);
+}
+/* glass 主题 body 渐变底色（跟官网一致） */
+[data-theme="glass"] body {
+  background-color: #0A0B1A;
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% -10%, rgba(124,58,237,0.35), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 85% 20%, rgba(236,72,153,0.2), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 15% 80%, rgba(6,182,212,0.15), transparent 55%);
+  background-attachment: fixed;
+  transition: background .4s ease, color .4s ease;
+}
+/* glass 主题：让 .bg-paper-bg 容器透明，露出 body 渐变 */
+[data-theme="glass"] .bg-paper-bg { background: transparent !important; }
+/* glass 主题：卡片毛玻璃 */
+[data-theme="glass"] .bg-paper-card {
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+/* glass 主题：顶栏/底栏毛玻璃 */
+[data-theme="glass"] .sticky.top-0,
+[data-theme="glass"] nav.fixed.bottom-0 {
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  background: rgba(10,11,26,0.85) !important;
+}
+/* glass 主题：border-paper-line 覆盖 */
+[data-theme="glass"] [class*="border-paper-line"] {
+  border-color: rgba(255,255,255,0.1) !important;
+}
+/* glass 主题：Tailwind opacity modifier 强制覆盖（bg-paper-accent/15 等） */
+[data-theme="glass"] [class*="bg-paper-accent/"],
+[data-theme="glass"] [class*="bg-paper-ink/"] {
+  --tw-bg-opacity: 1 !important;
+}
+/* glass 主题：写日记页输入框可见 */
+[data-theme="glass"] textarea,
+[data-theme="glass"] input[type="text"],
+[data-theme="glass"] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) {
+  background: rgba(255,255,255,0.04) !important;
+  border-color: rgba(255,255,255,0.15) !important;
+  color: #F8FAFC !important;
+}
+[data-theme="glass"] textarea::placeholder,
+[data-theme="glass"] input::placeholder {
+  color: rgba(248,250,252,0.35) !important;
 }
 
 /* === 本地字体（永远秒开，不受网络影响） === */

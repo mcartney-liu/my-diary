@@ -175,7 +175,7 @@ function SettingsTab(props: {
           <div className="space-y-1">
             {kbs.map(k => (
               <button key={k.id} onClick={() => onSelect(k.id)}
-                className="w-full text-left px-3 py-2 rounded-md border border-paper-line bg-white hover:bg-paper-line/30 text-sm">{k.title}</button>
+                className="w-full text-left px-3 py-2 rounded-md border border-paper-line bg-paper-card hover:bg-paper-line/30 text-sm">{k.title}</button>
             ))}
           </div>
         )}
@@ -185,7 +185,7 @@ function SettingsTab(props: {
         {toast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-4 py-2 rounded shadow-lg z-50">{toast}</div>}
         {showNewKbDialog && (
           <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center" onClick={() => setShowNewKbDialog(false)}>
-            <div className="bg-white rounded-lg p-4 w-[300px] shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="bg-paper-card rounded-lg p-4 w-[300px] shadow-xl" onClick={e => e.stopPropagation()}>
               <div className="font-medium text-sm mb-3">新建知识库</div>
               <input autoFocus value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="输入知识库名称"
                 onKeyDown={e => e.key === 'Enter' && handleCreateKb()}
@@ -212,7 +212,7 @@ function SettingsTab(props: {
               onChange={e => setEditTitleValue(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') { saveTitle(editTitleValue); setEditingTitle(false); } }}
               onBlur={() => { saveTitle(editTitleValue); setEditingTitle(false); }}
-              className="w-full px-3 py-2 rounded-md border border-paper-line bg-white text-sm" />
+              className="w-full px-3 py-2 rounded-md border border-paper-line bg-paper-card text-sm" />
           ) : (
             <select value={curKbId || ""} onChange={e => onSelect(e.target.value)}
               className="w-full px-3 py-2 bg-transparent text-sm cursor-pointer focus:outline-none focus:ring-1 focus:ring-paper-accent/30">
@@ -252,7 +252,7 @@ function SettingsTab(props: {
         {cats.map(c => editingId === c.id ? (
           <CategoryEditor key={c.id} templates={templates} cat={c} onSave={updateCat} onCancel={() => setEditingId(null)} />
         ) : (
-          <div key={c.id} className="px-3 py-2 rounded-md border border-paper-line bg-white">
+          <div key={c.id} className="px-3 py-2 rounded-md border border-paper-line bg-paper-card">
             <div className="flex justify-between items-start">
               <div className="flex-1">
                 <div className="font-medium text-sm text-paper-ink">{c.name}</div>
@@ -273,7 +273,7 @@ function SettingsTab(props: {
       {/* 新建知识库弹框 */}
       {showNewKbDialog && (
         <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center" onClick={() => setShowNewKbDialog(false)}>
-          <div className="bg-white rounded-lg p-4 w-[300px] shadow-xl" onClick={e => e.stopPropagation()}>
+          <div className="bg-paper-card rounded-lg p-4 w-[300px] shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="font-medium text-sm mb-3">新建知识库</div>
             <input autoFocus value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="输入知识库名称"
               onKeyDown={e => e.key === 'Enter' && handleCreateKb()}
@@ -313,7 +313,7 @@ function CategoryEditor({ templates, cat, onSave, onCancel }: {
   const allTpls = [...templates.official, ...templates.mine];
 
   return (
-    <div className="border border-paper-line rounded-md p-3 bg-white space-y-3">
+    <div className="border border-paper-line rounded-md p-3 bg-paper-card space-y-3">
       <div className="font-medium text-sm">{cat ? "编辑分类" : "新增分类"}</div>
 
       {/* ① 分类名称（第一个，先让用户填） */}
@@ -438,7 +438,7 @@ function TemplateCard({ t, expanded, onToggle, onDelete }: {
   t: WikiTemplate; expanded: boolean; onToggle: () => void; onDelete?: () => void;
 }) {
   return (
-    <div className={`border rounded-md transition-all ${expanded ? 'border-paper-line bg-white' : 'border-paper-line/50 bg-white/60'}`}>
+    <div className={`border rounded-md transition-all ${expanded ? 'border-paper-line bg-paper-card' : 'border-paper-line/50 bg-paper-card/60'}`}>
       <button onClick={onToggle} className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-paper-line/20">
         <span className={`text-xs transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
         <span className="text-sm font-medium flex-1">{t.name}</span>
@@ -484,7 +484,7 @@ function TemplateEditor({ onSave, onCancel, initial }: {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={onCancel}>
-      <div className="bg-white rounded-lg p-4 w-full max-w-[440px] shadow-xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="bg-paper-card rounded-lg p-4 w-full max-w-[440px] shadow-xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="font-medium text-sm mb-3">📋 {initial ? '编辑' : '新建'}范本</div>
         <div className="space-y-3">
           <div>
@@ -700,7 +700,7 @@ function PagesTab({ kbs }: { kbs: WikiKB[] }) {
               className="text-xs text-paper-accent hover:underline">✏️ 编辑</button>
           )}
         </div>
-        <div className="bg-white rounded-md border border-paper-line p-4">
+        <div className="bg-paper-card rounded-md border border-paper-line p-4">
           <div className="mb-3">
             {detail.page.is_system === 1 && <span className="text-xs text-paper-ink2 mr-2">[系统模板]</span>}
             <h4 className="text-xl font-bold text-paper-ink inline">{detail.page.title}</h4>
@@ -724,7 +724,7 @@ function PagesTab({ kbs }: { kbs: WikiKB[] }) {
         {/* 新实体生成弹窗 */}
         {pendingEntities.length > 0 && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-5 space-y-4">
+            <div className="bg-paper-card rounded-lg shadow-xl max-w-md w-full p-5 space-y-4">
               <div>
                 <h3 className="text-base font-bold text-paper-ink mb-1">检测到 {pendingEntities.length} 个新实体</h3>
                 <p className="text-xs text-paper-ink2">请选择每个实体的分类，AI 会按范本自动生成页面。</p>
@@ -735,7 +735,7 @@ function PagesTab({ kbs }: { kbs: WikiKB[] }) {
                     <span className="flex-1 text-sm text-paper-ink font-medium">[[{name}]]</span>
                     <select value={entityCats[name] || ""}
                       onChange={e => setEntityCats(prev => ({ ...prev, [name]: e.target.value }))}
-                      className="text-xs border border-paper-line rounded px-2 py-1 bg-white">
+                      className="text-xs border border-paper-line rounded px-2 py-1 bg-paper-card">
                       <option value="">不选（AI 自由生成）</option>
                       {kbCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
@@ -765,7 +765,7 @@ function PagesTab({ kbs }: { kbs: WikiKB[] }) {
                     const target = pageTitleMap[l.from_title];
                     const ctx = getBacklinkContext(l.from_title, detail!.page.title);
                     return (
-                      <div key={l.from_title} className="bg-white border border-paper-line rounded-md p-2">
+                      <div key={l.from_title} className="bg-paper-card border border-paper-line rounded-md p-2">
                         <div className="text-blue-600 hover:underline cursor-pointer font-medium"
                           onClick={() => target && openPage(target.kbId, target.id)}>[[{l.from_title}]]</div>
                         {ctx && <div className="text-paper-ink3 mt-1 leading-relaxed">{ctx}</div>}
@@ -802,11 +802,11 @@ function PagesTab({ kbs }: { kbs: WikiKB[] }) {
         <h4 className="text-paper-ink2 text-xs font-medium uppercase tracking-wider">知识图谱</h4>
         <div className="flex gap-1 bg-paper-line/30 rounded-md p-0.5">
           <button onClick={() => setViewMode("list")}
-            className={`px-2.5 py-0.5 rounded text-xs transition ${viewMode === "list" ? "bg-white text-paper-ink font-medium shadow-sm" : "text-paper-ink2"}`}>
+            className={`px-2.5 py-0.5 rounded text-xs transition ${viewMode === "list" ? "bg-paper-card text-paper-ink font-medium shadow-sm" : "text-paper-ink2"}`}>
             📋 列表
           </button>
           <button onClick={() => setViewMode("graph")}
-            className={`px-2.5 py-0.5 rounded text-xs transition ${viewMode === "graph" ? "bg-white text-paper-ink font-medium shadow-sm" : "text-paper-ink2"}`}>
+            className={`px-2.5 py-0.5 rounded text-xs transition ${viewMode === "graph" ? "bg-paper-card text-paper-ink font-medium shadow-sm" : "text-paper-ink2"}`}>
             🕸️ 图谱
           </button>
         </div>
@@ -818,7 +818,7 @@ function PagesTab({ kbs }: { kbs: WikiKB[] }) {
         const g = graphData[kb.id];
         if (!g || (g.nodes.length === 0)) return null;
         return (
-          <div key={kb.id} className="border border-paper-line rounded-md bg-white p-3">
+          <div key={kb.id} className="border border-paper-line rounded-md bg-paper-card p-3">
             <h3 className="text-sm font-bold text-paper-ink mb-2">🌐 {kb.title} <span className="text-xs text-paper-ink3 font-normal">({g.nodes.length} 页 · {g.links.length} 链接)</span></h3>
             <WikiForceGraph
               nodes={g.nodes}
@@ -849,7 +849,7 @@ function PagesTab({ kbs }: { kbs: WikiKB[] }) {
         const totalPages = pages.length;
 
         return (
-          <div key={kb.id} className="border border-paper-line rounded-md bg-white p-3">
+          <div key={kb.id} className="border border-paper-line rounded-md bg-paper-card p-3">
             <h3 className="text-sm font-bold text-paper-ink mb-2">🌐 {kb.title} <span className="text-xs text-paper-ink3 font-normal">({totalPages} 页)</span></h3>
 
             {categories.length === 0 && noCat.length === 0 && (
@@ -1218,7 +1218,7 @@ function WikiForceGraph({
 
       {/* 图例：分类颜色 */}
       {colorMap.size > 0 && (
-        <div className="absolute bottom-1 left-2 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-paper-ink2 bg-white/80 rounded px-2 py-1">
+        <div className="absolute bottom-1 left-2 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-paper-ink2 bg-paper-card/80 rounded px-2 py-1">
           {Array.from(colorMap.entries()).map(([cat, color]) => (
             <span key={cat} className="flex items-center gap-0.5">
               <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
@@ -1228,7 +1228,7 @@ function WikiForceGraph({
         </div>
       )}
       {/* 缩放提示 */}
-      <div className="absolute bottom-1 right-2 text-[10px] text-paper-ink3 bg-white/70 rounded px-1.5 py-0.5">
+      <div className="absolute bottom-1 right-2 text-[10px] text-paper-ink3 bg-paper-card/70 rounded px-1.5 py-0.5">
         滚轮缩放 · 拖节点 · 点空白平移
       </div>
     </div>

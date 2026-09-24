@@ -301,7 +301,7 @@ function MonthlyOverview({ diaries, year }: { diaries: Diary[]; year: number }) 
           onClick={() => setShowMonthDetail(null)}
         >
           <div
-            className="bg-white rounded-t-2xl md:rounded-2xl p-5 w-full md:w-[340px] md:shadow-xl animate-fade-up"
+            className="bg-paper-card rounded-t-2xl md:rounded-2xl p-5 w-full md:w-[340px] md:shadow-xl animate-fade-up"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3">

@@ -83,7 +83,7 @@ export default function CapsulePage({ diaries }: Props) {
                         onClick={() => nav(`/editor/${d.id}`)}
                         className="w-full text-left flex items-center gap-3 p-3 rounded-xl bg-amber-50/60 border border-amber-200/70 hover:bg-amber-50 transition active:scale-[0.99]"
                       >
-                        <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center text-xl shrink-0">
+                        <div className="w-10 h-10 rounded-lg bg-paper-surface flex items-center justify-center text-xl shrink-0">
                           🔒
                         </div>
                         <div className="flex-1 min-w-0">

@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus, Pencil } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
@@ -1610,7 +1610,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           </div>
           <button
             onClick={onCancel}
-            className="px-6 py-2.5 rounded-full bg-amber-100 text-amber-800 text-sm font-medium hover:bg-amber-200 transition active:scale-95"
+            className="px-6 py-2.5 rounded-full bg-paper-surface text-amber-800 text-sm font-medium hover:bg-amber-200 transition active:scale-95"
           >
             返回首页
           </button>
@@ -1753,7 +1753,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
               onClick={() => setShowCapsuleMenu((s) => !s)}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-sm transition ${
                 capsuleDays || isLocked
-                  ? "bg-amber-100 border-amber-300 text-amber-800"
+                  ? "bg-paper-surface border-amber-300 text-amber-800"
                   : "border-paper-line bg-paper-surface text-paper-ink2 hover:bg-paper-line/50"
               }`}
             >
@@ -1772,7 +1772,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                     key={d}
                     onClick={() => setCapsuleDays(capsuleDays === d ? null : d)}
                     className={`w-full text-left px-2 py-1.5 rounded-lg text-sm transition ${
-                      capsuleDays === d ? "bg-amber-100 text-amber-800" : "hover:bg-paper-surface text-paper-ink"
+                      capsuleDays === d ? "bg-paper-surface text-amber-800" : "hover:bg-paper-surface text-paper-ink"
                     }`}
                   >
                     🔒 {d === 7 ? "一周" : d === 30 ? "一个月" : d === 90 ? "三个月" : "一年"}后解锁
@@ -1909,10 +1909,10 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
             <button
               onClick={() => refetchAll()}
               disabled={locationLoading || weatherLoading}
-              className="w-full rounded-xl border border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50 p-4 text-left hover:shadow-md active:scale-[0.99] transition disabled:opacity-50"
+              className="w-full rounded-xl border border-amber-300 bg-gradient-to-br from-paper-surface to-orange-50 p-4 text-left hover:shadow-md active:scale-[0.99] transition disabled:opacity-50"
             >
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-xl">
+                <div className="w-10 h-10 rounded-full bg-paper-surface flex items-center justify-center text-xl">
                   📍
                 </div>
                 <div className="flex-1">
@@ -1928,7 +1928,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
             </button>
           ) : (
             // === 已定位 → 显示 POI 区域 ===
-            <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-3">
+            <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-paper-surface to-orange-50 p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm">🗺️</span>
@@ -1939,7 +1939,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                 <button
                   onClick={() => location?.lat && location?.lon && loadNearbyPois(location.lat, location.lon)}
                   disabled={nearbyLoading}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] text-amber-700 hover:bg-amber-100 disabled:opacity-40 active:scale-95"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] text-amber-700 hover:bg-paper-surface disabled:opacity-40 active:scale-95"
                 >
                   <RefreshCw size={11} className={nearbyLoading ? "animate-spin" : ""} />
                   刷新
@@ -2621,7 +2621,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                     aria-label="切换横线"
                   >
                     <span
-                      className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-[left] duration-200 ${showLines ? "left-[22px]" : "left-0.5"}`}
+                      className={`absolute top-0.5 w-4 h-4 bg-paper-card rounded-full shadow transition-[left] duration-200 ${showLines ? "left-[22px]" : "left-0.5"}`}
                     />
                   </button>
                 </div>
@@ -3267,33 +3267,33 @@ const POI_ICON: Record<string, string> = {
 const POI_CATEGORY_COLOR: Record<string, string> = {
   attraction: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   food: 'bg-rose-100 text-rose-700 border-rose-200',
-  cafe: 'bg-amber-100 text-amber-700 border-amber-200',
+  cafe: 'bg-paper-surface text-amber-700 border-amber-200',
   hotel: 'bg-sky-100 text-sky-700 border-sky-200',
 };
 
 function NearbyPoiCard({ poi, onAdd }: { poi: Poi; onAdd: () => void }) {
   return (
-    <div className="shrink-0 w-44 snap-start bg-white rounded-lg border border-amber-100 p-2.5 hover:shadow-md transition">
+    <div className="shrink-0 w-44 snap-start bg-paper-card rounded-lg border border-paper-line p-2.5 hover:shadow-md transition">
       <div className="flex items-start justify-between gap-1 mb-1">
         <div className="text-base leading-none">{POI_ICON[poi.category] ?? '📍'}</div>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded border ${POI_CATEGORY_COLOR[poi.category] ?? 'bg-gray-100 text-gray-700 border-gray-200'}`}>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded border ${POI_CATEGORY_COLOR[poi.category] ?? 'bg-paper-surface text-paper-ink2 border-paper-line'}`}>
           {poi.categoryLabel}
         </span>
       </div>
-      <div className="text-xs font-medium text-gray-800 truncate leading-tight">{poi.name}</div>
+      <div className="text-xs font-medium text-paper-ink truncate leading-tight">{poi.name}</div>
       {poi.address && (
-        <div className="text-[10px] text-gray-500 truncate mt-0.5">{poi.address}</div>
+        <div className="text-[10px] text-paper-ink3 truncate mt-0.5">{poi.address}</div>
       )}
       {poi.tags && poi.tags.length > 0 && (
         <div className="flex flex-wrap gap-0.5 mt-1">
           {poi.tags.slice(0, 2).map((t) => (
-            <span key={t} className="text-[9px] px-1 bg-gray-100 text-gray-600 rounded">{t}</span>
+            <span key={t} className="text-[9px] px-1 bg-paper-surface text-paper-ink2 rounded">{t}</span>
           ))}
         </div>
       )}
       <button
         onClick={onAdd}
-        className="mt-2 w-full inline-flex items-center justify-center gap-1 py-1 rounded-md text-[11px] bg-amber-100 text-amber-800 hover:bg-amber-200 active:scale-95 transition"
+        className="mt-2 w-full inline-flex items-center justify-center gap-1 py-1 rounded-md text-[11px] bg-paper-surface text-amber-800 hover:bg-amber-200 active:scale-95 transition"
       >
         <Plus size={10} /> 加入日记
       </button>

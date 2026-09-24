@@ -338,7 +338,7 @@ export default function AiChatView() {
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
           <button
             onClick={() => setShowHistory((v) => !v)}
-            className="text-xs px-2 py-1 rounded-full border border-paper-line bg-white text-paper-ink2 hover:bg-paper-line/40 transition active:scale-95 shrink-0"
+            className="text-xs px-2 py-1 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition active:scale-95 shrink-0"
             title="历史对话"
           >
             ☰
@@ -348,7 +348,7 @@ export default function AiChatView() {
             <button
               onClick={() => setSourceTypeForActive("diary")}
               className={`text-[11px] px-2 py-0.5 rounded-full transition ${
-                activeType === "diary" ? "bg-white text-paper-ink shadow-sm" : "text-paper-ink2 hover:text-paper-ink"
+                activeType === "diary" ? "bg-paper-card text-paper-ink shadow-sm" : "text-paper-ink2 hover:text-paper-ink"
               }`}
             >
               📖 日记
@@ -356,7 +356,7 @@ export default function AiChatView() {
             <button
               onClick={() => setSourceTypeForActive("wiki")}
               className={`text-[11px] px-2 py-0.5 rounded-full transition ${
-                activeType === "wiki" ? "bg-white text-paper-ink shadow-sm" : "text-paper-ink2 hover:text-paper-ink"
+                activeType === "wiki" ? "bg-paper-card text-paper-ink shadow-sm" : "text-paper-ink2 hover:text-paper-ink"
               }`}
             >
               🌳 知识
@@ -367,7 +367,7 @@ export default function AiChatView() {
             <select
               value={active?.kb_id || ""}
               onChange={(e) => setKbForActive(e.target.value)}
-              className="text-[11px] border border-paper-line bg-white rounded-full px-2 py-0.5 text-paper-ink2 min-w-0 max-w-[120px] focus:outline-none focus:border-paper-ink"
+              className="text-[11px] border border-paper-line bg-paper-card rounded-full px-2 py-0.5 text-paper-ink2 min-w-0 max-w-[120px] focus:outline-none focus:border-paper-ink"
               title="选择知识库"
             >
               <option value="">选知识库…</option>
@@ -379,7 +379,7 @@ export default function AiChatView() {
         </div>
         <button
           onClick={newChat}
-          className="text-xs px-2.5 py-1 rounded-full border border-paper-line bg-white text-paper-ink2 hover:bg-paper-line/40 transition active:scale-95 shrink-0"
+          className="text-xs px-2.5 py-1 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition active:scale-95 shrink-0"
           title="新建对话"
         >
           ＋
@@ -453,7 +453,7 @@ export default function AiChatView() {
                   <button
                     key={s}
                     onClick={() => send(s)}
-                    className="text-xs px-3 py-1.5 rounded-full border border-paper-line bg-white text-paper-ink2 hover:bg-paper-line/40 transition"
+                    className="text-xs px-3 py-1.5 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition"
                   >
                     {s}
                   </button>
@@ -469,7 +469,7 @@ export default function AiChatView() {
               className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                 m.role === "user"
                   ? "bg-paper-ink text-paper-bg rounded-br-sm"
-                  : "bg-white border border-paper-line text-paper-ink rounded-bl-sm"
+                  : "bg-paper-card border border-paper-line text-paper-ink rounded-bl-sm"
               }`}
             >
               {m.content}
@@ -509,7 +509,7 @@ export default function AiChatView() {
                             </span>
                             <span className="text-paper-ink2/40 transition-transform group-open:rotate-180">▾</span>
                           </summary>
-                          <div className="px-2.5 py-2 text-[11px] leading-relaxed text-paper-ink2 border-t border-paper-line/40 bg-white/60">
+                          <div className="px-2.5 py-2 text-[11px] leading-relaxed text-paper-ink2 border-t border-paper-line/40 bg-paper-card/60">
                             {s.content}
                           </div>
                         </details>
@@ -555,7 +555,7 @@ export default function AiChatView() {
 
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-white border border-paper-line rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-paper-ink2">
+            <div className="bg-paper-card border border-paper-line rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-paper-ink2">
               <span className="inline-block animate-pulse">思考中…</span>
             </div>
           </div>
@@ -575,7 +575,7 @@ export default function AiChatView() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="问点什么…"
-            className="flex-1 px-4 py-2.5 rounded-full border border-paper-line bg-white text-sm focus:outline-none focus:border-paper-ink/50"
+            className="flex-1 px-4 py-2.5 rounded-full border border-paper-line bg-paper-card text-sm focus:outline-none focus:border-paper-ink/50"
           />
           <button
             type="submit"

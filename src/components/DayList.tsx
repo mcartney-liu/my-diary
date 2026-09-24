@@ -137,7 +137,7 @@ export default function DayList({ date, diaries, onSoftDelete }: Props) {
                   style={{ animationDelay: `${idx * 60}ms` }}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 md:w-9 md:h-9 rounded-lg bg-amber-100 flex items-center justify-center text-lg shrink-0">
+                    <div className="w-8 h-8 md:w-9 md:h-9 rounded-lg bg-paper-surface flex items-center justify-center text-lg shrink-0">
                       🔒
                     </div>
                     <div className="flex-1 min-w-0">

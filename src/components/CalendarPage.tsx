@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { monthCells, moodById, fmtDate } from "../data";
@@ -234,7 +234,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
               <button
                 onClick={() => nav("/capsule")}
                 title="时间胶囊"
-                className="px-2.5 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-sm hover:bg-amber-100 transition active:scale-95 flex-shrink-0"
+                className="px-2.5 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-sm hover:bg-paper-surface transition active:scale-95 flex-shrink-0"
               >
                 🫧
               </button>
@@ -277,7 +277,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
               <button
                 onClick={() => nav("/capsule")}
                 title="时间胶囊"
-                className="px-2.5 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-sm hover:bg-amber-100 transition active:scale-95 flex-shrink-0"
+                className="px-2.5 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-sm hover:bg-paper-surface transition active:scale-95 flex-shrink-0"
               >
                 🫧
               </button>
@@ -455,7 +455,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             onClick={() => setShowDayDetail(null)}
           >
             <div
-              className="bg-white rounded-t-2xl md:rounded-2xl p-5 w-full md:w-[340px] md:shadow-xl animate-fade-up"
+              className="bg-paper-card rounded-t-2xl md:rounded-2xl p-5 w-full md:w-[340px] md:shadow-xl animate-fade-up"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-3">

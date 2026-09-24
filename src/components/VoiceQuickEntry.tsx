@@ -277,7 +277,7 @@ export default function VoiceQuickEntry() {
                   onClick={stopRecording}
                   className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line hover:bg-paper-line/50 active:scale-95 text-paper-ink font-medium flex items-center justify-center gap-3"
                 >
-                  <div className="w-3 h-3 bg-white rounded-sm" />
+                  <div className="w-3 h-3 bg-paper-card rounded-sm" />
                   停止录音 · {fmtTime(elapsed)}
                 </button>
               </>

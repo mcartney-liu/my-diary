@@ -129,7 +129,7 @@ export default function ImageBlock({ block, onRemove, onUpdate }: Props) {
           <img src={block.content} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
           <button
             onClick={() => setPreview(false)}
-            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
+            className="absolute top-4 right-4 p-2 rounded-full bg-paper-card/10 hover:bg-paper-card/20 text-white"
           >
             <X size={24} />
           </button>

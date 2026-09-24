@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, Pencil, Trash2, Share2, Plus } from "lucide-react";
 import type { DiaryBlock } from "../types";
 import { uid } from "../types";
@@ -124,10 +124,10 @@ export default function TemplateLibrary() {
       <div className="flex items-center justify-between">
         <div className="flex gap-1 p-1 bg-paper-surface rounded-xl border border-paper-line">
           <button onClick={() => setTab("mine")}
-            className={`px-4 py-1.5 rounded-lg text-sm transition ${tab === "mine" ? "bg-white shadow-sm text-paper-ink font-medium" : "text-paper-ink2"}`}
+            className={`px-4 py-1.5 rounded-lg text-sm transition ${tab === "mine" ? "bg-paper-card shadow-sm text-paper-ink font-medium" : "text-paper-ink2"}`}
           >👤 我的 ({mine.length})</button>
           <button onClick={() => setTab("public")}
-            className={`px-4 py-1.5 rounded-lg text-sm transition ${tab === "public" ? "bg-white shadow-sm text-paper-ink font-medium" : "text-paper-ink2"}`}
+            className={`px-4 py-1.5 rounded-lg text-sm transition ${tab === "public" ? "bg-paper-card shadow-sm text-paper-ink font-medium" : "text-paper-ink2"}`}
           >🌐 共享 ({pub.length})</button>
         </div>
         {tab === "mine" && (
