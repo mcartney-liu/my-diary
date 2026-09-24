@@ -395,10 +395,12 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
                     "relative aspect-square md:aspect-[1/1] rounded-lg md:rounded-xl flex flex-col items-center justify-center",
                     "text-sm md:text-base transition-all duration-150",
                     !inMonth ? "text-paper-ink3/40" : "text-paper-ink",
-                    isSelected
-                      ? "bg-paper-accent/20 ring-2 ring-paper-accent"
-                      : "hover:bg-paper-surface active:bg-paper-line/60",
-                    isToday && !isSelected ? "ring-2 ring-paper-accent/60" : "",
+                    // 今天优先：不管选不选都用渐变实色
+                    isToday ? "ring-2 ring-paper-accent/60" : "",
+                    // 选中（非今天）：紫底 + ring
+                    isSelected && !isToday ? "bg-paper-accent/20 ring-2 ring-paper-accent" : "",
+                    // 未选中且非今天：hover 效果
+                    !isSelected && !isToday ? "hover:bg-paper-surface active:bg-paper-line/60" : "",
                   ].join(" ")}
                 >
                   <span className="font-medium">{d.getDate()}</span>
