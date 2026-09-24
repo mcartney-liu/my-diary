@@ -158,6 +158,24 @@
   border-color: rgba(255,255,255,0.2) !important;
   box-shadow: 0 2px 12px rgba(124,58,237,0.4) !important;
 }
+/* glass：顶部 tab 容器（月历/年度回顾/知识库/小麦） */
+[data-theme="glass"] [class*="rounded-full"][class*="bg-paper-surface"][class*="border-paper-line"] {
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  background: rgba(255,255,255,0.04) !important;
+  border-color: rgba(255,255,255,0.12) !important;
+}
+/* glass：顶部 tab 选中按钮 — 紫粉渐变 */
+[data-theme="glass"] [class*="rounded-full"][class*="bg-paper-surface"][class*="border-paper-line"] [class*="bg-paper-ink"] {
+  color: #fff !important;
+  background: linear-gradient(135deg, #7C3AED, #EC4899) !important;
+  box-shadow: 0 2px 12px rgba(124,58,237,0.5) !important;
+}
+/* glass：顶部 tab 未选中按钮 hover — 紫发光 */
+[data-theme="glass"] [class*="rounded-full"][class*="bg-paper-surface"][class*="border-paper-line"] button[class*="text-paper-ink2"]:hover {
+  color: #f8fafc !important;
+  background: rgba(124,58,237,0.18) !important;
+}
 /* glass：底部按钮容器 */
 [data-theme="glass"] nav.fixed.bottom-0 > div,
 [data-theme="glass"] nav.fixed.bottom-0 {
