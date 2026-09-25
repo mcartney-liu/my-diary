@@ -254,6 +254,11 @@
 [data-theme="glass"] [class*="bg-paper-accent/30"] { background-color: rgba(124,58,237,0.3) !important; }
 [data-theme="glass"] [class*="bg-paper-accent/50"] { background-color: rgba(124,58,237,0.5) !important; }
 
+/* glass：虚线框（写作提示卡片）→ 内部完全透明 + 棕米色虚线 */
+[data-theme="glass"] [class*="bg-paper-accent/5"] { background-color: transparent !important; }
+[data-theme="glass"] [class*="border-paper-accent/40"] { border-color: rgba(139,111,71,0.4) !important; border-style: dashed !important; }
+[data-theme="glass"] [class*="text-paper-accent"] { color: #8b6f47 !important; }
+
 /* === 本地字体（永远秒开，不受网络影响） === */
 @font-face {
   font-family: "Ma Shan Zheng";
