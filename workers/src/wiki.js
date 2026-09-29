@@ -93,7 +93,7 @@ export async function handleWikiListKbs(request, env, JWT_SECRET) {
     console.error('[wiki] auto-seed failed, continue to list kbs:', e);
   }
 
-  const rows = await env.DB.prepare("SELECT id, slug, title, description, is_official, created_at, updated_at FROM wiki_knowledge_bases WHERE user_id = ? ORDER BY is_official DESC, created_at DESC")
+  const rows = await env.DB.prepare("SELECT id, slug, title, description, is_official, created_at, updated_at FROM wiki_knowledge_bases WHERE user_id = ? ORDER BY updated_at DESC, is_official DESC")
     .bind(user.uid).all();
   console.log('[wiki] listKbs uid=', user.uid, 'count=', rows.results.length);
   return json({ kbs: rows.results });
@@ -1149,6 +1149,9 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   }
 
   await dblog(env, 'ingest', 'DONE', { ingested: processedSourceIds.size, totalPending: pending.length, created: createdCount, updated: updatedCount, links: linkPairs.size });
+
+  // 更新 KB 的 updated_at（用于列表排序：最近活跃的排最上）
+  await env.DB.prepare("UPDATE wiki_knowledge_bases SET updated_at = strftime('%s','now') WHERE id = ?").bind(params.kb_id).run();
 
   return json({
     ok: true,

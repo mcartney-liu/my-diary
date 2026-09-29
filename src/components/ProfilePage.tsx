@@ -732,12 +732,27 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-     {/* === v0.5.3 当前版本（高亮） === */}
+     {/* === v0.5.4 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v0.5.3</span>
+                  <span className="font-bold text-paper-accent">v0.5.4</span>
                   <span className="text-paper-ink3 text-xs">2026年09月29日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">📌 知识库排序 & 数据一致性修复</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>📚 <b>知识库按更新时间排序</b> — 卡片/列表/图谱三种视图统一按更新时间排，最近有汇入或编辑的知识库自动冒泡到最上</li>
+                    <li>🛡️ <b>DB 触发器兜底</b> — 新增 3 个 SQLite 触发器，以后任何 page 的增删改都会自动维护 KB 排序</li>
+                    <li>🔧 <b>Prod DB 官方分类同步</b> — 修复生产环境比测试环境少 11 个官方分类的漂移问题（健康档案、学习笔记、读书观影、播客）</li>
+                  </ul>
+                </div>
+              </div>
+              {/* === v0.5.3 === */}
+              <div>
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.3</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月29日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎨 知识库 UI 界面重构</b></div>
