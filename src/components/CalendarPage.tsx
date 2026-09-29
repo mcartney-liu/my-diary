@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
+import { getProfile } from "../api";
 import { monthCells, moodById, fmtDate } from "../data";
 import { TEMPLATES } from "../templates";
 import StreakBadge from "./StreakBadge";
@@ -27,6 +28,12 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [selectedDate, setSelectedDate] = useState<string>(() => fmtDate(now));
   const [view, setView] = useState<"monthly" | "yearly" | "ai" | "wiki">("monthly");
   const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
+  const [avatarKey, setAvatarKey] = useState<string | null>(null);
+
+  // 拉用户头像
+  useEffect(() => {
+    getProfile().then((p: any) => setAvatarKey(p?.user?.avatar || null)).catch(() => {});
+  }, []);
 
   // 监听小麦来源点击 → 切到知识库 tab + 延迟重派事件（给 KnowledgeBase 时间 mount）
   useEffect(() => {
@@ -497,7 +504,11 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             onClick={() => nav("/profile")}
             className="flex flex-row items-center gap-1 px-4 py-2 rounded-xl text-paper-ink2 hover:text-paper-accent transition active:scale-95"
           >
-            <span className="text-xl leading-none">👤</span>
+            {avatarKey ? (
+              <img src={`/avatars/${avatarKey}.jpg`} alt="头像" className="w-6 h-6 rounded-full object-cover border border-paper-line/50" />
+            ) : (
+              <span className="text-xl leading-none">👤</span>
+            )}
             <span className="text-[11px] font-medium">我的</span>
           </button>
 
