@@ -529,22 +529,27 @@ export async function handleWikiUpdatePage(request, env, JWT_SECRET, params) {
 
 // DELETE /wiki/:kb_id/pages/:page_id — 删除单个页面（同时清理 wiki_links 关联）
 export async function handleWikiDeletePage(request, env, JWT_SECRET, params) {
+  console.log("[DELETE PAGE] params:", JSON.stringify(params));
   const user = await auth(request, env, JWT_SECRET);
-  if (!user) return json({ error: "unauthorized" }, 401);
+  if (!user) { console.log("[DELETE PAGE] unauthorized"); return json({ error: "unauthorized" }, 401); }
+  console.log("[DELETE PAGE] user.uid:", user.uid);
   const pageId = params.page_id;
   if (!pageId) return json({ error: "page_id required" }, 400);
 
   // 先拿页面信息，确认归属和非系统页
   const page = await env.DB.prepare("SELECT id, title, is_system FROM wiki_pages WHERE id=? AND kb_id=? AND user_id=?")
     .bind(pageId, params.kb_id, user.uid).first();
+  console.log("[DELETE PAGE] page lookup result:", page ? JSON.stringify(page) : "NULL");
   if (!page) return json({ error: "page not found" }, 404);
   if (page.is_system === 1) return json({ error: "system page cannot be deleted" }, 400);
 
-  // 删页面 + 清理双向链接 + 清理 source_ids 里的引用
-  await env.DB.prepare("DELETE FROM wiki_pages WHERE id=? AND kb_id=? AND user_id=?")
+  // 删页面 + 清理双向链接（wiki_links 存的是 title，不是 page_id）
+  const delPage = await env.DB.prepare("DELETE FROM wiki_pages WHERE id=? AND kb_id=? AND user_id=?")
     .bind(pageId, params.kb_id, user.uid).run();
-  await env.DB.prepare("DELETE FROM wiki_links WHERE from_page_id=? OR to_page_id=?")
-    .bind(pageId, pageId).run();
+  console.log("[DELETE PAGE] deleted rows:", delPage.changes);
+  const delLinks = await env.DB.prepare("DELETE FROM wiki_links WHERE (from_title=? OR to_title=?) AND kb_id=?")
+    .bind(page.title, page.title, params.kb_id).run();
+  console.log("[DELETE PAGE] link rows deleted:", delLinks.changes);
 
   return json({ ok: true, deleted_title: page.title });
 }

@@ -6,6 +6,7 @@ import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import ConfirmDialog from "./ConfirmDialog";
 import {
   wikiListKbs, wikiAddKb, wikiUpdateKb, wikiDeleteKb,
   wikiListCategories, wikiAddCategory, wikiUpdateCategory, wikiDeleteCategory,
@@ -744,6 +745,8 @@ function PagesTab({ kbs, kbLoading = false }: { kbs: WikiKB[]; kbLoading?: boole
   const [viewMode, setViewMode] = useState<"list" | "graph">("list");
   const [graphData, setGraphData] = useState<Record<string, { nodes: WikiGraphNode[]; links: WikiGraphEdge[] }>>({});
   const [localToast, setLocalToast] = useState<string>("");
+  // 实体删除确认弹窗状态
+  const [deleteConfirm, setDeleteConfirm] = useState<{ kbId: string; pageId: string; title: string } | null>(null);
   // 编辑模式
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
@@ -1122,23 +1125,7 @@ function PagesTab({ kbs, kbLoading = false }: { kbs: WikiKB[]; kbLoading?: boole
                             title="删除此页面"
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (!confirm(`删除「${p.title}」？相关链接也会被清理。此操作不可恢复。`)) return;
-                              (async () => {
-                                try {
-                                  await wikiDeletePage(kb.id, p.id);
-                                  setLocalToast(`🗑️ 已删除「${p.title}」`);
-                                  // 刷新当前 KB 的 pages
-                                  const idx = kbData.findIndex(x => x.kb.id === kb.id);
-                                  if (idx >= 0) {
-                                    const { pages } = await wikiListPages(kb.id);
-                                    const next = [...kbData];
-                                    next[idx] = { ...next[idx], pages };
-                                    setKbData(next);
-                                  }
-                                } catch (err: any) {
-                                  setLocalToast(`❌ 删除失败：${err?.message || err}`);
-                                }
-                              })();
+                              setDeleteConfirm({ kbId: kb.id, pageId: p.id, title: p.title });
                             }}
                             className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-xs px-1 py-0.5 rounded transition-opacity"
                           >🗑️</button>
@@ -1170,22 +1157,7 @@ function PagesTab({ kbs, kbLoading = false }: { kbs: WikiKB[]; kbLoading?: boole
                           title="删除此页面"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (!confirm(`删除「${p.title}」？相关链接也会被清理。此操作不可恢复。`)) return;
-                            (async () => {
-                              try {
-                                await wikiDeletePage(kb.id, p.id);
-                                setLocalToast(`🗑️ 已删除「${p.title}」`);
-                                const idx = kbData.findIndex(x => x.kb.id === kb.id);
-                                if (idx >= 0) {
-                                  const { pages } = await wikiListPages(kb.id);
-                                  const next = [...kbData];
-                                  next[idx] = { ...next[idx], pages };
-                                  setKbData(next);
-                                }
-                              } catch (err: any) {
-                                setLocalToast(`❌ 删除失败：${err?.message || err}`);
-                              }
-                            })();
+                            setDeleteConfirm({ kbId: kb.id, pageId: p.id, title: p.title });
                           }}
                           className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-xs px-1 py-0.5 rounded transition-opacity"
                         >🗑️</button>
@@ -1201,6 +1173,30 @@ function PagesTab({ kbs, kbLoading = false }: { kbs: WikiKB[]; kbLoading?: boole
         );
       })}
       {localToast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-4 py-2 rounded shadow-lg z-50">{localToast}</div>}
+
+      {/* 实体删除确认弹窗（自定义，替代原生 confirm） */}
+      <ConfirmDialog
+        open={deleteConfirm !== null}
+        title="删除实体？"
+        message={deleteConfirm ? `确定删除「${deleteConfirm.title}」？\n关联的双向链接也会被自动清理。\n此操作不可恢复。` : ""}
+        confirmText="删除"
+        cancelText="取消"
+        confirmTone="danger"
+        onCancel={() => setDeleteConfirm(null)}
+        onConfirm={async () => {
+          const d = deleteConfirm;
+          setDeleteConfirm(null);
+          if (!d) return;
+          try {
+            await wikiDeletePage(d.kbId, d.pageId);
+            setLocalToast(`🗑️ 已删除「${d.title}」`);
+            setKbData(prev => prev.map(x => x.kb.id === d.kbId ? { ...x, pages: x.pages.filter(pg => pg.id !== d.pageId) } : x));
+            setTimeout(() => refreshAll(), 1500);
+          } catch (err: any) {
+            setLocalToast(`❌ 删除失败：${err?.message || err}`);
+          }
+        }}
+      />
     </div>
   );
 }
