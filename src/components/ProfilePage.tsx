@@ -5,6 +5,7 @@ import { getProfile, patchProfile, submitFeedback, changePassword, type ProfileS
 import { polishFeedback, getAiProvider } from "../ai";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
+import WikiTemplatesView from "./WikiTemplatesView";
 import KnowledgeBase from "./KnowledgeBase";
 import Captcha from "./Captcha";
 
@@ -51,7 +52,7 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<"profile" | "memory" | "knowledge">("profile");
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [avatarSaving, setAvatarSaving] = useState(false);
-  const [profileSub, setProfileSub] = useState<"templates" | "papers">("templates");
+  const [profileSub, setProfileSub] = useState<"templates" | "wikiTemplates" | "papers">("templates");
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [newMemType, setNewMemType] = useState("fact");
@@ -482,7 +483,7 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        {/* 模板 & 信纸 — 内嵌 toggle */}
+        {/* 模板 & 范本 & 信纸 — 内嵌 toggle */}
         <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
           <div className="flex gap-1 mb-4 bg-paper-surface rounded-lg p-1 border border-paper-line/50 w-fit">
             <button
@@ -497,8 +498,14 @@ export default function ProfilePage() {
                 profileSub === "papers" ? "bg-paper-card shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
               }`}
             >🎨 信纸</button>
+            <button
+              onClick={() => setProfileSub("wikiTemplates")}
+              className={`px-3 py-1 rounded-md text-sm transition ${
+                profileSub === "wikiTemplates" ? "bg-paper-card shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
+              }`}
+            >📋 范本</button>
           </div>
-          {profileSub === "templates" ? <TemplateLibrary /> : <PaperLibrary />}
+          {profileSub === "templates" ? <TemplateLibrary /> : profileSub === "papers" ? <PaperLibrary /> : <WikiTemplatesView />}
         </section>
         </>)}
 

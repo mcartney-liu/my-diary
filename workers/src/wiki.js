@@ -796,7 +796,7 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   const kb = await ensureKb(env, user.uid, params.kb_id);
   if (!kb) return json({ error: "kb not found" }, 404);
 
-  await dblog(env, 'ingest', 'START', { kb_id: params.kb_id, kb_title: kb.title });
+  await dblog(env, 'ingest', 'START', { kb_id: params.kb_id, kb_title: kb.title, newCode: true });
 
   // 支持 body: { ids: ['id1','id2'] } 只汇入选中的；不传 ids 或空数组就汇入全部待处理
   let bodyIds = null;
@@ -927,6 +927,7 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
     }
     // =============================================
 
+    await dblog(env, 'ingest', 'BATCH_END', { batch: i, hasPages: !!parsed.pages, pageCount: parsed.pages?.length || 0, hasLinks: !!parsed.links });
     if (parsed.pages) allPages = allPages.concat(parsed.pages);
     if (parsed.links) allLinks = allLinks.concat(parsed.links);
     if (parsed.log_entry) allLogs.push(parsed.log_entry);
@@ -939,6 +940,7 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   const newPages = [];
   let createdCount = 0, updatedCount = 0;
   const pageDebug = []; // 每一页的处理轨迹
+  await dblog(env, 'ingest', 'BEFORE_PAGE_LOOP', { allPages: allPages.length, allLinks: allLinks.length });
 
   // 收集 AI 返回的 title → summary 映射（用于后面生成目录）
   const summaryMap = new Map();
@@ -949,21 +951,27 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
     const summary = (p.summary || '').trim().slice(0, 80);
     if (summary) summaryMap.set(p.title, summary);
     pageDebug.push({ title: p.title, category_slug: p.category_slug, catIdFound: !!catId, contentLen: (p.content || '').length });
+    await dblog(env, 'ingest', 'PAGE_LOOP_ENTER', { title: p.title, slug: p.category_slug, catId, contentLen: (p.content || '').length });
 
     try {
-      // 先精确匹配，失败再模糊包含匹配（防 AI 给了「三国人物·张飞」vs 已有「张飞」）
+      // 先精确匹配，失败再在 JS 里做模糊包含匹配（防 AI 给了「三国人物·张飞」vs 已有「张飞」）
       let existing = await env.DB.prepare("SELECT id, title, source_ids, category_id FROM wiki_pages WHERE kb_id=? AND title=?")
         .bind(params.kb_id, p.title).first();
       if (!existing) {
-        // 双向模糊：只选"已有 title 是 AI title 子串"的情况（张飞 ⊂ 三国人物·张飞）
-        // 排除"AI title 是已有 title 子串"的情况（青椒 ⊂ 青椒炒肉丝 → 误伤！）
-        const fuzzy = await env.DB.prepare(
-          "SELECT id, title, source_ids, category_id FROM wiki_pages WHERE kb_id=? AND is_system=0 AND ? LIKE '%' || title || '%' AND LENGTH(title) < LENGTH(?) ORDER BY length(title) DESC LIMIT 1"
-        ).bind(params.kb_id, p.title, p.title).first();
-        if (fuzzy) {
-          existing = fuzzy;
-          pageDebug[pageDebug.length-1].fuzzyMatch = fuzzy.title;
-          p.title = fuzzy.title;
+        // 安全地查出所有已有 pages，在 JS 里做模糊匹配（避免 SQLite LIKE pattern 过复杂）
+        const allExisting = await env.DB.prepare(
+          "SELECT id, title, source_ids, category_id FROM wiki_pages WHERE kb_id=? AND is_system=0 AND LENGTH(title) < LENGTH(?)"
+        ).bind(params.kb_id, p.title).all();
+        let best = null;
+        for (const row of allExisting.results) {
+          if (p.title.includes(row.title)) {
+            if (!best || row.title.length > best.title.length) best = row; // 取最长匹配
+          }
+        }
+        if (best) {
+          existing = best;
+          pageDebug[pageDebug.length-1].fuzzyMatch = best.title;
+          p.title = best.title;
         }
       }
 
@@ -987,12 +995,11 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
         createdCount++;
         pageDebug[pageDebug.length-1].branch = 'insert';
       }
-    } catch (e) { pageDebug[pageDebug.length-1].branch = 'ERROR'; pageDebug[pageDebug.length-1].error = e.message; console.error('[wiki] page save fail:', e.message, 'title=', p.title); /* 跳过有问题的 page */ }
+    } catch (e) { pageDebug[pageDebug.length-1].branch = 'ERROR'; pageDebug[pageDebug.length-1].error = e.message; console.error('[wiki] page save fail:', e.message, 'title=', p.title); await dblog(env, 'ingest', 'PAGE_ERROR', { title: p.title, error: e.message }); /* 跳过有问题的 page */ }
   }
 
-  // links
+  // links —— 只认 content 里真实存在的 [[双链]]，不认 AI 推断的（AI 推断可能不准）
   const linkPairs = new Set();
-  for (const l of allLinks) { if (l.from && l.to && l.from !== l.to) linkPairs.add(`${l.from}||${l.to}`); }
   const linkRe = /\[\[([^\]]+)\]\]/g;
   for (const p of allPages) {
     let m;
@@ -1176,33 +1183,31 @@ export async function handleWikiDebugLog(request, env) {
   })) });
 }
 
-// ====== 范本库 v4.1 ======
+// ====== 范本库 v5 — 全局化，kb_id 不再是必需参数 ======
+// 旧路由 /api/wiki/kbs/:kb_id/templates 仍兼容（忽略 kb_id）
+// 新路由 /api/wiki/templates 更干净
 export async function handleWikiListTemplates(request, env, JWT_SECRET, params) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
-  const kb = await ensureKb(env, user.uid, params.kb_id);
-  if (!kb) return json({ error: "kb not found" }, 404);
   const { results: official } = await env.DB.prepare(
     "SELECT id, name, description, extract_hints, page_format, kind, builtin_key, category FROM wiki_templates WHERE user_id='system' AND kb_id IS NULL ORDER BY category, name"
   ).all();
   const { results: mine } = await env.DB.prepare(
-    "SELECT id, name, description, extract_hints, page_format, kind, category FROM wiki_templates WHERE user_id=? AND kb_id=?"
-  ).bind(user.uid, params.kb_id).all();
+    "SELECT id, name, description, extract_hints, page_format, kind, category FROM wiki_templates WHERE user_id=? AND kb_id IS NULL ORDER BY category, name"
+  ).bind(user.uid).all();
   return json({ official, mine });
 }
 
 export async function handleWikiAddTemplate(request, env, JWT_SECRET, params) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
-  const kb = await ensureKb(env, user.uid, params.kb_id);
-  if (!kb) return json({ error: "kb not found" }, 404);
   const { name, description = '', extract_hints = '', page_format = '' } = await readBody(request);
   if (!name) return json({ error: "name required" }, 400);
   const now = Date.now();
   const id = uuid();
   await env.DB.prepare(
-    "INSERT INTO wiki_templates (id, kb_id, user_id, name, description, extract_hints, page_format, kind, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
-  ).bind(id, params.kb_id, user.uid, name, description, extract_hints, page_format, 'user', now, now).run();
+    "INSERT INTO wiki_templates (id, kb_id, user_id, name, description, extract_hints, page_format, kind, created_at, updated_at) VALUES (?,NULL,?,?,?,?,?,?,?,?)"
+  ).bind(id, user.uid, name, description, extract_hints, page_format, 'user', now, now).run();
   return json({ id, name, ok: true }, 201);
 }
 
@@ -1211,28 +1216,32 @@ export async function handleWikiDeleteTemplate(request, env, JWT_SECRET, params)
   if (!user) return json({ error: "unauthorized" }, 401);
   const id = new URL(request.url).searchParams.get('id');
   if (!id) return json({ error: "id required" }, 400);
-  await env.DB.prepare("DELETE FROM wiki_templates WHERE id=? AND user_id=? AND kb_id=?")
-    .bind(id, user.uid, params.kb_id).run();
+  await env.DB.prepare("DELETE FROM wiki_templates WHERE id=? AND user_id=?")
+    .bind(id, user.uid).run();
   return json({ ok: true });
 }
 
 export async function handleWikiBindTemplate(request, env, JWT_SECRET, params) {
   // 把范本的 extract_hints/page_format 复制到分类（不是引用！）
+  // 范本现在全是全局的（官方 kb_id IS NULL，自建也 kb_id IS NULL）
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
   const body = await readBody(request);
   const { template_id, category_id } = body;
   if (!template_id || !category_id) return json({ error: "template_id and category_id required" }, 400);
 
-  // 范本可以是官方（user_id='system', kb_id is null）或用户自建
   const tpl = await env.DB.prepare(
-    "SELECT extract_hints, page_format FROM wiki_templates WHERE id=? AND (user_id='system' OR (user_id=? AND kb_id=?))"
-  ).bind(template_id, user.uid, params.kb_id).first();
+    "SELECT extract_hints, page_format FROM wiki_templates WHERE id=? AND (user_id='system' OR user_id=?)"
+  ).bind(template_id, user.uid).first();
   if (!tpl) return json({ error: "template not found" }, 404);
+
+  // category 仍属于某个 KB，kb_id 从 URL params 取（兼容旧路由）
+  const kbId = params?.kb_id;
+  if (!kbId) return json({ error: "kb_id required" }, 400);
 
   const now = Date.now();
   const info = await env.DB.prepare("UPDATE wiki_categories SET extract_hints=?, page_format=?, updated_at=? WHERE id=? AND kb_id=? AND user_id=?")
-    .bind(tpl.extract_hints, tpl.page_format, now, category_id, params.kb_id, user.uid).run();
+    .bind(tpl.extract_hints, tpl.page_format, now, category_id, kbId, user.uid).run();
   if (info.meta.changes === 0) return json({ error: "category not found" }, 404);
 
   return json({ ok: true });
@@ -1454,4 +1463,28 @@ export async function handleWikiSeedOfficialPreset(request, env, JWT_SECRET) {
   const result = await seedOfficialPreset(env, user.uid, preset);
   if (result.skipped) return json({ ok: true, skipped: true, kb_id: result.kb_id, message: "已存在" });
   return json({ ok: true, kb_id: result.kb_id, title: preset.title });
+}
+
+// AI 总结标题（轻量，供前端"粘贴完文本后自动填标题"用）
+export async function handleWikiSuggestTitle(request, env, JWT_SECRET) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const body = await readBody(request);
+  const text = (body.text || "").trim();
+  if (!text) return json({ title: "" });
+
+  // 只取前 800 字，够 AI 猜标题了，省 token
+  const truncated = text.slice(0, 800);
+  try {
+    const raw = await wikiCallLLM(env, [
+      { role: 'system', content: '你是标题总结器。根据用户给的文本，输出一个不超过20字的中文标题，准确、简洁，不要引号不要解释。只输出标题本身。' },
+      { role: 'user', content: truncated }
+    ], 60);
+    let title = (raw || '').trim().replace(/^["'']|["'']$/g, '').replace(/\n/g, '').slice(0, 30);
+    if (!title) title = truncated.slice(0, 20); // 兜底
+    return json({ title });
+  } catch (e) {
+    // AI 失败不阻塞前端，返回兜底标题
+    return json({ title: truncated.slice(0, 20) });
+  }
 }

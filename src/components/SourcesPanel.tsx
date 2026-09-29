@@ -2,8 +2,8 @@
  * 全局资料面板 — 不绑定某个 KB
  * 支持 KB 标签筛选、添加文本/上传文件、批量汇入到任意 KB
  */
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { CheckSquare, Square } from "lucide-react";
 import {
   wikiGlobalListSources,
@@ -12,11 +12,13 @@ import {
   wikiUpdateSourceTags,
   wikiIngestAll,
   wikiListKbs,
+  wikiSuggestTitle,
 } from "../api";
 import type { WikiSource, WikiKB } from "../api";
 
 export default function SourcesPanel() {
   const nav = useNavigate();
+  const location = useLocation();
   const [kbs, setKbs] = useState<WikiKB[]>([]);
   const [sources, setSources] = useState<WikiSource[]>([]);
   const [kbFilter, setKbFilter] = useState<string>(""); // 空 = 全部
@@ -58,6 +60,22 @@ export default function SourcesPanel() {
   // 删除 loading
   const [deleting, setDeleting] = useState(false);
 
+  // 粘贴文本后 AI 自动建议标题（防抖 1.2s，仅在标题为空时触发）
+  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const text = newText.trim();
+    if (!text || text.length < 15) return;
+    if (newTitle.trim()) return; // 用户已经填了，不覆盖
+    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    suggestTimerRef.current = setTimeout(async () => {
+      try {
+        const r = await wikiSuggestTitle(text);
+        if (r.title && !newTitle.trim()) setNewTitle(r.title);
+      } catch { /* AI 挂了也不阻塞 */ }
+    }, 1200);
+    return () => { if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current); };
+  }, [newText]);
+
   // ===== 初始化 & 刷新 =====
   async function refresh() {
     setLoading(true);
@@ -83,7 +101,7 @@ export default function SourcesPanel() {
     loadKbs();
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [location.pathname]);
 
   // kbFilter 变化 → 刷新
   useEffect(() => {

@@ -31,6 +31,7 @@ import {
   handleWikiListTemplates, handleWikiAddTemplate, handleWikiDeleteTemplate, handleWikiBindTemplate,
   handleWikiListOfficialPresets, handleWikiSeedOfficialPreset,
   handleWikiDebugLog,
+  handleWikiSuggestTitle,
 } from "./wiki.js";
 
 const ALLOWED_ORIGINS = [
@@ -139,6 +140,11 @@ export default {
       ["GET",    "/api/wiki/kbs/:kb_id/graph",                 handleWikiGraph],
       ["GET",    "/api/wiki/kbs/:kb_id/search",                handleWikiSearch],
       ["POST",   "/api/wiki/kbs/:kb_id/ingest",                handleWikiIngestAll],
+      // 新的全局范本路由（v5，推荐用这个）
+      ["GET",    "/api/wiki/templates",                         handleWikiListTemplates],
+      ["POST",   "/api/wiki/templates",                         handleWikiAddTemplate],
+      ["DELETE", "/api/wiki/templates",                         handleWikiDeleteTemplate],
+      // 旧的按 KB 绑定的范本路由——handler 已全局化，仍兼容；bind 保留（需要 kb_id 定位 category）
       ["GET",    "/api/wiki/kbs/:kb_id/templates",             handleWikiListTemplates],
       ["POST",   "/api/wiki/kbs/:kb_id/templates",             handleWikiAddTemplate],
       ["DELETE", "/api/wiki/kbs/:kb_id/templates",             handleWikiDeleteTemplate],
@@ -147,6 +153,7 @@ export default {
       ["GET",    "/api/wiki/official/presets",                  handleWikiListOfficialPresets],
       ["POST",   "/api/wiki/official/seed",                     handleWikiSeedOfficialPreset],
       ["GET",    "/api/wiki/debug-log",                          handleWikiDebugLog],
+      ["POST",   "/api/wiki/suggest-title",                      handleWikiSuggestTitle],
     ];
 
     // 路由器：支持 :id 参数

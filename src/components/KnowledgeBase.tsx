@@ -3,7 +3,6 @@
  * sub-tabs: [⚙️ 配置] [📜 资料] [🌐 知识库]
  */
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import ConfirmDialog from "./ConfirmDialog";
@@ -11,29 +10,44 @@ import {
   wikiListKbs, wikiAddKb, wikiUpdateKb, wikiDeleteKb,
   wikiListCategories, wikiAddCategory, wikiUpdateCategory, wikiDeleteCategory,
   wikiListPages, wikiGetPage,
-  wikiListTemplates, wikiAddTemplate, wikiDeleteTemplate, wikiGraph,
+  wikiListTemplates, wikiGraph,
   wikiUpdatePage, wikiDeletePage, wikiGenerateEntity,
   wikiListOfficialPresets, wikiSeedOfficialPreset,
+  wikiGlobalAddSource, wikiIngestAll, wikiSuggestTitle,
 } from "../api";
 import type { WikiKB, WikiCategory, WikiPage, WikiLink, WikiTemplate, WikiGraphNode, WikiGraphEdge, WikiOfficialPreset } from "../api";
 
-type SubTab = "settings" | "templates" | "pages";
+type MainTab = "card" | "list";
 
-const SUB_TABS: { k: SubTab; label: string }[] = [
-  { k: "pages", label: "🌐 知识库" },
-  { k: "templates", label: "📋 范本" },
-  { k: "settings", label: "⚙️ 配置" },
+const MAIN_TABS: { k: MainTab; label: string }[] = [
+  { k: "card", label: "🗂️ 卡片" },
+  { k: "list", label: "📋 列表" },
 ];
 
-export default function KnowledgeBase({ minimal = false }: { minimal?: boolean }) {
-  const nav = useNavigate();
+export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal?: boolean; defaultTab?: MainTab }) {
   const [kbs, setKbs] = useState<WikiKB[]>([]);
   const [kbLoading, setKbLoading] = useState(true);
   const [curKbId, setCurKbId] = useState<string | null>(null);
-  const [subTab, setSubTab] = useState<SubTab>("pages");
+  const [mainTab, setMainTab] = useState<MainTab>(defaultTab || (minimal ? "list" : "card"));
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  const [cardDetail, setCardDetail] = useState<Record<string, { cats: WikiCategory[]; pages: WikiPage[] }>>({});
+  const [selectedCatByCard, setSelectedCatByCard] = useState<Record<string, string | null>>({});
+  const [cardViewMode, setCardViewMode] = useState<Record<string, 'detail' | 'graph'>>({});
+  const [cardGraphData, setCardGraphData] = useState<Record<string, { nodes: WikiGraphNode[]; links: WikiGraphEdge[] }>>({});
+  const [ingestFor, setIngestFor] = useState<string | null>(null);
+  const [ingestText, setIngestText] = useState("");
+  const [ingestName, setIngestName] = useState("");
+  const [ingestLoading, setIngestLoading] = useState(false);
+  const [pageModalPage, setPageModalPage] = useState<{ kbId: string; pageId: string } | null>(null);
+  const [aiSuggestedName, setAiSuggestedName] = useState<string>("");
+  const [aiSuggestLoading, setAiSuggestLoading] = useState(false);
+  const [showNewKbDialog, setShowNewKbDialog] = useState(false);
+  const [configFor, setConfigFor] = useState<string | null>(null);
   const [officialPresets, setOfficialPresets] = useState<WikiOfficialPreset[]>([]);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [newKbName, setNewKbName] = useState("");
+  const [newKbDesc, setNewKbDesc] = useState("");
 
   async function loadKbs() {
     setKbLoading(true);
@@ -50,6 +64,70 @@ export default function KnowledgeBase({ minimal = false }: { minimal?: boolean }
     wikiListOfficialPresets().then(r => setOfficialPresets(r.presets)).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (!expandedCardId || cardDetail[expandedCardId]) return;
+    (async () => {
+      try {
+        const [p, cat] = await Promise.all([wikiListPages(expandedCardId), wikiListCategories(expandedCardId)]);
+        setCardDetail(d => ({ ...d, [expandedCardId]: { cats: cat.categories, pages: p.pages } }));
+      } catch {}
+    })();
+  }, [expandedCardId]);
+
+  async function openPageModal(kbId: string, pageId: string) {
+    setPageModalPage({ kbId, pageId });
+  }
+
+  async function openIngestModal(kbId: string) {
+    setIngestFor(kbId);
+    setIngestText("");
+    setIngestName("");
+    setAiSuggestedName("");
+    setAiSuggestLoading(false);
+  }
+
+  // 粘贴文本后 AI 建议标题（防抖 1.2s，放在下方当提示，不直接填入）
+  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!ingestFor) return; // 弹窗没开
+    const text = ingestText.trim();
+    if (!text || text.length < 15) { setAiSuggestedName(""); return; }
+    if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current);
+    setAiSuggestLoading(true);
+    suggestTimerRef.current = setTimeout(async () => {
+      try {
+        const r = await wikiSuggestTitle(text);
+        if (r.title) setAiSuggestedName(r.title);
+      } catch { /* AI 挂了也不阻塞 */ }
+      finally { setAiSuggestLoading(false); }
+    }, 1200);
+    return () => { if (suggestTimerRef.current) clearTimeout(suggestTimerRef.current); };
+  }, [ingestText, ingestFor]);
+
+  async function submitIngest() {
+    if (!ingestFor || !ingestText.trim()) return;
+    setIngestLoading(true);
+    try {
+      // ① 先存原文到资料库（wiki_sources），标记 kb_id
+      const name = ingestName.trim() || ingestText.trim().slice(0, 30);
+      await wikiGlobalAddSource({ kb_id: ingestFor, title: name, text: ingestText });
+      // ② 走资料库完整汇入流程（AI 批量生成实体）
+      await wikiIngestAll(ingestFor);
+      alert("✅ 已汇入，AI 正在生成实体...");
+      const refreshedKbId = ingestFor;
+      setIngestFor(null);
+      loadKbs();
+      if (cardDetail[refreshedKbId]) {
+        const [p, cat] = await Promise.all([wikiListPages(refreshedKbId), wikiListCategories(refreshedKbId)]);
+        setCardDetail(d => ({ ...d, [refreshedKbId]: { cats: cat.categories, pages: p.pages } }));
+      }
+    } catch (e: any) {
+      alert("❌ 汇入失败：" + (e?.message || "未知错误"));
+    } finally {
+      setIngestLoading(false);
+    }
+  }
+
   async function handleSeed(slug: string) {
     if (seeding) return;
     setSeeding(true);
@@ -58,7 +136,7 @@ export default function KnowledgeBase({ minimal = false }: { minimal?: boolean }
       await loadKbs();
       setCurKbId(r.kb_id);
       setShowPresetPicker(false);
-      setSubTab("settings");
+      
     } catch (e) {
       alert("创建失败，请重试");
     } finally {
@@ -71,6 +149,9 @@ export default function KnowledgeBase({ minimal = false }: { minimal?: boolean }
     const r = await wikiAddKb(title.trim(), description);
     await loadKbs();
     setCurKbId(r.id);
+    setShowNewKbDialog(false);
+    setNewKbName(""); setNewKbDesc("");
+    
   }
 
   async function deleteKb(id: string) {
@@ -81,7 +162,6 @@ export default function KnowledgeBase({ minimal = false }: { minimal?: boolean }
     setCurKbId(remain[0]?.id || null);
   }
 
-  const curKb = kbs.find(k => k.id === curKbId) || null;
 
   return (
     <section className={minimal ? "" : "bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5"}>
@@ -92,79 +172,298 @@ export default function KnowledgeBase({ minimal = false }: { minimal?: boolean }
           <div className="text-xs text-paper-ink2 leading-relaxed">
             <div className="font-medium text-paper-ink mb-1">知识库</div>
             <div>把零散的资料整理成相互关联的笔记 — AI 帮你分类、建链接、生成页面。</div>
-            <div className="text-paper-ink3 mt-1">
-              要新建知识库、添加资料或配置范本？→ <button onClick={() => nav("/profile")} className="text-paper-accent hover:underline font-medium">去「我的」→ 知识</button>
+          </div>
+        </div>
+      )}
+
+      {/* 快捷录入弹窗（从卡片📥入口）—— 直接汇当前 KB，AI 自动分类 */}
+      {ingestFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !ingestLoading && setIngestFor(null)}>
+          <div className="bg-paper-bg rounded-2xl border border-paper-line p-5 max-w-xl w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-base font-bold text-paper-ink">📥 录入资料</h3>
+              <button onClick={() => !ingestLoading && setIngestFor(null)} className="text-paper-ink3 hover:text-paper-ink text-lg leading-none">×</button>
+            </div>
+            <p className="text-xs text-paper-ink3 mb-4">
+              将汇入 <b>{kbs.find(k => k.id === ingestFor)?.title || ''}</b>，AI 会自动分类、提取实体
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-paper-ink2 block mb-0.5">标题（留空 AI 会自动帮你生成 ✨）</label>
+                <input value={ingestName} onChange={e => { setIngestName(e.target.value); if (e.target.value.trim()) setAiSuggestedName(""); }}
+                  placeholder="可手动输入，也可等 AI 建议..."
+                  className="w-full px-3 py-2 rounded-md border border-paper-line text-sm" />
+                {aiSuggestLoading && !ingestName.trim() && (
+                  <div className="text-[11px] text-paper-ink3 mt-1 flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 border border-paper-line border-t-paper-ink3 rounded-full animate-spin" />
+                    AI 正在想标题...
+                  </div>
+                )}
+                {aiSuggestedName && !ingestName.trim() && !aiSuggestLoading && (
+                  <div className="text-[11px] text-paper-ink3 mt-1">
+                    💡 AI 建议：
+                    <button onClick={() => setIngestName(aiSuggestedName)}
+                      className="text-paper-accent hover:underline font-medium ml-0.5">{aiSuggestedName}</button>
+                    <span className="text-paper-ink3"> — 点一下应用，或直接在上面自己输入</span>
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="text-xs text-paper-ink2 block mb-0.5">原文 / 资料内容 *</label>
+                <textarea value={ingestText} onChange={e => setIngestText(e.target.value)}
+                  placeholder="粘贴一段文字，或者直接写你想记的内容..."
+                  rows={6}
+                  className="w-full px-3 py-2 rounded-md border border-paper-line text-sm resize-none" autoFocus />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end mt-4">
+              <button onClick={() => setIngestFor(null)} disabled={ingestLoading}
+                className="px-3 py-1.5 text-xs text-paper-ink2 disabled:opacity-50">取消</button>
+              <button onClick={submitIngest} disabled={ingestLoading || !ingestText.trim()}
+                className="px-4 py-1.5 text-xs bg-paper-accent text-white rounded-md disabled:opacity-50 flex items-center gap-1">
+                {ingestLoading ? '⏳ AI 处理中...' : '📥 汇入'}
+              </button>
             </div>
           </div>
         </div>
       )}
-      {!minimal && (
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-paper-ink2 text-xs font-medium tracking-wider uppercase">📖 我的知识库</h3>
-        </div>
+
+      {/* 实体详情弹窗（卡片模式弹 —— 复用完整详情组件） */}
+      {pageModalPage && (
+        <PageDetailModal
+          kbId={pageModalPage.kbId}
+          pageId={pageModalPage.pageId}
+          onClose={() => setPageModalPage(null)}
+          refreshAll={() => { loadKbs(); /* 不强制，列表模式自己刷 */ }}
+          onOpenPage={(kbId, pageId) => setPageModalPage({ kbId, pageId })}
+        />
       )}
 
-      {/* sub-tabs — minimal 模式下隐藏 */}
+      {/* 非 minimal：三 tab 一行 + 操作按钮 */}
       {!minimal && (
-        <div className="flex gap-1 mb-4 flex-nowrap overflow-x-auto">
-          {SUB_TABS.map(t => (
-            <button key={t.k} onClick={() => setSubTab(t.k)}
-              className={`px-2.5 py-1.5 rounded-md text-xs transition whitespace-nowrap shrink-0 ${subTab === t.k ? "bg-paper-ink text-white font-medium" : "text-paper-ink2 hover:bg-paper-line/50"}`}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="min-h-[200px]">
-        {subTab === "settings" && (
-          <SettingsTab
-            kbs={kbs} curKbId={curKbId} onSelect={setCurKbId}
-            onCreateKb={createKb} onDeleteKb={deleteKb} onKbsChanged={loadKbs}
-            onOpenPreset={() => setShowPresetPicker(true)}
-            kbLoading={kbLoading}
-          />
-        )}
-        {subTab === "templates" && curKb && (
-          <TemplatesTab kb={curKb} />
-        )}
-        {subTab === "pages" && curKb && <PagesTab kbs={kbs} kbLoading={kbLoading} />}
-        {subTab !== "settings" && !curKb && (
-          <div className="text-center py-10 px-4">
-            {kbLoading ? (
-              <div className="flex items-center justify-center gap-2 text-paper-ink3 text-sm">
-                <div className="w-4 h-4 border-2 border-paper-line border-t-paper-ink3 rounded-full animate-spin" />
-                加载中...
-              </div>
-            ) : (
-              <>
-                <p className="text-paper-ink3 text-sm mb-4">📭 还没有知识库</p>
-                <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+        <>
+          <div className="flex items-center gap-2 mb-4">
+            <div className="flex gap-1 bg-paper-surface rounded-lg p-1 border border-paper-line/50 w-fit">
+              {MAIN_TABS.map(t => (
+                <button key={t.k} onClick={() => setMainTab(t.k)}
+                  className={`px-3 py-1 rounded-md text-sm transition ${mainTab === t.k ? 'bg-paper-card shadow-sm text-paper-ink font-medium' : 'text-paper-ink2'}`}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="ml-auto flex gap-1">
+              {mainTab === 'list' && (
+                <>
                   <button
                     onClick={() => setShowPresetPicker(true)}
-                    className="px-5 py-2.5 rounded-xl bg-paper-accent text-white text-sm font-medium hover:opacity-90 transition"
-                  >
-                    🎁 使用官方知识库
-                  </button>
-                  {!minimal && (
-                    <button
-                      onClick={() => setSubTab("settings")}
-                      className="px-5 py-2.5 rounded-xl border border-paper-line text-paper-ink2 text-sm hover:bg-paper-card transition"
-                    >
-                      🛠️ 手动配置
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
+                    className="px-2 py-1 rounded-md text-xs bg-paper-accent/10 text-paper-accent hover:bg-paper-accent/20 transition"
+                    title="从官方预设创建"
+                  >🎁 预设</button>
+                  <button
+                    onClick={() => { setNewKbName(''); setNewKbDesc(''); setShowNewKbDialog(true); }}
+                    className="px-2.5 py-1 rounded-md text-xs bg-paper-ink text-white hover:opacity-90 transition font-medium"
+                  >+ 新建</button>
+                </>
+              )}
+            </div>
           </div>
-        )}
-      </div>
+        </>
+      )}
+
+      {/* 卡片模式：所有 KB 网格展示 */}
+      {mainTab === 'card' && (
+        <div>
+          {kbLoading ? (
+            <div className="text-center py-8 text-paper-ink3 text-sm">加载中...</div>
+          ) : kbs.length === 0 ? (
+            <div className="text-center py-10 px-4">
+              <p className="text-paper-ink3 text-sm mb-4">📭 还没有知识库</p>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+                <button
+                  onClick={() => setShowPresetPicker(true)}
+                  className="px-5 py-2.5 rounded-xl bg-paper-accent text-white text-sm font-medium hover:opacity-90 transition"
+                >🎁 使用官方知识库</button>
+                {!minimal && (
+                  <button
+                    onClick={() => { setNewKbName(''); setNewKbDesc(''); setShowNewKbDialog(true); }}
+                    className="px-5 py-2.5 rounded-xl border border-paper-line text-paper-ink2 text-sm hover:bg-paper-card transition"
+                  >🛠️ 手动新建</button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {kbs.map(kb => {
+                const expanded = expandedCardId === kb.id;
+                const detail = cardDetail[kb.id];
+                return (
+                  <div key={kb.id} className={`group border border-paper-line bg-paper-card rounded-xl hover:shadow-md transition relative ${expanded ? 'sm:col-span-2 lg:col-span-3' : 'cursor-pointer p-4 hover:border-paper-accent/40'}`}
+                    onClick={() => expanded ? setExpandedCardId(null) : setExpandedCardId(kb.id)}>
+                    {/* 卡片头部 */}
+                    <div className={`flex items-center gap-3 ${expanded ? 'p-4 cursor-pointer' : ''}`}
+                      onClick={() => expanded ? setExpandedCardId(null) : null}>
+                      <div className="w-10 h-10 rounded-lg bg-paper-accent/10 flex items-center justify-center text-xl shrink-0">
+                        {kb.is_official ? '🎁' : '📁'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-paper-ink text-sm truncate">{kb.title}</div>
+                        {kb.description && <div className="text-xs text-paper-ink3 mt-0.5 line-clamp-2">{kb.description}</div>}
+                      </div>
+                    </div>
+                    {/* 展开内容 */}
+                    {expanded && (
+                      <div className="border-t border-paper-line px-4 py-3 space-y-3">
+                        {/* 视图切换按钮 */}
+                        <div className="flex gap-1">
+                          <button onClick={(e) => { e.stopPropagation(); setCardViewMode(s => ({ ...s, [kb.id]: 'detail' })); }}
+                            className={`text-xs px-2 py-1 rounded transition ${(cardViewMode[kb.id] || 'detail') === 'detail' ? 'bg-paper-accent text-white' : 'bg-paper-surface hover:bg-paper-line/50'}`}>📄 详情</button>
+                          <button onClick={async (e) => { e.stopPropagation(); setCardViewMode(s => ({ ...s, [kb.id]: 'graph' })); if (!cardGraphData[kb.id]) { const g = await wikiGraph(kb.id); setCardGraphData(d => ({ ...d, [kb.id]: g })); } }}
+                            className={`text-xs px-2 py-1 rounded transition ${cardViewMode[kb.id] === 'graph' ? 'bg-paper-accent text-white' : 'bg-paper-surface hover:bg-paper-line/50'}`}>🕸️ 图谱</button>
+                        </div>
+
+                        {(cardViewMode[kb.id] || 'detail') === 'detail' ? (
+                          !detail ? (
+                            <div className="text-xs text-paper-ink3 text-center py-2">加载中...</div>
+                          ) : (
+                            <>
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wider text-paper-ink3 mb-1">📂 分类（{detail.cats.length}）</div>
+                                <div className="flex flex-wrap gap-1">
+                                  {detail.cats.length === 0 ? <span className="text-xs text-paper-ink3">还没分类</span> : (
+                                    <>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setSelectedCatByCard(s => ({ ...s, [kb.id]: null })); }}
+                                        className={`text-xs px-2 py-0.5 rounded transition ${selectedCatByCard[kb.id] == null ? 'bg-paper-accent text-white' : 'bg-paper-surface hover:bg-paper-line/50'}`}>
+                                        全部
+                                      </button>
+                                      {detail.cats.map(c => (
+                                        <button key={c.id}
+                                          onClick={(e) => { e.stopPropagation(); setSelectedCatByCard(s => ({ ...s, [kb.id]: c.id })); }}
+                                          className={`text-xs px-2 py-0.5 rounded transition ${selectedCatByCard[kb.id] === c.id ? 'bg-paper-accent text-white' : 'bg-paper-surface hover:bg-paper-line/50'}`}>
+                                          {c.name}
+                                        </button>
+                                      ))}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wider text-paper-ink3 mb-1">📄 实体</div>
+                                <div className="space-y-1">
+                                  {detail.pages.filter(p => !selectedCatByCard[kb.id] || p.category_id === selectedCatByCard[kb.id]).length === 0 ? (
+                                    <span className="text-xs text-paper-ink3">这个分类下还没实体</span>
+                                  ) : detail.pages
+                                    .filter(p => !selectedCatByCard[kb.id] || p.category_id === selectedCatByCard[kb.id])
+                                    .map(p => (
+                                      <div key={p.id}
+                                        onClick={(e) => { e.stopPropagation(); openPageModal(kb.id, p.id); }}
+                                        className="flex items-center gap-2 text-xs text-paper-ink2 hover:text-paper-ink cursor-pointer hover:bg-paper-surface px-2 py-1 rounded">
+                                        <span>📄</span><span className="truncate">{p.title}</span>
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+                            </>
+                          )
+                        ) : (
+                          // graph 模式
+                          cardGraphData[kb.id] ? (
+                            cardGraphData[kb.id].nodes.length === 0 ? (
+                              <div className="text-xs text-paper-ink3 text-center py-8">这个知识库还没图谱数据</div>
+                            ) : (
+                              <WikiForceGraph
+                                nodes={cardGraphData[kb.id].nodes}
+                                edges={cardGraphData[kb.id].links}
+                                onNodeClick={(title) => { const p = cardDetail[kb.id]?.pages.find(x => x.title === title); if (p) openPageModal(kb.id, p.id); }}
+                              />
+                            )
+                          ) : (
+                            <div className="text-xs text-paper-ink3 text-center py-4">加载图谱中...</div>
+                          )
+                        )}
+                      </div>
+                    )}
+                    {/* 卡片右上角按钮组（竖排）—— 所有 KB 都显示录入；官方 KB 仅录入，个人 KB 额外有删除+配置 */}
+                    <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openIngestModal(kb.id); }}
+                        className="w-6 h-6 flex items-center justify-center rounded text-paper-ink3 hover:text-green-600 hover:bg-green-50 transition"
+                        title="录入资料"
+                      >📥</button>
+                      {!kb.is_official && (
+                        <>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); if (confirm(`确定删除知识库「${kb.title}」？此操作不可恢复！`)) deleteKb(kb.id); }}
+                            className="w-6 h-6 flex items-center justify-center rounded text-paper-ink3 hover:text-red-500 hover:bg-red-50 transition"
+                            title="删除此知识库"
+                          >🗑️</button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setConfigFor(kb.id); }}
+                            className="w-6 h-6 flex items-center justify-center rounded text-paper-ink3 hover:text-paper-accent hover:bg-paper-line/50 transition"
+                            title="配置此知识库"
+                          >⚙️</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {mainTab === 'list' && <PagesTab kbs={kbs} mode="list" />}
+
+      {/* 配置面板（点 KB ⚙️ 或新建后自动弹出） */}
+      {configFor && (
+        <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4" onClick={() => setConfigFor(null)}>
+          <div className="bg-paper-bg rounded-xl border border-paper-line w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-paper-bg border-b border-paper-line px-4 py-2 flex items-center justify-between z-10">
+              <div className="text-sm font-medium text-paper-ink">⚙️ 配置：{kbs.find(k => k.id === configFor)?.title || ''}</div>
+              <button onClick={() => setConfigFor(null)} className="text-paper-ink3 hover:text-paper-ink text-lg leading-none">×</button>
+            </div>
+            <SettingsTab
+              kbs={kbs} curKbId={configFor} onSelect={setCurKbId}
+              onCreateKb={createKb}  onKbsChanged={loadKbs}
+              onOpenPreset={() => { setShowPresetPicker(true); }}
+              kbLoading={kbLoading}  compact={true}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 新建知识库弹窗（第1步：起名） */}
+      {showNewKbDialog && (
+        <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={() => setShowNewKbDialog(false)}>
+          <div className="bg-paper-card rounded-lg p-4 w-[320px] shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="font-medium text-sm mb-3">📝 新建知识库</div>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
+                <input value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="如：我的美食菜谱"
+                  className="w-full px-2 py-1.5 rounded border border-paper-line text-sm" autoFocus />
+              </div>
+              <div>
+                <label className="text-xs text-paper-ink2 block mb-0.5">说明（可选）</label>
+                <input value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="一句话描述"
+                  className="w-full px-2 py-1.5 rounded border border-paper-line text-sm" />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end mt-4">
+              <button onClick={() => { setShowNewKbDialog(false); setNewKbName(''); setNewKbDesc(''); }}
+                className="px-3 py-1 text-xs text-paper-ink2">取消</button>
+              <button onClick={() => createKb(newKbName, newKbDesc)} disabled={!newKbName.trim()}
+                className="px-3 py-1 text-xs bg-paper-ink text-white rounded disabled:opacity-50">确定</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 官方预设选择弹窗 */}
       {showPresetPicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !seeding && setShowPresetPicker(false)}>
-          <div className="bg-paper-bg rounded-2xl border border-paper-line p-5 max-w-md w-[92%] max-h-[85vh] overflow-auto shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !seeding && setShowPresetPicker(false)}>
+          <div className="bg-paper-bg rounded-2xl border border-paper-line p-5 max-w-md w-full max-h-[85vh] overflow-auto shadow-xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-base font-semibold text-paper-ink mb-1">🎁 选择一个官方知识库</h3>
             <p className="text-xs text-paper-ink3 mb-4">一键创建，自带分类和范本，马上就能用</p>
             <div className="space-y-3">
@@ -192,9 +491,7 @@ export default function KnowledgeBase({ minimal = false }: { minimal?: boolean }
               onClick={() => !seeding && setShowPresetPicker(false)}
               disabled={seeding}
               className="mt-4 w-full text-xs text-paper-ink3 hover:text-paper-ink2 disabled:opacity-50"
-            >
-              取消
-            </button>
+            >取消</button>
           </div>
         </div>
       )}
@@ -202,14 +499,14 @@ export default function KnowledgeBase({ minimal = false }: { minimal?: boolean }
   );
 }
 
-// ============== Settings ==============
 function SettingsTab(props: {
   kbs: WikiKB[]; curKbId: string | null; onSelect: (id: string) => void;
-  onCreateKb: (title: string, description?: string) => void; onDeleteKb: (id: string) => void; onKbsChanged: () => void;
+  onCreateKb: (title: string, description?: string) => void; onKbsChanged: () => void;
   onOpenPreset: () => void;
   kbLoading?: boolean;
+  compact?: boolean;
 }) {
-  const { kbs, curKbId, onSelect, onCreateKb, onDeleteKb, onKbsChanged, onOpenPreset, kbLoading } = props;
+  const { kbs, curKbId, onSelect, onCreateKb, onKbsChanged, onOpenPreset, kbLoading, compact = false } = props;
   const curKb = kbs.find(k => k.id === curKbId) || null;
   const [cats, setCats] = useState<WikiCategory[]>([]);
   const [templates, setTemplates] = useState<{ official: WikiTemplate[]; mine: WikiTemplate[] }>({ official: [], mine: [] });
@@ -229,8 +526,8 @@ function SettingsTab(props: {
     setTimeout(() => setToast(null), 2000);
   }
 
-  async function loadCats() { if (!curKb) return; const r = await wikiListCategories(curKb.id); setCats(r.categories); }
-  async function loadTemplates() { if (!curKb) return; const r = await wikiListTemplates(curKb.id); setTemplates(r); }
+  async function loadCats() { if (!curKb) return; const r = await wikiListCategories(curKb?.id); setCats(r.categories); }
+  async function loadTemplates() { if (!curKb) return; const r = await wikiListTemplates(curKb?.id); setTemplates(r); }
   useEffect(() => { loadCats(); loadTemplates(); }, [curKb?.id]);
 
   async function saveTitle(newTitle: string) {
@@ -278,7 +575,7 @@ function SettingsTab(props: {
   }
 
   // =========== UI ===========
-  if (!curKb) {
+  if (!curKb && !compact) {
     return (
       <div className="space-y-3">
         <h4 className="text-paper-ink2 text-xs font-medium uppercase tracking-wider">🗂️ 我的知识库</h4>
@@ -333,23 +630,17 @@ function SettingsTab(props: {
               onBlur={() => { saveTitle(editTitleValue); setEditingTitle(false); }}
               className="w-full px-3 py-2 rounded-md border border-paper-line bg-paper-card text-sm" />
           ) : (
-            <select value={curKbId || ""} onChange={e => onSelect(e.target.value)}
-              className="w-full px-3 py-2 bg-transparent text-sm cursor-pointer focus:outline-none focus:ring-1 focus:ring-paper-accent/30">
-              {kbs.map(k => <option key={k.id} value={k.id}>{k.is_official ? '🎁 ' : '📁 '}{k.title}</option>)}
-            </select>
+            <div onClick={() => curKb && !curKb.is_official && (setEditTitleValue(curKb.title), setEditingTitle(true))}
+              className={`w-full px-3 py-2 text-sm truncate ${curKb && !curKb.is_official ? 'cursor-text hover:bg-paper-line/30 rounded-md' : ''}`}>
+              {curKb ? (curKb.is_official ? '🎁 ' : '📁 ') : ''}{curKb?.title || '--'}
+            </div>
           )}
         </div>
-        {/* 按钮区：官方 KB 只留 +新建，自建 KB 有修改/删除 */}
+        {/* 按钮区：只有保存（删除已挪到卡片上） */}
         <div className="flex gap-2 items-center shrink-0">
-          <button onClick={() => { setNewKbName(""); setShowNewKbDialog(true); }}
-            className="px-3 py-2 bg-paper-ink text-white rounded-md text-xs whitespace-nowrap h-[34px]">+ 新建</button>
-          {!curKb.is_official && (
-            <div className="flex flex-col gap-[3px] h-[34px]">
-              <button onClick={() => { setEditTitleValue(curKb.title); setEditingTitle(true); }}
-                className="px-2 py-0.5 text-xs text-paper-accent border border-paper-line rounded-md hover:bg-paper-line/30 flex-1 min-h-0">修改</button>
-              <button onClick={() => onDeleteKb(curKb.id)}
-                className="px-2 py-0.5 text-xs text-paper-ink2 border border-paper-line rounded-md hover:border-red-300 hover:text-red-500 flex-1 min-h-0">删除</button>
-            </div>
+          {curKb && !curKb.is_official && (
+            <button onClick={() => { setEditTitleValue(curKb.title); setEditingTitle(true); }}
+              className="px-2 py-1 text-xs text-paper-accent border border-paper-line rounded-md hover:bg-paper-line/30">保存</button>
           )}
         </div>
       </div>
@@ -545,204 +836,12 @@ function CategoryEditor({ templates, cat, onSave, onCancel }: {
   );
 }
 
-// ============== 范本库 Tab ==============
-function TemplatesTab({ kb }: { kb: WikiKB }) {
-  const [templates, setTemplates] = useState<{ official: WikiTemplate[]; mine: WikiTemplate[] }>({ official: [], mine: [] });
-  const [showNew, setShowNew] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [openCats, setOpenCats] = useState<Set<string>>(new Set());  // 默认全折叠
-  const [loading, setLoading] = useState(false);
-
-  async function load() {
-    setLoading(true);
-    try { const r = await wikiListTemplates(kb.id); setTemplates(r); }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { load(); }, [kb.id]);
-
-  function toggleCat(cat: string) {
-    setOpenCats(prev => {
-      const next = new Set(prev);
-      if (next.has(cat)) next.delete(cat); else next.add(cat);
-      return next;
-    });
-  }
-
-  const order = ['📦 通用基础','🎬 文艺消费','📚 学习学术','💊 健康医疗','🍳 美食烹饪','💰 财务投资','💼 工作项目','🤝 人际社交','🌱 个人成长','✈️ 旅行足迹','其他'];
-  const grouped: Record<string, WikiTemplate[]> = {};
-  for (const t of templates.official) {
-    const cat = t.category || '📦 通用基础';
-    (grouped[cat] ||= []).push(t);
-  }
-  const sortedCats = Object.keys(grouped).sort((a, b) => {
-    const ai = order.indexOf(a), bi = order.indexOf(b);
-    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-  });
-
-  return (
-    <div className="space-y-4 pb-14">
-      {/* 新建按钮 */}
-      <div className="flex justify-between items-center">
-        <div className="text-xs text-paper-ink3">📦 给这个知识库创建专属范本，分类可以直接引用</div>
-        <button onClick={() => setShowNew(true)}
-          className="px-3 py-1 bg-paper-ink text-white rounded text-xs">+ 新建范本</button>
-      </div>
-
-      {/* 官方范本 — 按 category 分组，默认折叠 */}
-      <div>
-        <h4 className="text-xs text-paper-ink2 uppercase tracking-wider mb-2">🎁 官方范本（{templates.official.length} 个，{sortedCats.length} 个类别）</h4>
-        {loading && <div className="text-xs text-paper-ink3 py-4 text-center">加载中...</div>}
-        {!loading && templates.official.length === 0 && <div className="text-xs text-paper-ink3 py-4 text-center">暂无官方范本</div>}
-        {!loading && sortedCats.map(cat => {
-          const open = openCats.has(cat);
-          return (
-            <div key={cat} className="mb-2">
-              <button onClick={() => toggleCat(cat)}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-paper-surface text-left transition">
-                <span className={`text-xs text-paper-ink3 transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
-                <span className="text-sm font-medium text-paper-ink flex-1">{cat}</span>
-                <span className="text-[10px] text-paper-ink3 bg-paper-line/40 px-1.5 py-0.5 rounded-full">{grouped[cat].length}</span>
-              </button>
-              {open && (
-                <div className="ml-5 mt-1 space-y-1 mb-2">
-                  {grouped[cat].map(t => (
-                    <TemplateCard key={t.id} t={t} expanded={expanded === t.id} onToggle={() => setExpanded(expanded === t.id ? null : t.id)} />
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* 我的范本 */}
-      <div>
-        <h4 className="text-xs text-paper-ink2 uppercase tracking-wider mb-2">📦 我的范本（{templates.mine.length}）</h4>
-        {!loading && templates.mine.length === 0 && (
-          <div className="text-xs text-paper-ink3 py-4 text-center border border-dashed border-paper-line rounded-md">
-            还没有自定义范本，点右上角「+ 新建范本」创建
-          </div>
-        )}
-        <div className="space-y-1.5">
-          {templates.mine.map(t => (
-            <TemplateCard key={t.id} t={t} expanded={expanded === t.id}
-              onToggle={() => setExpanded(expanded === t.id ? null : t.id)}
-              onDelete={async () => {
-                if (!confirm(`删除「${t.name}」？`)) return;
-                await wikiDeleteTemplate(kb.id, t.id); load();
-              }} />
-          ))}
-        </div>
-      </div>
-
-      {/* 新建对话框 */}
-      {showNew && (
-        <TemplateEditor
-          onSave={async (data) => {
-            await wikiAddTemplate(kb.id, data);
-            setShowNew(false); load();
-          }}
-          onCancel={() => setShowNew(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-function TemplateCard({ t, expanded, onToggle, onDelete }: {
-  t: WikiTemplate; expanded: boolean; onToggle: () => void; onDelete?: () => void;
-}) {
-  return (
-    <div className={`border rounded-md transition-all ${expanded ? 'border-paper-line bg-paper-card' : 'border-paper-line/50 bg-paper-card/60'}`}>
-      <button onClick={onToggle} className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-paper-line/20">
-        <span className={`text-xs transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-        <span className="text-sm font-medium flex-1">{t.name}</span>
-        {t.kind && <span className="text-[10px] text-paper-ink2 bg-paper-line/50 px-1.5 py-0.5 rounded">{t.kind}</span>}
-        {onDelete && (
-          <button onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            className="text-[10px] text-paper-ink3 hover:text-red-500 px-1.5">删除</button>
-        )}
-      </button>
-      {expanded && (
-        <div className="px-3 pb-3 space-y-2 text-xs border-t border-paper-line/50 pt-2">
-          {t.description && <div><span className="text-paper-ink2">说明：</span>{t.description}</div>}
-          {t.extract_hints && <div><span className="text-paper-ink2">提取提示：</span>{t.extract_hints}</div>}
-          {t.page_format && (
-            <details>
-              <summary className="cursor-pointer text-paper-ink2 hover:underline">📄 页面格式模板</summary>
-              <pre className="mt-1 p-2 bg-paper-line/20 rounded text-[11px] whitespace-pre-wrap font-mono leading-relaxed max-h-48 overflow-auto">{t.page_format}</pre>
-            </details>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TemplateEditor({ onSave, onCancel, initial }: {
-  onSave: (data: { name: string; description?: string; extract_hints?: string; page_format?: string }) => Promise<void>;
-  onCancel: () => void;
-  initial?: { name?: string; description?: string; extract_hints?: string; page_format?: string };
-}) {
-  const [name, setName] = useState(initial?.name || "");
-  const [desc, setDesc] = useState(initial?.description || "");
-  const [hints, setHints] = useState(initial?.extract_hints || "");
-  const [fmt, setFmt] = useState(initial?.page_format || "");
-  const [saving, setSaving] = useState(false);
-
-  async function submit() {
-    if (!name.trim()) return;
-    setSaving(true);
-    try { await onSave({ name: name.trim(), description: desc.trim(), extract_hints: hints.trim(), page_format: fmt }); }
-    finally { setSaving(false); }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={onCancel}>
-      <div className="bg-paper-card rounded-lg p-4 w-full max-w-[440px] shadow-xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="font-medium text-sm mb-3">📋 {initial ? '编辑' : '新建'}范本</div>
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="如：人物"
-              className="w-full px-2 py-1.5 rounded border border-paper-line text-sm" />
-          </div>
-          <div>
-            <label className="text-xs text-paper-ink2 block mb-0.5">说明（给 AI 看的）</label>
-            <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="如：三国时期的历史人物"
-              className="w-full px-2 py-1.5 rounded border border-paper-line text-sm" />
-          </div>
-          <div>
-            <label className="text-xs text-paper-ink2 block mb-0.5">提取提示（告诉 AI 该提取什么）</label>
-            <textarea value={hints} onChange={e => setHints(e.target.value)} rows={2} placeholder="如：姓名、字号、生平、主要事迹"
-              className="w-full px-2 py-1.5 rounded border border-paper-line text-sm resize-none" />
-          </div>
-          <div>
-            <label className="text-xs text-paper-ink2 block mb-0.5">页面格式（Markdown 模板）</label>
-            <textarea value={fmt} onChange={e => setFmt(e.target.value)} rows={6}
-              placeholder={`# {{名称}}\n\n## 身份\n{{身份}}\n\n## 生平\n{{生平}}`}
-              className="w-full px-2 py-1.5 rounded border border-paper-line text-[11px] font-mono resize-y" />
-            <div className="text-[10px] text-paper-ink3 mt-0.5">用 {`{{变量}}`} 当占位符，AI 会自动填资料里的内容</div>
-          </div>
-        </div>
-        <div className="flex gap-2 justify-end mt-4">
-          <button onClick={onCancel} className="px-3 py-1 text-xs text-paper-ink2">取消</button>
-          <button onClick={submit} disabled={!name.trim() || saving}
-            className="px-3 py-1 text-xs bg-paper-ink text-white rounded disabled:opacity-50">
-            {saving ? "保存中..." : "保存"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ============== Pages（显示所有知识库） ==============
-function PagesTab({ kbs, kbLoading = false }: { kbs: WikiKB[]; kbLoading?: boolean }) {
+function PagesTab({ kbs, mode, kbLoading = false }: { kbs: WikiKB[]; mode: "list" | "graph"; kbLoading?: boolean }) {
   const [kbData, setKbData] = useState<{ kb: WikiKB; pages: WikiPage[]; categories: WikiCategory[] }[]>([]);
   const [detail, setDetail] = useState<{ kbId: string; page: WikiPage; outlinks: WikiLink[]; backlinks: WikiLink[] } | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [viewMode, setViewMode] = useState<"list" | "graph">("list");
   const [graphData, setGraphData] = useState<Record<string, { nodes: WikiGraphNode[]; links: WikiGraphEdge[] }>>({});
   const [localToast, setLocalToast] = useState<string>("");
   // 实体删除确认弹窗状态
@@ -803,7 +902,7 @@ function PagesTab({ kbs, kbLoading = false }: { kbs: WikiKB[]; kbLoading?: boole
   }
 
   useEffect(() => { refreshAll(); }, [kbs.map(k => k.id).join(",")]);
-  useEffect(() => { if (viewMode === "graph") refreshGraph(); }, [viewMode, kbs.map(k => k.id).join(",")]);
+  useEffect(() => { if (mode === "graph") refreshGraph(); }, [mode, kbs.map(k => k.id).join(",")]);
 
   async function openPage(kbId: string, pageId: string) {
     const r = await wikiGetPage(kbId, pageId);
@@ -902,7 +1001,7 @@ function PagesTab({ kbs, kbLoading = false }: { kbs: WikiKB[]; kbLoading?: boole
         await openPage(detail!.kbId, detail!.page.id);
         refreshAll();
         // 如果是图谱模式也刷新图谱
-        if (viewMode === "graph") refreshGraph();
+        if (mode === "graph") refreshGraph();
       } finally {
         setEntityGenerating(false);
         setPendingEntities([]);
@@ -1022,21 +1121,6 @@ function PagesTab({ kbs, kbLoading = false }: { kbs: WikiKB[]; kbLoading?: boole
 
   return (
     <div className="space-y-4">
-      {/* 列表/图谱 toggle */}
-      <div className="flex items-center justify-between">
-        <h4 className="text-paper-ink2 text-xs font-medium uppercase tracking-wider">知识图谱</h4>
-        <div className="flex gap-1 bg-paper-line/30 rounded-md p-0.5">
-          <button onClick={() => setViewMode("list")}
-            className={`px-2.5 py-0.5 rounded text-xs transition ${viewMode === "list" ? "bg-paper-card text-paper-ink font-medium shadow-sm" : "text-paper-ink2"}`}>
-            📋 列表
-          </button>
-          <button onClick={() => setViewMode("graph")}
-            className={`px-2.5 py-0.5 rounded text-xs transition ${viewMode === "graph" ? "bg-paper-card text-paper-ink font-medium shadow-sm" : "text-paper-ink2"}`}>
-            🕸️ 图谱
-          </button>
-        </div>
-      </div>
-
       {kbLoading ? (
         <div className="text-center py-8 text-paper-ink3 text-sm">
           <div className="flex items-center justify-center gap-2">
@@ -1046,12 +1130,12 @@ function PagesTab({ kbs, kbLoading = false }: { kbs: WikiKB[]; kbLoading?: boole
         </div>
       ) : kbData.length === 0 && <div className="text-center py-8 text-paper-ink3 text-sm">📭 还没有知识库</div>}
 
-      {viewMode === "graph" && kbs.map(kb => {
+      {mode === "graph" && kbs.map(kb => {
         const g = graphData[kb.id];
         if (!g || (g.nodes.length === 0)) return null;
         return (
           <div key={kb.id} className="border border-paper-line rounded-md bg-paper-card p-3">
-            <h3 className="text-sm font-bold text-paper-ink mb-2">🌐 {kb.title} <span className="text-xs text-paper-ink3 font-normal">({g.nodes.length} 页 · {g.links.length} 链接)</span></h3>
+            <h3 className="text-sm font-bold text-paper-ink mb-2">{kb.is_official ? '🎁' : '📁'} {kb.title} <span className="text-xs text-paper-ink3 font-normal">({g.nodes.length} 页 · {g.links.length} 链接)</span></h3>
             <WikiForceGraph
               nodes={g.nodes}
               edges={g.links}
@@ -1064,13 +1148,13 @@ function PagesTab({ kbs, kbLoading = false }: { kbs: WikiKB[]; kbLoading?: boole
         );
       })}
 
-      {viewMode === "graph" && Object.values(graphData).every(g => !g || g.nodes.length === 0) && kbData.length > 0 && (
+      {mode === "graph" && Object.values(graphData).every(g => !g || g.nodes.length === 0) && kbData.length > 0 && (
         <div className="text-center py-8 text-paper-ink3 text-sm">
           🕸️ 还没有页面 — 去「📜 资料」汇入门资料让 AI 自动生成页面
         </div>
       )}
 
-      {viewMode === "list" && kbData.map(({ kb, pages, categories }) => {
+      {mode === "list" && kbData.map(({ kb, pages, categories }) => {
         const grouped: Record<string, WikiPage[]> = {};
         const noCat: WikiPage[] = [];
         for (const c of categories) grouped[c.id] = [];
@@ -1084,7 +1168,7 @@ function PagesTab({ kbs, kbLoading = false }: { kbs: WikiKB[]; kbLoading?: boole
           <div key={kb.id} className="border border-paper-line rounded-md bg-paper-card">
             <div className="flex items-center cursor-pointer px-3 py-2 hover:bg-paper-line/20 select-none" onClick={() => toggleExpand(`kb:${kb.id}`)}>
               <span className={`mr-1 text-xs transition-transform ${expanded[`kb:${kb.id}`] === true ? '' : '-rotate-90'}`}>▼</span>
-              <h3 className="text-sm font-bold text-paper-ink flex-1">🌐 {kb.title}{kb.is_official ? <span className="ml-1 text-xs text-paper-accent font-normal align-middle">🎁 官方</span> : null}</h3>
+              <h3 className="text-sm font-bold text-paper-ink flex-1">{kb.is_official ? '🎁' : '📁'} {kb.title}{kb.is_official ? <span className="ml-1 text-xs text-paper-accent font-normal align-middle">官方</span> : null}</h3>
               <span className="text-xs text-paper-ink3 font-normal">({totalPages} 页)</span>
             </div>
 
@@ -1297,6 +1381,273 @@ const CAT_COLORS = [
   "#6366f1", "#ec4899", "#f59e0b", "#10b981", "#06b6d4",
   "#8b5cf6", "#ef4444", "#84cc16", "#f97316", "#14b8a6",
 ];
+
+/** 完整页面详情 —— 卡片模式弹窗 & 列表模式详情共用 */
+function PageDetailModal({
+  kbId, pageId, onClose, refreshAll, onOpenPage,
+}: {
+  kbId: string; pageId: string;
+  onClose: () => void;
+  refreshAll: () => void;
+  onOpenPage: (kbId: string, pageId: string) => void;
+}) {
+  const [detail, setDetail] = useState<{ page: WikiPage; outlinks: WikiLink[]; backlinks: WikiLink[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [kbPages, setKbPages] = useState<WikiPage[]>([]);
+  const [kbCats, setKbCats] = useState<WikiCategory[]>([]);
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  const [pendingEntities, setPendingEntities] = useState<string[]>([]);
+  const [entityCats, setEntityCats] = useState<Record<string, string>>({});
+  const [entityGenerating, setEntityGenerating] = useState(false);
+
+  // 加载详情 + 当前 KB 的 pages/categories
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const [r, pagesR, catsR] = await Promise.all([
+          wikiGetPage(kbId, pageId),
+          wikiListPages(kbId),
+          wikiListCategories(kbId),
+        ]);
+        if (!alive) return;
+        setDetail({ page: r.page, outlinks: r.outlinks || [], backlinks: r.backlinks || [] });
+        setKbPages(pagesR.pages || []);
+        setKbCats(catsR.categories || []);
+      } catch { if (alive) onClose(); }
+      finally { if (alive) setLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, [kbId, pageId]);
+
+  // 页面标题 → id 映射（用于 [[双链]] 解析）
+  const pageTitleMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const p of kbPages) m[p.title] = p.id;
+    return m;
+  }, [kbPages]);
+
+  // 从来源页面截取提到目标的上下文
+  function getBacklinkContext(sourceTitle: string, targetTitle: string): string | null {
+    const p = kbPages.find(x => x.title === sourceTitle);
+    const sourceContent = p?.content || "";
+    if (!sourceContent) return null;
+    let needle = `[[${targetTitle}]]`;
+    let idx = sourceContent.indexOf(needle);
+    if (idx === -1) { needle = targetTitle; idx = sourceContent.indexOf(needle); }
+    if (idx === -1) return null;
+    const start = Math.max(0, idx - 60);
+    const end = Math.min(sourceContent.length, idx + needle.length + 60);
+    let s = sourceContent.slice(start, end).replace(/\n/g, " ").trim();
+    if (start > 0) s = "…" + s;
+    if (end < sourceContent.length) s = s + "…";
+    return s;
+  }
+
+  function renderMarkdown(content: string) {
+    const processed = content.replace(/\[\[([^\]]+)\]\]/g, (_, title) => {
+      const targetId = pageTitleMap[title];
+      if (targetId) return `[${title}](#page-${targetId})`;
+      return `**${title}**`;
+    });
+    return (
+      <div className="wiki-md text-sm text-paper-ink">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ href, children }) => {
+              const m = (href || "").match(/^#page-(.+)$/);
+              if (m) return <a className="text-blue-600 hover:underline cursor-pointer" onClick={() => onOpenPage(kbId, m[1])}>{children}</a>;
+              return <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{children}</a>;
+            },
+            h1: ({ children }) => <h1 className="text-xl font-bold mt-4 mb-2 text-paper-ink">{children}</h1>,
+            h2: ({ children }) => <h2 className="text-lg font-bold mt-3 mb-2 text-paper-ink">{children}</h2>,
+            h3: ({ children }) => <h3 className="text-base font-semibold mt-2 mb-1 text-paper-ink">{children}</h3>,
+            p: ({ children }) => <p className="my-1 leading-relaxed">{children}</p>,
+            ul: ({ children }) => <ul className="list-disc pl-5 my-1">{children}</ul>,
+            ol: ({ children }) => <ol className="list-decimal pl-5 my-1">{children}</ol>,
+            li: ({ children }) => <li className="my-0.5">{children}</li>,
+            strong: ({ children }) => <strong className="font-semibold text-paper-ink">{children}</strong>,
+            em: ({ children }) => <em>{children}</em>,
+            blockquote: ({ children }) => <blockquote className="border-l-2 border-paper-line pl-3 my-1 text-paper-ink2 italic">{children}</blockquote>,
+            code: ({ children }) => <code className="bg-paper-line/50 px-1 rounded text-xs font-mono">{children}</code>,
+            hr: () => <hr className="my-3 border-paper-line" />,
+          }}
+        >{processed}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  async function saveEdit() {
+    if (!detail) return;
+    setEditSaving(true);
+    try {
+      await wikiUpdatePage(kbId, detail.page.id, { content: editContent });
+      const allTitles = new Set<string>(kbPages.map(p => p.title));
+      const found = Array.from(new Set((editContent.match(/\[\[([^\]]+)\]\]/g) || []).map(s => s.slice(2, -2))));
+      const missing = found.filter(t => !allTitles.has(t));
+      if (missing.length > 0) {
+        setPendingEntities(missing);
+        setEntityCats({});
+      } else {
+        const r = await wikiGetPage(kbId, detail.page.id);
+        setDetail({ page: r.page, outlinks: r.outlinks || [], backlinks: r.backlinks || [] });
+        refreshAll();
+      }
+      setEditing(false);
+    } finally { setEditSaving(false); }
+  }
+
+  async function generatePending() {
+    if (!detail) return;
+    setEntityGenerating(true);
+    try {
+      for (const name of pendingEntities) {
+        const catId = entityCats[name] || undefined;
+        await wikiGenerateEntity(kbId, { entity_name: name, source_text: editContent, category_id: catId });
+      }
+      const r = await wikiGetPage(kbId, detail.page.id);
+      setDetail({ page: r.page, outlinks: r.outlinks || [], backlinks: r.backlinks || [] });
+      refreshAll();
+    } finally {
+      setEntityGenerating(false);
+      setPendingEntities([]);
+    }
+  }
+
+  // ESC 关闭
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+        <div className="bg-paper-card rounded-lg shadow-xl max-w-3xl w-full max-h-[85vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+          <div className="text-center py-8 text-paper-ink3 text-sm">加载中...</div>
+        </div>
+      </div>
+    );
+  }
+  if (!detail) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-paper-card rounded-lg shadow-xl max-w-3xl w-full max-h-[85vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            {detail.page.is_system !== 1 && !editing && (
+              <button onClick={() => { setEditing(true); setEditContent(detail.page.content); }}
+                className="text-xs text-paper-accent hover:underline">✏️ 编辑</button>
+            )}
+          </div>
+          <button onClick={onClose} className="text-paper-ink3 hover:text-paper-ink text-lg leading-none">✕</button>
+        </div>
+        <div className="bg-paper-card rounded-md border border-paper-line p-4">
+          <div className="mb-3">
+            {detail.page.is_system === 1 && <span className="text-xs text-paper-ink2 mr-2">[系统模板]</span>}
+            <h4 className="text-xl font-bold text-paper-ink inline">{detail.page.title}</h4>
+          </div>
+          {editing ? (
+            <div className="space-y-2">
+              <textarea value={editContent} onChange={e => setEditContent(e.target.value)}
+                className="w-full h-80 text-sm font-mono border border-paper-line rounded-md p-2 focus:outline-none focus:border-paper-ink resize-y" />
+              <div className="flex gap-2">
+                <button onClick={saveEdit} disabled={editSaving}
+                  className="px-3 py-1 text-xs bg-paper-ink text-white rounded hover:opacity-80 disabled:opacity-50">
+                  {editSaving ? "保存中..." : "💾 保存"}
+                </button>
+                <button onClick={() => setEditing(false)} className="px-3 py-1 text-xs border border-paper-line rounded text-paper-ink2 hover:bg-paper-line/30">取消</button>
+                <span className="text-xs text-paper-ink3 self-center">提示：在 [[这里]] 写新实体名，保存后会自动帮你生成</span>
+              </div>
+            </div>
+          ) : renderMarkdown(detail.page.content.replace(/^\s*#\s+.+\n+/, ''))}
+        </div>
+
+        {/* 新实体生成 */}
+        {pendingEntities.length > 0 && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4">
+            <div className="bg-paper-card rounded-lg shadow-xl max-w-md w-full p-5 space-y-4">
+              <div>
+                <h3 className="text-base font-bold text-paper-ink mb-1">检测到 {pendingEntities.length} 个新实体</h3>
+                <p className="text-xs text-paper-ink2">请选择每个实体的分类，AI 会按范本自动生成页面。</p>
+              </div>
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {pendingEntities.map(name => (
+                  <div key={name} className="flex items-center gap-2">
+                    <span className="flex-1 text-sm text-paper-ink font-medium">[[{name}]]</span>
+                    <select value={entityCats[name] || ""}
+                      onChange={e => setEntityCats(prev => ({ ...prev, [name]: e.target.value }))}
+                      className="text-xs border border-paper-line rounded px-2 py-1 bg-paper-card">
+                      <option value="">不选（AI 自由生成）</option>
+                      {kbCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setPendingEntities([])}
+                  className="px-3 py-1.5 text-xs border border-paper-line rounded text-paper-ink2 hover:bg-paper-line/30">跳过（不生成）</button>
+                <button onClick={generatePending} disabled={entityGenerating}
+                  className="px-3 py-1.5 text-xs bg-paper-ink text-white rounded hover:opacity-80 disabled:opacity-50">
+                  {entityGenerating ? "生成中..." : "✨ 批量生成"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(detail.outlinks.length > 0 || detail.backlinks.length > 0) && (
+          <div className="space-y-3 text-xs mt-4">
+            {detail.backlinks.length > 0 && (
+              <div>
+                <h5 className="text-paper-ink2 uppercase tracking-wider mb-2">← 谁提到了我 ({detail.backlinks.length})</h5>
+                <div className="space-y-2">
+                  {detail.backlinks.map(l => {
+                    const ctx = getBacklinkContext(l.from_title, detail.page.title);
+                    const canOpen = !!(l.from_page_id);
+                    return (
+                      <div key={l.from_title} className="bg-paper-card border border-paper-line rounded-md p-2">
+                        {canOpen ? (
+                          <div className="text-blue-600 hover:underline cursor-pointer font-medium"
+                            onClick={() => { onOpenPage(kbId, l.from_page_id!); }}>[[{l.from_title}]]</div>
+                        ) : (
+                          <div className="text-paper-ink3 font-medium cursor-help" title="目标页面不存在">[[{l.from_title}]] ⚠️</div>
+                        )}
+                        {ctx && <div className="text-paper-ink3 mt-1 leading-relaxed">{ctx}</div>}
+                        {!ctx && canOpen && <div className="text-paper-ink3 mt-1 italic">（原文上下文未找到）</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {detail.outlinks.length > 0 && (
+              <div>
+                <h5 className="text-paper-ink2 uppercase tracking-wider mb-1">→ 我提到了 ({detail.outlinks.length})</h5>
+                <div className="flex flex-wrap gap-2">
+                  {detail.outlinks.map(l => {
+                    const canOpen = !!(l.to_page_id);
+                    if (canOpen) {
+                      return <span key={l.to_title} className="text-blue-600 hover:underline cursor-pointer"
+                        onClick={() => onOpenPage(kbId, l.to_page_id!)}>[[{l.to_title}]]</span>;
+                    }
+                    return <span key={l.to_title} className="text-paper-ink3 cursor-help" title="目标页面不存在">[[{l.to_title}]]</span>;
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function WikiForceGraph({
   nodes, edges, onNodeClick,

@@ -455,19 +455,23 @@ export function wikiIngestAll(kbId: string, ids?: string[]) {
   return request<{ ok: boolean; message?: string; ingested_count: number; created: number; updated: number; links_added: number; pages: { title: string; category_slug: string; summary: string }[] }>('/api/wiki/kbs/' + kbId + '/ingest', { method: 'POST', body });
 }
 
-// ====== 范本库 v4.1 ======
+// ====== 范本库 v5 — 全局化，范本不再绑定 KB ======
 export interface WikiTemplate {
   id: string; name: string; description?: string; extract_hints: string; page_format: string;
   kind: 'official' | 'user'; builtin_key?: string; category?: string;
 }
-export function wikiListTemplates(kbId: string) {
-  return request<{ official: WikiTemplate[]; mine: WikiTemplate[] }>('/api/wiki/kbs/' + kbId + '/templates');
+export function wikiListTemplates(_kbId?: string) {
+  return request<{ official: WikiTemplate[]; mine: WikiTemplate[] }>('/api/wiki/templates');
 }
-export function wikiAddTemplate(kbId: string, tpl: { name: string; description?: string; extract_hints?: string; page_format?: string }) {
-  return request<{ id: string; name: string; ok: boolean }>('/api/wiki/kbs/' + kbId + '/templates', { method: 'POST', body: JSON.stringify(tpl) });
+export function wikiAddTemplate(tplOrKb: string | { name: string; description?: string; extract_hints?: string; page_format?: string }, tpl?: { name: string; description?: string; extract_hints?: string; page_format?: string }) {
+  // 兼容旧签名：wikiAddTemplate(kbId, tpl) 和新签名：wikiAddTemplate(tpl)
+  const data = typeof tplOrKb === 'string' ? tpl! : tplOrKb;
+  return request<{ id: string; name: string; ok: boolean }>('/api/wiki/templates', { method: 'POST', body: JSON.stringify(data) });
 }
-export function wikiDeleteTemplate(kbId: string, id: string) {
-  return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId + '/templates?id=' + encodeURIComponent(id), { method: 'DELETE' });
+export function wikiDeleteTemplate(idOrKb: string, id?: string) {
+  // 兼容旧签名：wikiDeleteTemplate(kbId, id) 和新签名：wikiDeleteTemplate(id)
+  const realId = id ?? idOrKb;
+  return request<{ ok: boolean }>('/api/wiki/templates?id=' + encodeURIComponent(realId), { method: 'DELETE' });
 }
 export function wikiBindTemplate(kbId: string, templateId: string, categoryId: string) {
   return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId + '/templates/bind', { method: 'POST', body: JSON.stringify({ template_id: templateId, category_id: categoryId }) });
@@ -513,5 +517,13 @@ export function wikiSeedOfficialPreset(slug: string) {
   return request<{ ok: boolean; kb_id: string; title: string }>('/api/wiki/official/seed', {
     method: 'POST',
     body: JSON.stringify({ slug }),
+  });
+}
+
+// AI 建议标题（粘贴文本后自动填标题）
+export function wikiSuggestTitle(text: string) {
+  return request<{ title: string }>('/api/wiki/suggest-title', {
+    method: 'POST',
+    body: JSON.stringify({ text }),
   });
 }
