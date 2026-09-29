@@ -196,7 +196,7 @@ export async function handleWikiAddCategory(request, env, JWT_SECRET, params) {
   if (page_format) {
     const tplPageId = uuid();
     const tplTitle = `📋 ${name}（模板）`;
-    const tplContent = `> 这是「${name}」分类的页面模板，AI 汇入资料时会按此格式生成页面。\n\n${page_format}\n\n---\n_待 AI 整理资料后自动生成内容_`;
+    const tplContent = `> 这是「${name}」分类的页面模板，小麦 汇入资料时会按此格式生成页面。\n\n${page_format}\n\n---\n_待小麦 整理资料后自动生成内容_`;
     try {
       await env.DB.prepare(
         "INSERT OR IGNORE INTO wiki_pages (id, kb_id, user_id, category_id, title, content, is_system, created_at, updated_at) VALUES (?,?,?,?,?,?,1,?,?)"
@@ -232,7 +232,7 @@ export async function handleWikiUpdateCategory(request, env, JWT_SECRET, params)
     try {
       const cat = await env.DB.prepare("SELECT name, page_format FROM wiki_categories WHERE id=?").bind(id).first();
       if (cat) {
-        const tplContent = `> 这是「${cat.name}」分类的页面模板，AI 汇入资料时会按此格式生成页面。\n\n${cat.page_format}\n\n---\n_待 AI 整理资料后自动生成内容_`;
+        const tplContent = `> 这是「${cat.name}」分类的页面模板，小麦 汇入资料时会按此格式生成页面。\n\n${cat.page_format}\n\n---\n_待小麦 整理资料后自动生成内容_`;
         const tplTitle = `📋 ${cat.name}（模板）`;
         await env.DB.prepare(
           "UPDATE wiki_pages SET content=?, title=?, updated_at=? WHERE category_id=? AND is_system=1 AND kb_id=? AND user_id=?"

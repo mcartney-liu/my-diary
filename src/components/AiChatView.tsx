@@ -60,7 +60,7 @@ function RememberButton({ content }: { content: string }) {
       onClick={handleSave}
       disabled={saved || saving}
       className="mt-1.5 text-[11px] text-paper-bg/70 hover:text-paper-bg transition opacity-60 hover:opacity-100"
-      title="AI 会把这句话解析成简洁记忆存下来"
+      title="小麦 会把这句话解析成简洁记忆存下来"
     >
       {saved ? `💾 已记住：${memContent || ""} 🌟` : saving ? "解析并保存中…" : "💾 记住这句话"}
     </button>
@@ -445,7 +445,7 @@ export default function AiChatView() {
                 ? activeKb
                   ? `🌳 我在「${activeKb.title}」知识库里，问我点什么吧～`
                   : "🌳 先从顶部选一个知识库，我就能帮你提问啦～"
-                : "💬 这是小麦，你的 AI 助手。写下的每一篇日记都可以被我找到。试试问点什么吧～"}
+                : "💬 这是小麦，你的智能助手。写下的每一篇日记都可以被我找到。试试问点什么吧～"}
             </div>
             {activeType === "diary" && (
               <div className="flex flex-wrap gap-2">
@@ -541,7 +541,7 @@ export default function AiChatView() {
                         onClick={() => retryWikiAnswer(i, true)}
                         disabled={loading}
                         className="text-[10px] px-1.5 py-0.5 rounded border border-blue-300 text-blue-600 bg-blue-50/40 hover:bg-blue-50 disabled:opacity-50 transition"
-                        title="AI 用自己的知识补充，重试"
+                        title="小麦 用自己的知识补充，重试"
                       >
                         🔎 联网重试
                       </button>

@@ -55,7 +55,7 @@ export default function AiDrawer({ open, onClose }: Props) {
         <div className="px-5 py-4 border-b border-paper-line flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xl">🤖</span>
-            <span className="font-semibold text-paper-ink">我的日记 AI</span>
+            <span className="font-semibold text-paper-ink">小麦日记</span>
           </div>
           <button onClick={onClose} className="text-paper-ink2 hover:text-paper-ink text-xl">✕</button>
         </div>
@@ -64,7 +64,7 @@ export default function AiDrawer({ open, onClose }: Props) {
           {msgs.length === 0 && (
             <>
               <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line">
-                👋 Hi，我是你的日记 AI 助手。我会根据你写过的日记来回答问题。
+                👋 Hi，我是你的日记小麦助手。我会根据你写过的日记来回答问题。
               </div>
               <div className="flex flex-wrap gap-2">
                 {SUGGESTIONS.map((s) => (

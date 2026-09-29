@@ -113,7 +113,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
       await wikiGlobalAddSource({ kb_id: ingestFor, title: name, text: ingestText });
       // ② 走资料库完整汇入流程（AI 批量生成实体）
       await wikiIngestAll(ingestFor);
-      alert("✅ 已汇入，AI 正在生成实体...");
+      alert("✅ 已汇入，小麦 正在生成实体...");
       const refreshedKbId = ingestFor;
       setIngestFor(null);
       loadKbs();
@@ -191,7 +191,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
               <div>
                 <label className="text-xs text-paper-ink2 block mb-0.5">标题（留空 AI 会自动帮你生成 ✨）</label>
                 <input value={ingestName} onChange={e => { setIngestName(e.target.value); if (e.target.value.trim()) setAiSuggestedName(""); }}
-                  placeholder="可手动输入，也可等 AI 建议..."
+                  placeholder="可手动输入，也可等小麦 建议..."
                   className="w-full px-3 py-2 rounded-md border border-paper-line text-sm" />
                 {aiSuggestLoading && !ingestName.trim() && (
                   <div className="text-[11px] text-paper-ink3 mt-1 flex items-center gap-1">

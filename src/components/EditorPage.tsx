@@ -1302,7 +1302,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       if (text.trim()) setEditableTranscript(text.trim());
     } catch (err) {
       console.warn("AI 转写失败:", err);
-      alert("AI 转写失败");
+      alert("小麦 转写失败");
     } finally {
       setTranscribing(false);
     }
@@ -1336,7 +1336,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       cancelPending();
     } catch (err) {
       console.warn("AI 美化失败:", err);
-      alert("AI 美化失败，试试别的操作吧");
+      alert("小麦 美化失败，试试别的操作吧");
     } finally {
       setAiPolishing(false);
     }
@@ -2370,7 +2370,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                    className="w-full py-3 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm font-medium hover:bg-paper-line/50 active:scale-95 transition flex items-center justify-center gap-2 disabled:opacity-50"
                  >
                    {aiPolishing ? <Loader2 size={16} className="animate-spin" /> : <Bot size={16} />}
-                   {aiPolishing ? "AI 美化中..." : "AI 美化"}
+                   {aiPolishing ? "小麦 美化中..." : "小麦 美化"}
                  </button>
                )}
                {editableTranscript.trim() && (
@@ -2399,7 +2399,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                    disabled={transcribing}
                    className="w-full py-2.5 rounded-xl bg-paper-surface border border-paper-line text-paper-ink text-sm hover:bg-paper-line/50 active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-2"
                  >
-                   <Bot size={16} /> {transcribing ? "AI 识别中..." : "AI 重新转写"}
+                   <Bot size={16} /> {transcribing ? "小麦 识别中..." : "小麦 重新转写"}
                  </button>
                )}
               <button

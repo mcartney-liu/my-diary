@@ -43,7 +43,7 @@ export default function WikiTemplatesView() {
     <div className="space-y-4">
       {/* 温暖说明 */}
       <div className="text-[12px] text-paper-ink2 italic leading-relaxed px-1">
-        📋 范本库 — 定义"AI 从资料里提取什么、怎么组织成实体页面"。
+        📋 范本库 — 定义小麦 从资料里提取什么、怎么组织成实体页面"。
         把范本绑到知识库里的分类后，AI 汇入资料时就会按这个格式生成实体。
         范本是 <b>全局</b> 的，建一次所有知识库都能用。
       </div>

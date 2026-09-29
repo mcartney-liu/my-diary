@@ -150,7 +150,7 @@ export default function ProfilePage() {
   };
 
   const handleDeleteMemory = async (id: number) => {
-    if (!confirm("删除这条记忆？AI 下次就不会用上了")) return;
+    if (!confirm("删除这条记忆？小麦 下次就不会用上了")) return;
     try {
       await deleteMemory(id);
       setMemories(prev => prev.filter(m => m.id !== id));
@@ -514,7 +514,7 @@ export default function ProfilePage() {
             {/* 标题 */}
             <div>
               <h3 className="text-paper-ink2 text-xs font-medium tracking-wider uppercase">🧠 我的记忆</h3>
-              <p className="text-paper-ink3 text-xs mt-1">AI 会记住这些，下次自动用上</p>
+              <p className="text-paper-ink3 text-xs mt-1">小麦 会记住这些，下次自动用上</p>
             </div>
 
             {/* 手动加一条 */}
@@ -551,7 +551,7 @@ export default function ProfilePage() {
               <div className="text-center text-paper-ink3 text-sm py-6">加载中…</div>
             ) : memories.length === 0 ? (
               <div className="text-center text-paper-ink3 text-sm py-8 border border-dashed border-paper-line/60 rounded-xl">
-                还没有记忆 🌱 和 AI 聊几次天，它会自动记住重要的事
+                还没有记忆 🌱 和小麦聊几次天，它会自动记住重要的事
               </div>
             ) : (
               <div className="space-y-2">
@@ -760,7 +760,7 @@ export default function ProfilePage() {
                     <li>📚 <b>双视图切换</b> — 知识库新增🗂️卡片 / 📋列表 / 🌐图谱三种浏览方式，随时切换</li>
                     <li>📁 <b>个人知识库图标区分</b> — 官方知识库用🎁，自己建的用📁文件夹图标，一眼分清</li>
                     <li>🔗 <b>实体详情页统一复用</b> — 卡片和列表模式点实体都弹出完整详情（Markdown/编辑/反链/出链/双链跳转），不再两套 UI</li>
-                    <li>✨ <b>录入资料 AI 标题方式优化</b> — 标题不再被 AI 直接占满，改为下方"💡 AI 建议 — 点一下应用"，用户可以主动选也可以自己输入</li>
+                    <li>✨ <b>录入资料小麦 标题方式优化</b> — 标题不再被小麦 直接占满，改为下方"💡 小麦 建议 — 点一下应用"，用户可以主动选也可以自己输入</li>
                     <li>🛡️ <b>链接一致性修复</b> — 后端 wiki_links 加唯一索引，链接只从 content 里真实的 `[[双链]]` 提取，不再出现重复链接或"原文上下文未找到"</li>
                   </ul>
                 </div>
