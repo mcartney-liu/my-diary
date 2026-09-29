@@ -1491,3 +1491,30 @@ export async function handleWikiSuggestTitle(request, env, JWT_SECRET) {
     return json({ title: truncated.slice(0, 20) });
   }
 }
+
+export async function handleWikiCheckMatch(request, env, JWT_SECRET, params) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const body = await readBody(request);
+  const kbId = params.kbId;
+  const text = (body.text || "").trim();
+  if (!kbId || !text) return json({ match: "high" });
+
+  // 拿 KB 信息
+  const kb = await env.DB.prepare("SELECT title, description FROM wiki_kbs WHERE id=? AND user_id=?").bind(kbId, user.uid).first();
+  if (!kb) return json({ match: "high" });
+
+  const truncated = text.slice(0, 600);
+  try {
+    const raw = await wikiCallLLM(env, [
+      { role: 'system', content: '你是知识库主题匹配评估器。判断一段文本和一个知识库的主题是否相关。只回答 high / medium / low：high=强相关，medium=弱相关，low=不相关。' },
+      { role: 'user', content: `知识库主题：${kb.title}${kb.description ? '（' + kb.description + '）' : ''}\n\n文本：${truncated}` }
+    ], 10);
+    const ans = (raw || '').trim().toLowerCase();
+    if (ans.startsWith('high')) return json({ match: 'high' });
+    if (ans.startsWith('medium')) return json({ match: 'medium' });
+    return json({ match: 'low' });
+  } catch {
+    return json({ match: 'high' }); // AI 失败不阻塞
+  }
+}

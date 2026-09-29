@@ -13,7 +13,7 @@ import {
   wikiListTemplates, wikiGraph,
   wikiUpdatePage, wikiDeletePage, wikiGenerateEntity,
   wikiListOfficialPresets, wikiSeedOfficialPreset,
-  wikiGlobalAddSource, wikiIngestAll, wikiSuggestTitle,
+  wikiGlobalAddSource, wikiIngestAll, wikiSuggestTitle, wikiCheckMatch,
 } from "../api";
 import type { WikiKB, WikiCategory, WikiPage, WikiLink, WikiTemplate, WikiGraphNode, WikiGraphEdge, WikiOfficialPreset } from "../api";
 
@@ -106,6 +106,18 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
 
   async function submitIngest() {
     if (!ingestFor || !ingestText.trim()) return;
+    // ⚠️ 预检：内容和这个知识库主题匹配度？
+    try {
+      const kbTitle = kbs.find(k => k.id === ingestFor)?.title || '';
+      const match = await wikiCheckMatch(ingestFor, ingestText);
+      if (match.match === 'low') {
+        const ok = confirm(`🌾 小麦觉得这段内容和「${kbTitle}」主题不太匹配哦～\n确定要汇入吗？也可以取消，先去「我的 → 知识」点「+ 新建」建个更合适的知识库。`);
+        if (!ok) return;
+      } else if (match.match === 'medium') {
+        const ok = confirm(`🌾 小麦觉得这段内容和「${kbTitle}」主题关联不算太强，确定要汇入吗？`);
+        if (!ok) return;
+      }
+    } catch { /* AI 预检失败不阻塞，直接继续 */ }
     setIngestLoading(true);
     try {
       // ① 先存原文到资料库（wiki_sources），标记 kb_id

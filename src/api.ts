@@ -527,3 +527,10 @@ export function wikiSuggestTitle(text: string) {
     body: JSON.stringify({ text }),
   });
 }
+
+export function wikiCheckMatch(kbId: string, text: string) {
+  return request<{ match: 'high' | 'medium' | 'low' }>(`/api/wiki/${kbId}/check-match`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+}

@@ -31,7 +31,7 @@ import {
   handleWikiListTemplates, handleWikiAddTemplate, handleWikiDeleteTemplate, handleWikiBindTemplate,
   handleWikiListOfficialPresets, handleWikiSeedOfficialPreset,
   handleWikiDebugLog,
-  handleWikiSuggestTitle,
+  handleWikiSuggestTitle, handleWikiCheckMatch,
 } from "./wiki.js";
 
 const ALLOWED_ORIGINS = [
@@ -154,6 +154,7 @@ export default {
       ["POST",   "/api/wiki/official/seed",                     handleWikiSeedOfficialPreset],
       ["GET",    "/api/wiki/debug-log",                          handleWikiDebugLog],
       ["POST",   "/api/wiki/suggest-title",                      handleWikiSuggestTitle],
+      ["POST",   "/api/wiki/:kbId/check-match",                  handleWikiCheckMatch],
     ];
 
     // 路由器：支持 :id 参数
