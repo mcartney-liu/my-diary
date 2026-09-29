@@ -213,6 +213,73 @@ cd ..
 git add -A && git commit -m "feat(d1): add xxx table" && git push
 ```
 
+### 4.1 ⚠️ Prod / Dev D1 结构漂移排查（v0.5.2 新增，踩过 4 次坑）
+
+**背景**：prod D1 跑的 migration 比 dev 少（历史原因：之前没严格走 migration 流程），导致 dev 正常、prod 各种 `no such column` / `NOT NULL constraint failed`。
+
+**踩过的坑**：
+
+| 现象 | 根因 | 怎么发现的 |
+|---|---|---|
+| 创建官方 KB → 500 `no such column: description` | prod wiki_knowledge_bases 缺 description 列 | 用户报告后查 PRAGMA |
+| 添加资料 → 500 `NOT NULL: wiki_sources.kb_id` | prod wiki_sources.kb_id 是 NOT NULL，dev 已改可空（支持全局资料不打标签） | 用户报告后查 PRAGMA |
+| 美食菜谱库只有 1 个分类 | prod wiki_templates 只有 12 个官方模板，dev 有 40 个；seed 时 recipe/ingredient 模板缺失被跳过 | 用户报告后对比 builtin_key 数量 |
+
+**铁律：每次发布前先跑 prod/dev D1 schema 对比**
+
+```powershell
+# === 一键对比所有 wiki_ 表的列 ===
+$tables = @("wiki_knowledge_bases","wiki_categories","wiki_pages","wiki_sources","wiki_links","wiki_templates","wiki_debug_log")
+foreach ($t in $tables) {
+  Write-Output "=== TABLE: $t ==="
+  Write-Output "--- PROD ---"
+  $p = npx wrangler d1 execute mydiary-db --remote --command "PRAGMA table_info($t);" 2>$null | Select-String '"name":' | ForEach-Object { ($_.Line -replace '.*"name": "', '') -replace '",.*', '' }
+  Write-Output $p
+  Write-Output "--- DEV ---"
+  $d = npx wrangler d1 execute mydiary-db-dev --remote --command "PRAGMA table_info($t);" 2>$null | Select-String '"name":' | ForEach-Object { ($_.Line -replace '.*"name": "', '') -replace '",.*', '' }
+  Write-Output $d
+  # 也对比 notnull（prod 可能还是 NOT NULL 但 dev 已改可空）
+  Write-Output "--- PROD notnull ---"
+  $pnn = npx wrangler d1 execute mydiary-db --remote --command "PRAGMA table_info($t);" 2>$null | Select-String '"notnull":' | ForEach-Object { ($_.Line -replace '.*"notnull": ', '') -replace ',.*', '' }
+  Write-Output $pnn
+  Write-Output "--- DEV notnull ---"
+  $dnn = npx wrangler d1 execute mydiary-db-dev --remote --command "PRAGMA table_info($t);" 2>$null | Select-String '"notnull":' | ForEach-Object { ($_.Line -replace '.*"notnull": ', '') -replace ',.*', '' }
+  Write-Output $dnn
+}
+
+# === 对比官方模板数量 ===
+Write-Output "=== 官方模板数量 ==="
+$prodTpls = npx wrangler d1 execute mydiary-db --remote --command "SELECT builtin_key FROM wiki_templates WHERE user_id='system' AND kb_id IS NULL;" 2>$null | Select-String '"string"'
+$devTpls = npx wrangler d1 execute mydiary-db-dev --remote --command "SELECT builtin_key FROM wiki_templates WHERE user_id='system' AND kb_id IS NULL;" 2>$null | Select-String '"string"'
+Write-Output "prod: $($prodTpls.Count)  dev: $($devTpls.Count)"
+
+# === 对比官方 KB 分类 ===
+Write-Output "=== 各 KB 分类数量 ==="
+foreach ($env in @("mydiary-db-dev","mydiary-db")) {
+  Write-Output "--- $env ---"
+  npx wrangler d1 execute $env --remote --command "SELECT k.title, COUNT(c.id) as cnt FROM wiki_knowledge_bases k LEFT JOIN wiki_categories c ON c.kb_id=k.id WHERE k.is_official=1 GROUP BY k.id ORDER BY k.title;" 2>$null | Select-String '"title"|"cnt"' | ForEach-Object { $_.Line.Trim() }
+}
+```
+
+**发现差异后怎么修**
+
+| 差异类型 | 修法 |
+|---|---|
+| prod 缺列 | `ALTER TABLE xxx ADD COLUMN yyy TEXT DEFAULT '';`（SQLite 只支持加列） |
+| prod 列还是 NOT NULL，dev 已改可空 | SQLite 不能 ALTER NOT NULL → **重建表**：`CREATE TABLE xxx_new (...可空...); INSERT INTO xxx_new SELECT * FROM xxx; DROP TABLE xxx; ALTER TABLE xxx_new RENAME TO xxx;`（⚠️ 先 SELECT COUNT(*) 确认数据量小！） |
+| prod 缺官方模板 | 从 dev 导出 → INSERT OR IGNORE 到 prod（用 Node 脚本转 JSON → SQL） |
+| prod KB 分类少 | 先确认模板已补齐（上一步），再手动 INSERT 缺的 category（extract_hints + page_format 从 wiki_templates 子查询取） |
+
+**已修复的漂移记录（供参考）**
+
+| 日期 | 差异 | 修复 SQL |
+|---|---|---|
+| 2026-09-29 | prod wiki_knowledge_bases 缺 description 列 | `ALTER TABLE wiki_knowledge_bases ADD COLUMN description TEXT DEFAULT '';` |
+| 2026-09-29 | prod wiki_templates 缺 category 列 | `ALTER TABLE wiki_templates ADD COLUMN category TEXT DEFAULT '通用';` |
+| 2026-09-29 | prod wiki_sources.kb_id NOT NULL（dev 已改可空） | 重建 wiki_sources 表，kb_id 改为 TEXT 无约束；2 条数据无损保留 |
+| 2026-09-29 | prod wiki_templates 只有 12 个官方模板（dev 40 个） | Node 脚本从 dev 导出 40 条 → INSERT OR IGNORE 到 prod |
+| 2026-09-29 | prod 美食菜谱库缺菜谱+食材分类（模板之前缺失被跳过） | 手动 INSERT 2 条 wiki_categories，extract_hints/page_format 从 wiki_templates 子查询取 |
+
 ---
 
 ## 🔑 wrangler.toml 详解

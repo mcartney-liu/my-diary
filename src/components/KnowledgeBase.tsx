@@ -285,7 +285,7 @@ function SettingsTab(props: {
           <div className="space-y-1">
             {kbs.map(k => (
               <button key={k.id} onClick={() => onSelect(k.id)}
-                className="w-full text-left px-3 py-2 rounded-md border border-paper-line bg-paper-card hover:bg-paper-line/30 text-sm">{k.title}</button>
+                className="w-full text-left px-3 py-2 rounded-md border border-paper-line bg-paper-card hover:bg-paper-line/30 text-sm">{k.is_official ? '' : '📁 '}{k.title}</button>
             ))}
           </div>
         )}
@@ -334,7 +334,7 @@ function SettingsTab(props: {
           ) : (
             <select value={curKbId || ""} onChange={e => onSelect(e.target.value)}
               className="w-full px-3 py-2 bg-transparent text-sm cursor-pointer focus:outline-none focus:ring-1 focus:ring-paper-accent/30">
-              {kbs.map(k => <option key={k.id} value={k.id}>{k.is_official ? '🎁 ' : ''}{k.title}</option>)}
+              {kbs.map(k => <option key={k.id} value={k.id}>{k.is_official ? '🎁 ' : '📁 '}{k.title}</option>)}
             </select>
           )}
         </div>
