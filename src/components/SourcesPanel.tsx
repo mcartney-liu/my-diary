@@ -154,7 +154,7 @@ export default function SourcesPanel() {
       setNewText("");
       setNewTitle("");
       setNewTags([]);
-      setResult({ ok: true, summary: "✅ 已添加资料" });
+      setResult({ ok: true, summary: "📥 好哒，资料存下来啦～记得在下面选一个知识库，点「📥 汇入」让小麦帮你整理成实体哦 🌾" });
       refresh();
     } catch (e: any) {
       setResult({ ok: false, error: e.message || "添加失败" });
@@ -178,7 +178,7 @@ export default function SourcesPanel() {
       });
       setNewTitle("");
       setNewTags([]);
-      setResult({ ok: true, summary: `📎 已上传「${file.name}」（${text.length} 字）` });
+      setResult({ ok: true, summary: `📎 已上传「${file.name}」（${text.length} 字）～选个知识库点「📥 汇入」，小麦来帮你整理 🌾` });
       refresh();
     } catch (err: any) {
       setResult({ ok: false, error: err.message || "上传失败" });
@@ -526,7 +526,7 @@ export default function SourcesPanel() {
                 })}
               </div>
             ) : (
-              <div className="text-xs text-paper-ink3">还没有知识库 — 去「我的 → 知识」新建一个</div>
+              <div className="text-xs text-paper-ink3">🌱 还没有知识库呀～去「我的 → 知识」点「+ 新建」建一个，小麦就能帮你把资料整理成实体啦</div>
             )}
             <div className="flex gap-2 justify-end">
               <button

@@ -252,15 +252,6 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
               ))}
             </div>
             <div className="ml-auto flex gap-1">
-              {mainTab === 'list' && (
-                <>
-                  <button
-                    onClick={() => setShowPresetPicker(true)}
-                    className="px-2 py-1 rounded-md text-xs bg-paper-accent/10 text-paper-accent hover:bg-paper-accent/20 transition"
-                    title="从官方预设创建"
-                  >🎁 预设</button>
-                </>
-              )}
               <button
                 onClick={() => { setNewKbName(''); setNewKbDesc(''); setShowNewKbDialog(true); }}
                 className="px-2.5 py-1 rounded-md text-xs bg-paper-ink text-white hover:opacity-90 transition font-medium"

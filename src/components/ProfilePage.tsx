@@ -7,6 +7,7 @@ import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
 import WikiTemplatesView from "./WikiTemplatesView";
 import KnowledgeBase from "./KnowledgeBase";
+import SourcesPanel from "./SourcesPanel";
 import Captcha from "./Captcha";
 
 interface MemoryItem { id: number; type: string; content: string; confidence: number; status: string; created_at: string; }
@@ -49,7 +50,7 @@ export default function ProfilePage() {
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState("");
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"profile" | "memory" | "knowledge">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "memory" | "sources" | "knowledge">("profile");
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [profileSub, setProfileSub] = useState<"templates" | "wikiTemplates" | "papers">("templates");
@@ -458,12 +459,12 @@ export default function ProfilePage() {
           {[
             { k: "profile", label: "👤 个人" },
             { k: "memory", label: "🧠 记忆" },
-            { k: "sources", label: "📎 资料", external: true },
+            { k: "sources", label: "📎 资料" },
             { k: "knowledge", label: "🌳 知识" },
           ].map((t) => (
             <button
               key={t.k}
-              onClick={() => t.external ? nav("/sources") : setActiveTab(t.k as any)}
+              onClick={() => setActiveTab(t.k as any)}
               className={`flex-1 py-2 rounded-md text-sm transition ${
                 activeTab === t.k ? "bg-paper-card shadow-sm text-paper-ink font-medium" : "text-paper-ink2"
               }`}
@@ -582,6 +583,10 @@ export default function ProfilePage() {
               </div>
             )}
           </section>
+        )}
+
+        {activeTab === "sources" && (
+          <SourcesPanel />
         )}
 
         {activeTab === "knowledge" && (
