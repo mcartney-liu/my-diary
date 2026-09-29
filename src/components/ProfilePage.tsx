@@ -732,28 +732,29 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-     {/* === v0.5.2 当前版本（高亮） === */}
+     {/* === v0.5.3 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v0.5.2</span>
+                  <span className="font-bold text-paper-accent">v0.5.3</span>
                   <span className="text-paper-ink3 text-xs">2026年09月29日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
-                  <div><b className="text-paper-ink">🎉 新功能</b></div>
+                  <div><b className="text-paper-ink">🎨 知识库 UI 界面重构</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>📚 <b>官方知识库上线 — 一键开启你的专属知识体系</b> — 9 个预设知识库，自带分类、页面模板和 AI 提取规则：🍳 美食菜谱库（菜谱/食材/烹饪技巧）、📚 红楼梦研究（人物/事件/地点/话题，专属红楼判词/花签提示）、👤 我的人物志（家人/朋友/同事/重要角色，带与我的关系字段）、🎬 读书观影、🎙️ 播客视频库、🎓 学习笔记、💊 健康档案、📔 日记精华、🎯 目标成长；点「🎁 使用官方知识库」一键创建，也可以「手动配置」从零建</li>
-                    <li>🗂️ <b>知识库分类可自定义 AI 提取提示</b> — 每个分类新增「💡 AI 提取提示」高级设置，告诉 AI 汇入资料时应该关注什么字段；官方 KB 已经按各自特点配好了，比如红楼梦人物专属"字号/别号/居所/判词/花签"</li>
-                    <li>🗑️ <b>知识库实体删除</b> — 🌐 知识库 tab 下每个页面 hover 出垃圾桶，点二次确认即删；关联链接自动清理</li>
-                    <li>🎭 <b>3D 立体头像上线</b> — 个人中心新增头像选择，8 个卡通/立体风格头像，点个人中心头像就能换</li>
+                    <li>📚 <b>双视图切换</b> — 知识库新增🗂️卡片 / 📋列表 / 🌐图谱三种浏览方式，随时切换</li>
+                    <li>📁 <b>个人知识库图标区分</b> — 官方知识库用🎁，自己建的用📁文件夹图标，一眼分清</li>
+                    <li>🔗 <b>实体详情页统一复用</b> — 卡片和列表模式点实体都弹出完整详情（Markdown/编辑/反链/出链/双链跳转），不再两套 UI</li>
+                    <li>✨ <b>录入资料 AI 标题方式优化</b> — 标题不再被 AI 直接占满，改为下方"💡 AI 建议 — 点一下应用"，用户可以主动选也可以自己输入</li>
+                    <li>🛡️ <b>链接一致性修复</b> — 后端 wiki_links 加唯一索引，链接只从 content 里真实的 `[[双链]]` 提取，不再出现重复链接或"原文上下文未找到"</li>
                   </ul>
                 </div>
               </div>
-              {/* === v0.5.1 === */}
+              {/* === v0.5.2 === */}
               <div className="border-t border-paper-line pt-4">
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-ink">v0.5.1</span>
-                  <span className="text-paper-ink3 text-xs">2026年09月24日</span>
+                  <span className="font-bold text-paper-ink">v0.5.2</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月29日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
