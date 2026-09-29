@@ -18,6 +18,27 @@ interface ProfileData {
   stats: ProfileStats;
 }
 
+// 预设头像池（key → 本地图片路径）
+const AVATAR_POOL: { key: string; label: string }[] = [
+  { key: "avatar-plush", label: "Mint 豆包" },
+  { key: "avatar-bunny", label: "垂耳兔" },
+  { key: "avatar-cat", label: "橘猫 Wink" },
+  { key: "avatar-bear", label: "眼镜熊" },
+  { key: "avatar-fox", label: "珊瑚狐狸" },
+  { key: "avatar-pink-round", label: "粉色肉球" },
+  { key: "avatar-blue-round", label: "蓝色圆豆" },
+  { key: "avatar-purple-round", label: "紫梦豆豆" },
+];
+function avatarSrc(key?: string) {
+  if (!key) return "";
+  if (key.startsWith("http")) return key;
+  return `/avatars/${key}.jpg`;
+}
+function getAvatarImg(key?: string): string | null {
+  if (!key) return null;
+  return avatarSrc(key);
+}
+
 export default function ProfilePage() {
   const nav = useNavigate();
   const auth = useAuth();
@@ -28,6 +49,8 @@ export default function ProfilePage() {
   const [nicknameInput, setNicknameInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<"profile" | "memory" | "knowledge">("profile");
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
   const [profileSub, setProfileSub] = useState<"templates" | "papers">("templates");
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
@@ -377,9 +400,20 @@ export default function ProfilePage() {
         <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5">
           <div className="flex items-center gap-4">
             {/* 头像 */}
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-100 to-paper-surface border-2 border-paper-line/60 flex items-center justify-center text-3xl shadow-soft">
-              {user.avatar || avatarEmoji(displayName)}
-            </div>
+            <button
+              onClick={() => setShowAvatarPicker(true)}
+              className="relative group w-16 h-16 rounded-full bg-gradient-to-br from-amber-100 to-paper-surface border-2 border-paper-line/60 overflow-hidden shadow-soft transition active:scale-95"
+              title="点击更换头像"
+            >
+              {getAvatarImg(data.user.avatar) ? (
+                <img src={avatarSrc(data.user.avatar)} alt="头像" className="w-full h-full object-contain" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-3xl">{avatarEmoji(displayName)}</div>
+              )}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+                <span className="text-white text-[10px] font-medium">换头像</span>
+              </div>
+            </button>
 
             {/* 昵称 + 邮箱 */}
             <div className="flex-1 min-w-0">
@@ -691,34 +725,28 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-     {/* === v0.5.1 当前版本（高亮） === */}
+     {/* === v0.5.2 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v{__APP_VERSION__}</span>
-                  <span className="text-paper-ink3 text-xs">2026年09月24日</span>
+                  <span className="font-bold text-paper-accent">v0.5.2</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月29日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>🪟 <b>毛玻璃主题</b> — 第四套主题，官网同款；深蓝紫渐变背景 + 毛玻璃卡片 + 紫粉高亮；设置 → 主题里最后一个选项</li>
-                    <li>🌐 <b>字体设置同步后端</b> — 字体选择现在会存到数据库，换设备不丢失</li>
-                    <li>🔐 <b>修改密码</b> — 设置里新增修改密码入口（需验证）</li>
-                    <li>⏰ <b>每日提醒</b> — 设置里可以开关 + 设定每日提醒时间</li>
-                  </ul>
-                  <div><b className="text-paper-ink">🐛 Bug 修复</b></div>
-                  <ul className="list-disc pl-5 space-y-1">
-                    <li>知识库「汇入」按钮偶发报错 — 内层反引号未转义导致 JS 语法错误</li>
-                    <li>主题切换刷新后丢失 — 新增全局初始化，刷新后不再还原默认主题</li>
-                    <li>日历今天高亮 — 玻璃主题下今天日期默认紫粉渐变，选中其他日期时今天自动变渐变</li>
+                    <li>📚 <b>官方知识库上线 — 一键开启你的专属知识体系</b> — 9 个预设知识库，自带分类、页面模板和 AI 提取规则：🍳 美食菜谱库（菜谱/食材/烹饪技巧）、📚 红楼梦研究（人物/事件/地点/话题，专属红楼判词/花签提示）、👤 我的人物志（家人/朋友/同事/重要角色，带与我的关系字段）、🎬 读书观影、🎙️ 播客视频库、🎓 学习笔记、💊 健康档案、📔 日记精华、🎯 目标成长；点「🎁 使用官方知识库」一键创建，也可以「手动配置」从零建</li>
+                    <li>🗂️ <b>知识库分类可自定义 AI 提取提示</b> — 每个分类新增「💡 AI 提取提示」高级设置，告诉 AI 汇入资料时应该关注什么字段；官方 KB 已经按各自特点配好了，比如红楼梦人物专属"字号/别号/居所/判词/花签"</li>
+                    <li>🗑️ <b>知识库实体删除</b> — 🌐 知识库 tab 下每个页面 hover 出垃圾桶，点二次确认即删；关联链接自动清理</li>
+                    <li>🎭 <b>3D 立体头像上线</b> — 个人中心新增头像选择，8 个卡通/立体风格头像，点个人中心头像就能换</li>
                   </ul>
                 </div>
               </div>
-              {/* === v0.4.1 === */}
+              {/* === v0.5.1 === */}
               <div className="border-t border-paper-line pt-4">
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-ink">v0.4.1</span>
-                  <span className="text-paper-ink3 text-xs">2026年09月20日</span>
+                  <span className="font-bold text-paper-ink">v0.5.1</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月24日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
@@ -1077,6 +1105,44 @@ export default function ProfilePage() {
                 onClick={() => setShowRemindModal(false)}
                 className="w-full py-2.5 rounded-lg bg-paper-accent text-paper-card font-medium hover:opacity-90 transition"
               >完成</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 头像选择器 Modal */}
+      {showAvatarPicker && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAvatarPicker(false)}>
+          <div className="w-full sm:max-w-md bg-paper-bg rounded-t-2xl sm:rounded-card shadow-card border border-paper-line overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 pt-4 pb-2 border-b border-paper-line/60">
+              <h3 className="text-paper-ink font-semibold text-lg">🎨 选个头像</h3>
+              <button className="text-paper-ink2 hover:text-paper-ink text-xl leading-none" onClick={() => setShowAvatarPicker(false)}>✕</button>
+            </div>
+            <div className="p-5">
+              <div className="grid grid-cols-4 gap-3">
+                {AVATAR_POOL.map(o => {
+                  const active = data.user.avatar === o.key;
+                  return (
+                    <button
+                      key={o.key}
+                      disabled={avatarSaving}
+                      onClick={async () => {
+                        setAvatarSaving(true);
+                        try {
+                          await patchProfile({ avatar: o.key });
+                          setData(prev => prev ? { ...prev, user: { ...prev.user, avatar: o.key } } : prev);
+                          setShowAvatarPicker(false);
+                        } catch { alert("保存失败，请重试"); }
+                        finally { setAvatarSaving(false); }
+                      }}
+                      className={`aspect-square rounded-full border-2 overflow-hidden flex items-center justify-center transition active:scale-95 ${active ? "border-paper-accent ring-2 ring-paper-accent/30" : "border-paper-line hover:border-paper-ink3"} ${avatarSaving ? "opacity-50" : ""}`}
+                    >
+                      <img src={avatarSrc(o.key)} alt={o.label} className="w-full h-full object-contain" />
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-paper-ink3 text-center mt-4">点击图片更换头像，当前选中的会有高亮边框</p>
             </div>
           </div>
         </div>

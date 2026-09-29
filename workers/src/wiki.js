@@ -1,4 +1,4 @@
-﻿/**
+/**
  * LLM Wiki 知识库模块 v4 — Handlers
  * 多知识库 + 分类-模板 1:1 绑定
  */
@@ -16,39 +16,115 @@ function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...cors } });
 }
 
+// ====== DB 日志（tail 连不上时的替代日志通路） ======
+async function dblog(env, tag, msg, data = null) {
+  try {
+    await env.DB.prepare(
+      "INSERT INTO wiki_debug_log (id, ts, tag, msg, data) VALUES (?,?,?,?,?)"
+    ).bind(uuid(), Date.now(), tag, String(msg).slice(0, 500), data !== null ? JSON.stringify(data).slice(0, 2000) : null).run();
+  } catch {}
+}
+
 async function auth(request, env, JWT_SECRET) {
   const { authUser } = await import('./auth.js');
   return authUser(request, JWT_SECRET);
+}
+
+// ====== AI 调用（优先 Agnes，fallback Workers AI，temperature 低保证 JSON 稳定） ======
+const WIKI_LLM_MODEL = 'agnes-3.0-flash';
+const WIKI_WORKERS_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
+async function wikiCallLLM(env, messages, maxTokens = 4096) {
+  const endpoint = String(env.AGNES_ENDPOINT || '').replace(/^\uFEFF+/, '').trim();
+  const apiKey = String(env.AGNES_API_KEY || '').replace(/^\uFEFF+/, '').trim();
+  await dblog(env, 'ingest', 'LLM_ENV', { hasEndpoint: !!endpoint, hasKey: !!apiKey, endpointPrefix: endpoint.slice(0, 30), model: WIKI_LLM_MODEL });
+  console.log('[wiki] wikiCallLLM:', { hasEndpoint: !!endpoint, hasKey: !!apiKey, model: WIKI_LLM_MODEL, maxTokens });
+  if (apiKey && endpoint) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 90000);
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model: WIKI_LLM_MODEL, messages, max_tokens: maxTokens, temperature: 0.1 }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      console.log('[wiki] Agnes status:', res.status);
+      if (res.ok) {
+        const data = await res.json();
+        const content = data?.choices?.[0]?.message?.content || '';
+        console.log('[wiki] Agnes content preview:', (content || '').slice(0, 100));
+        if (content) {
+          await dblog(env, 'ingest', 'LLM_AGNES_OK', { contentLen: content.length });
+          return content;
+        }
+        console.warn('[wiki] Agnes 返回空 content，完整响应:', JSON.stringify(data).slice(0, 300));
+        await dblog(env, 'ingest', 'LLM_AGNES_EMPTY', { respPreview: JSON.stringify(data).slice(0, 200) });
+      } else {
+        const errText = await res.text().catch(() => '');
+        console.warn('[wiki] Agnes HTTP', res.status, errText.slice(0, 200));
+        await dblog(env, 'ingest', 'LLM_AGNES_HTTP_ERR', { status: res.status, err: errText.slice(0, 200) });
+      }
+    } catch (e) {
+      console.warn('[wiki] Agnes 异常，fallback Workers AI:', e.message);
+      await dblog(env, 'ingest', 'LLM_AGNES_EXCEPTION', { msg: e.message });
+    }
+  } else {
+    await dblog(env, 'ingest', 'LLM_NO_SECRETS', { hasEndpoint: !!endpoint, hasKey: !!apiKey });
+  }
+  // fallback: Workers AI
+  console.log('[wiki] fallback Workers AI llama-3.1-8b');
+  await dblog(env, 'ingest', 'LLM_FALLBACK_WORKERS', { model: WIKI_WORKERS_MODEL });
+  const r = await env.AI.run(WIKI_WORKERS_MODEL, { messages, max_tokens: maxTokens, temperature: 0.1 });
+  return r.response || '';
 }
 
 // ====== KB ======
 export async function handleWikiListKbs(request, env, JWT_SECRET) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
-  const rows = await env.DB.prepare("SELECT id, title, created_at, updated_at FROM wiki_knowledge_bases WHERE user_id = ? ORDER BY created_at DESC")
+
+  // 自动 seed：确保所有 active 的官方预设都存在（幂等，已有则跳过）
+  try {
+    for (const preset of OFFICIAL_KB_PRESETS) {
+      if (preset.active !== false) await seedOfficialPreset(env, user.uid, preset);
+    }
+  } catch (e) {
+    console.error('[wiki] auto-seed failed, continue to list kbs:', e);
+  }
+
+  const rows = await env.DB.prepare("SELECT id, slug, title, description, is_official, created_at, updated_at FROM wiki_knowledge_bases WHERE user_id = ? ORDER BY is_official DESC, created_at DESC")
     .bind(user.uid).all();
+  console.log('[wiki] listKbs uid=', user.uid, 'count=', rows.results.length);
   return json({ kbs: rows.results });
 }
 
 export async function handleWikiAddKb(request, env, JWT_SECRET) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
-  const { title } = await readBody(request);
+  const { title, description } = await readBody(request);
   if (!title) return json({ error: "title required" }, 400);
   const now = Date.now();
   const id = uuid();
-  await env.DB.prepare("INSERT INTO wiki_knowledge_bases (id, user_id, title, created_at, updated_at) VALUES (?,?,?,?,?)")
-    .bind(id, user.uid, title, now, now).run();
-  return json({ id, title, ok: true }, 201);
+  await env.DB.prepare("INSERT INTO wiki_knowledge_bases (id, user_id, title, description, created_at, updated_at) VALUES (?,?,?,?,?,?)")
+    .bind(id, user.uid, title, description || '', now, now).run();
+  return json({ id, title, description: description || '', ok: true }, 201);
 }
 
 export async function handleWikiUpdateKb(request, env, JWT_SECRET, params) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
-  const { title } = await readBody(request);
+  const body = await readBody(request);
   const now = Date.now();
-  await env.DB.prepare("UPDATE wiki_knowledge_bases SET title=?, updated_at=? WHERE id=? AND user_id=?")
-    .bind(title, now, params.kb_id, user.uid).run();
+  const sets = [];
+  const args = [];
+  if (body.title !== undefined) { sets.push('title=?'); args.push(body.title); }
+  if (body.description !== undefined) { sets.push('description=?'); args.push(body.description); }
+  if (sets.length === 0) return json({ ok: true });
+  sets.push('updated_at=?');
+  args.push(now, params.kb_id, user.uid);
+  await env.DB.prepare(`UPDATE wiki_knowledge_bases SET ${sets.join(', ')} WHERE id=? AND user_id=?`)
+    .bind(...args).run();
   return json({ ok: true });
 }
 
@@ -56,6 +132,12 @@ export async function handleWikiDeleteKb(request, env, JWT_SECRET, params) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
   const kbId = params.kb_id;
+
+  // 官方 KB 不让删
+  const kb = await env.DB.prepare("SELECT is_official FROM wiki_knowledge_bases WHERE id=? AND user_id=?").bind(kbId, user.uid).first();
+  if (!kb) return json({ error: "kb not found" }, 404);
+  if (kb.is_official) return json({ error: "官方知识库不可删除" }, 403);
+
   // 级联删所有数据
   for (const t of ['wiki_pages', 'wiki_links', 'wiki_sources', 'wiki_categories']) {
     await env.DB.prepare(`DELETE FROM ${t} WHERE kb_id=? AND user_id=?`).bind(kbId, user.uid).run();
@@ -129,15 +211,17 @@ export async function handleWikiUpdateCategory(request, env, JWT_SECRET, params)
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
   const body = await readBody(request);
-  const { id, name, page_format } = body;
+  const { id, name, page_format, extract_hints } = body;
   if (!id) return json({ error: "id required" }, 400);
   const now = Date.now();
   const sets = []; const binds = [];
   if (name !== undefined) { sets.push('name=?'); binds.push(name); sets.push('slug=?'); binds.push(autoSlug(name)); }
   if (page_format !== undefined) {
     sets.push('page_format=?'); binds.push(page_format);
-    sets.push('extract_hints=?'); binds.push(autoExtractHints(page_format));
+    // 只有调用方没显式传 extract_hints 时才 auto 生成（调用方传了就尊重它的）
+    if (extract_hints === undefined) { sets.push('extract_hints=?'); binds.push(autoExtractHints(page_format)); }
   }
+  if (extract_hints !== undefined) { sets.push('extract_hints=?'); binds.push(extract_hints); }
   if (sets.length === 0) return json({ ok: true });
   sets.push('updated_at=?'); binds.push(now);
   binds.push(id); binds.push(params.kb_id); binds.push(user.uid);
@@ -405,10 +489,18 @@ export async function handleWikiGetPage(request, env, JWT_SECRET, params) {
   const page = await env.DB.prepare("SELECT * FROM wiki_pages WHERE id=? AND kb_id=? AND user_id=?")
     .bind(params.page_id, params.kb_id, user.uid).first();
   if (!page) return json({ error: "not found" }, 404);
-  const outlinks = await env.DB.prepare("SELECT to_title, relation FROM wiki_links WHERE kb_id=? AND from_title=?")
-    .bind(params.kb_id, page.title).all();
-  const backlinks = await env.DB.prepare("SELECT from_title, relation FROM wiki_links WHERE kb_id=? AND to_title=?")
-    .bind(params.kb_id, page.title).all();
+  const outlinks = await env.DB.prepare(`
+    SELECT l.to_title, l.relation, p.id AS to_page_id, p.is_system AS to_is_system
+    FROM wiki_links l
+    LEFT JOIN wiki_pages p ON p.kb_id=l.kb_id AND p.user_id=l.user_id AND p.title=l.to_title
+    WHERE l.kb_id=? AND l.from_title=?
+  `).bind(params.kb_id, page.title).all();
+  const backlinks = await env.DB.prepare(`
+    SELECT l.from_title, l.relation, p.id AS from_page_id, p.is_system AS from_is_system
+    FROM wiki_links l
+    LEFT JOIN wiki_pages p ON p.kb_id=l.kb_id AND p.user_id=l.user_id AND p.title=l.from_title
+    WHERE l.kb_id=? AND l.to_title=?
+  `).bind(params.kb_id, page.title).all();
   return json({ page, outlinks: outlinks.results, backlinks: backlinks.results });
 }
 
@@ -433,6 +525,28 @@ export async function handleWikiUpdatePage(request, env, JWT_SECRET, params) {
   ).bind(...binds).run();
 
   return json({ ok: true });
+}
+
+// DELETE /wiki/:kb_id/pages/:page_id — 删除单个页面（同时清理 wiki_links 关联）
+export async function handleWikiDeletePage(request, env, JWT_SECRET, params) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const pageId = params.page_id;
+  if (!pageId) return json({ error: "page_id required" }, 400);
+
+  // 先拿页面信息，确认归属和非系统页
+  const page = await env.DB.prepare("SELECT id, title, is_system FROM wiki_pages WHERE id=? AND kb_id=? AND user_id=?")
+    .bind(pageId, params.kb_id, user.uid).first();
+  if (!page) return json({ error: "page not found" }, 404);
+  if (page.is_system === 1) return json({ error: "system page cannot be deleted" }, 400);
+
+  // 删页面 + 清理双向链接 + 清理 source_ids 里的引用
+  await env.DB.prepare("DELETE FROM wiki_pages WHERE id=? AND kb_id=? AND user_id=?")
+    .bind(pageId, params.kb_id, user.uid).run();
+  await env.DB.prepare("DELETE FROM wiki_links WHERE from_page_id=? OR to_page_id=?")
+    .bind(pageId, pageId).run();
+
+  return json({ ok: true, deleted_title: page.title });
 }
 
 // POST generate-entity — 给 AI 生成一个新实体页面
@@ -476,13 +590,10 @@ ${source_text.slice(0, 3000)}
 3. 提到其他已有页面的地方用 [[页面名]] 链接
 4. 如果模板里有 {{占位符}} 但资料里没有对应信息，就删掉那段`;
 
-  const resp = await env.AI.run("@cf/meta/llama-3.1-8b-instruct-fp8", {
-    prompt: system,
-    system: "你是严谨的知识整理助手，不编造信息。",
-    max_tokens: 1500,
-  });
-
-  const md = (resp.response || "").trim();
+  const md = await wikiCallLLM(env, [
+    { role: 'system', content: system },
+    { role: 'user', content: source_text }
+  ], 1500).then(s => (s || '').trim());
   const summaryMatch = md.match(/^#\s+[^\n]+\n\n([^\n]{10,80})/m);
   const summary = summaryMatch ? summaryMatch[1] : "";
   const now = Date.now();
@@ -556,15 +667,27 @@ export async function handleWikiSearch(request, env, JWT_SECRET, params) {
 
 // ====== 核心：汇入 ======
 function buildWikiSystemPrompt(kb, categories, existingPages) {
-  let catSection = categories.map(c => `## ${c.name} (slug: ${c.slug})\n- 提取提示：${c.extract_hints}\n- 页面格式（Markdown）：\n${c.page_format}`).join('\n\n');
+  let catSection = categories.map(c => {
+    // 剥掉模板第一行的 `# {{xxx}}\n`——title 字段已经是页面标题，content 从 ## 开始
+    const fmt = (c.page_format || '').replace(/^#\s*[^\n]*\n+/, '');
+    return `## ${c.name} (slug: ${c.slug})\n- 提取提示：${c.extract_hints}\n- 页面格式（Markdown，模板的第一行#标题已自动省略，正文直接从 ## 开始）：\n${fmt}`;
+  }).join('\n\n');
   if (!catSection) catSection = '（暂无分类，请按通用格式整理）';
 
-  // 已有页面内容 — 让 AI 能真正"更新"而非盲吐
+  // 已有页面 title 列表（只传标题+分类，不传 content，防止 AI 因"内容一样"就跳过 update / 跳过技巧拆分）
+  // 代码侧会按 title 做精确/模糊匹配，content 整合也由代码处理
   let existingSection = '（知识库当前为空，首次汇入）';
   if (existingPages && existingPages.length > 0) {
-    existingSection = existingPages.map(p =>
-      `### [[${p.title}]]${p.category ? '（' + p.category + '）' : ''}\n${p.content}`
-    ).join('\n\n---\n\n');
+    // 按分类分组展示，清晰易读
+    const grouped = {};
+    for (const p of existingPages) {
+      const cat = p.category || '未分类';
+      if (!grouped[cat]) grouped[cat] = [];
+      grouped[cat].push(p.title);
+    }
+    existingSection = Object.entries(grouped)
+      .map(([cat, titles]) => `- **${cat}**：${titles.map(t => `[[${t}]]`).join('、')}`)
+      .join('\n');
   }
 
   return `# 关于这个知识库
@@ -586,11 +709,18 @@ ${existingSection}
 
 ## 资料汇入与整理规则
 1. **先看上面已有页面**，判断新资料里的人物/事件是否已存在。
-2. **已存在的 → 更新**：把新资料整合进去，返回的 content 必须是整合后的完整内容（包含旧信息 + 新资料补充的信息）。
+2. **已存在的 → 必须 update**：只要新资料里有**任何一点**新信息（哪怕是小贴士、评价、或做法上的细微差异），都必须返回 \`action: "update"\`，content 是整合旧页面完整内容 + 新资料补充后的**新版本**。**不能因为"差不多"就跳过**。
 3. **全新条目 → 新建**：严格按对应分类的模板格式写。
-4. 页面内容严格按模板格式，用 Markdown（# 大标题、## 小标题、加粗、列表等）。
-5. 每个页面至少用 [[页面名]] 链接一个相关页面，不能孤立。
-6. 简单流畅的白话，不编造资料里没有的信息。
+4. **同一实体出现在多份资料里时，必须单独建页**（不管它看起来多"次要"）。例如"番茄"在番茄炒蛋、土豆烧排骨里都出现了，就必须在"食材"分类下建"番茄"页面，而不是只在菜谱正文里提 [[番茄]]。
+5. **技巧独立建页**：资料里每道菜都有「烹饪技巧/小贴士」段落，**不要只写在菜谱的 [[链接]] 里**——要把这些技巧按**类型合并**，在「烹饪技巧」分类下独立建页。例如：
+   - 5 道菜都提到"上浆/腌料"相关 → 合并建《肉丝上浆技巧》页
+   - 多道菜提到"火候控制" → 合并建《大火快炒火候》页
+   - 清蒸鲈鱼有"去腥技巧" → 独立建《蒸鱼去腥技巧》页
+   技巧页的 title 要**具体可检索**（如"蒸鱼去腥技巧"而非"技巧1"），content 里引用 [[清蒸鲈鱼]] [[番茄炒蛋]] 等关联菜谱。
+6. **仅在单份资料里顺带提及、且无独立主题的实体**（比如"适量盐"、"少许油"这种泛指或微不足道的东西），可以不单独建页，只在正文里加 [[链接]] 即可。
+7. 页面内容严格按模板格式，用 Markdown（## 小标题、### 小节、加粗、列表等）。**注意：content 开头绝对不能出现 # 大标题——title 字段已经是页面标题了。模板里如果第一行是井号加大括号占位符（比如"# 菜名"），生成时直接跳过那行，正文从模板的第一个 ## 开始。**
+8. **双向链接原则**：如果页面 A 的 content 里写了 [[B]]，页面 B 的 content 里也必须写 [[A]]。所有跨页面的关系必须双向显式声明，不能只单边链接。比如布洛芬写了 [[胃胀气]]，胃胀气也必须写 [[布洛芬]]。
+9. 简单流畅的白话，不编造资料里没有的信息。
 
 ## 输出格式 — 严格 JSON，不要解释文字或 markdown 代码块
 {
@@ -625,11 +755,43 @@ function stripJsonFences(text) {
   return t;
 }
 
+// AI 输出的 JSON 常见问题：content 里有实际换行符、引号未转义、尾部被截断
+// 用正则逐字段提取 pages 数组，绕过 JSON.parse 的严格限制
+function repairAiJson(text) {
+  if (!text) return null;
+  // 先试原生 parse
+  try { return JSON.parse(stripJsonFences(text)); } catch {}
+
+  const stripped = stripJsonFences(text);
+  // 兜底：用宽松模式替换实际换行符（在字符串内部）
+  let fixed = stripped;
+  // 把字符串内部的裸换行替换为 \n
+  fixed = fixed.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(?=\s*[:\[\],}])/g, (m, inner) => {
+    return '"' + inner.replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"';
+  });
+  try { return JSON.parse(fixed); } catch {}
+
+  // 最后一招：暴力截断到最后一个完整的 }
+  const lastBrace = stripped.lastIndexOf('}');
+  if (lastBrace > 0) {
+    const truncated = stripped.substring(0, lastBrace + 1);
+    try { return JSON.parse(truncated); } catch {}
+    // 再次宽松替换
+    fixed = truncated.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(?=\s*[:\[\],}])/g, (m, inner) => {
+      return '"' + inner.replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"';
+    });
+    try { return JSON.parse(fixed); } catch {}
+  }
+  return null;
+}
+
 export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
   const kb = await ensureKb(env, user.uid, params.kb_id);
   if (!kb) return json({ error: "kb not found" }, 404);
+
+  await dblog(env, 'ingest', 'START', { kb_id: params.kb_id, kb_title: kb.title });
 
   // 支持 body: { ids: ['id1','id2'] } 只汇入选中的；不传 ids 或空数组就汇入全部待处理
   let bodyIds = null;
@@ -637,6 +799,7 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
 
   const categoriesR = await env.DB.prepare("SELECT * FROM wiki_categories WHERE kb_id=? ORDER BY sort_order").bind(params.kb_id).all();
   const categories = categoriesR.results;
+  await dblog(env, 'ingest', 'CATEGORIES_LOADED', { count: categories.length, slugs: categories.map(c => c.slug) });
 
   // 拉已有页面（让 AI 能判断哪些该更新）
   const catIdToName = Object.fromEntries(categories.map(c => [c.id, c.name]));
@@ -650,44 +813,119 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   }));
 
   // 资料可以 kb_id 绑定 OR tags 打标签（全局化后的兼容）
-  let sql = "SELECT * FROM wiki_sources WHERE ingested=0 AND (kb_id=? OR tags LIKE ? OR tags LIKE ?)";
-  const binds = [params.kb_id, '%"' + params.kb_id + '"%', '%' + params.kb_id + '%'];
+  // 有 bodyIds 时：OR 并列 id IN 和 kb/tags 条件，让裸资料(kb_id=null, tags=[])也能被命中
+  let sql, binds;
   if (bodyIds) {
     const ph = bodyIds.map(() => '?').join(',');
-    sql += ` AND id IN (${ph})`;
-    binds.push(...bodyIds);
+    sql = `SELECT * FROM wiki_sources WHERE ingested=0 AND (id IN (${ph}) OR kb_id=? OR tags LIKE ? OR tags LIKE ?)`;
+    binds = [...bodyIds, params.kb_id, '%"' + params.kb_id + '"%', '%' + params.kb_id + '%'];
+  } else {
+    // source 归属判定：kb_id 直接绑 OR tags 里打过 kb_id 标签都算有效
+    // 只有 kb_id IS NULL 且 tags 里也没有 kb_id 的才是"无主"source，不能被自动匹配进任何 KB
+    sql = "SELECT * FROM wiki_sources WHERE ingested=0 AND (kb_id=? OR tags LIKE ? OR tags LIKE ?)";
+    binds = [params.kb_id, '%"' + params.kb_id + '"%', '%' + params.kb_id + '%'];
   }
   sql += " ORDER BY created_at ASC";
   const pendingR = await env.DB.prepare(sql).bind(...binds).all();
   const pending = pendingR.results;
-  if (pending.length === 0) return json({ ok: true, message: bodyIds ? "选中的资料都已汇入" : "没有待处理的资料" });
+  await dblog(env, 'ingest', 'PENDING_QUERIED', { count: pending.length, ids: pending.map(s => s.id) });
+  if (pending.length === 0) {
+    await dblog(env, 'ingest', 'DONE_NO_PENDING');
+    return json({ ok: true, message: bodyIds ? "选中的资料都已汇入" : "没有待处理的资料" });
+  }
 
   const systemPrompt = buildWikiSystemPrompt(kb, categories, existingPages);
   const allPending = pending.map((s, i) => `--- 资料 ${i+1}：${s.title || (s.kind==='diary'?'日记':'文本')} (${s.kind}) ---\n${s.raw_text}`).join('\n\n');
 
   const BATCH_SIZE = 5;
-  let allPages = [], allLinks = [], allLogs = [];
+  let allPages = [], allLinks = [], allLogs = [], debugRaws = [];
+  const processedSourceIds = new Set(); // 只标记实际处理成功的 source
   for (let i = 0; i < pending.length; i += BATCH_SIZE) {
     const batch = pending.slice(i, i + BATCH_SIZE);
     const batchMsg = batch.map((s, j) => `--- 资料 ${i+j+1}：${s.title || '资料'} (${s.kind}) ---\n${s.raw_text}`).join('\n\n');
-    let result;
+    let rawText;
     try {
-      result = await env.AI.run('@cf/meta/llama-3.1-8b-instruct-fp8', {
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: `请将资料汇入知识库\n\n${batchMsg}` }
-        ],
-        max_tokens: 4096
-      });
-    } catch (e) { console.error('[wiki] AI fail:', e.message); continue; }
+      rawText = await wikiCallLLM(env, [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `请将资料汇入知识库\n\n${batchMsg}` }
+      ], 8192);
+      console.log('[wiki] batch', i, 'rawText preview:', (rawText || '').slice(0, 300));
+      await dblog(env, 'ingest', 'AI_RAW', { batch: i, preview: (rawText || '').slice(0, 500) });
+      debugRaws.push({ batch: i, rawTextLen: rawText?.length || 0, preview: (rawText || '').slice(0, 500) });
+    } catch (e) { console.error('[wiki] AI fail:', e.message); await dblog(env, 'ingest', 'AI_FAIL', { batch: i, error: e.message }); debugRaws.push({ batch: i, error: e.message }); continue; }
 
-    let parsed;
-    try { parsed = JSON.parse(stripJsonFences(result.response || result.text || '')); }
-    catch { console.error('[wiki] parse fail'); continue; }
+    let parsed = repairAiJson(rawText || '');
+    if (!parsed) {
+      console.error('[wiki] parse fail, raw tail:', (rawText || '').slice(-500));
+      // 存完整 raw 到日志（dblog 的 data 字段能撑下 ~10KB）
+      await dblog(env, 'ingest', 'PARSE_FAIL', { batch: i, rawLen: rawText?.length || 0, raw: (rawText || '').slice(0, 8000) });
+      debugRaws.push({ batch: i, parseError: true, rawLen: rawText?.length || 0 });
+      continue;
+    }
+
+    // Normalize: AI sometimes groups by category slug instead of returning pages array
+    // or returns empty pages array but has category keys at top level
+    const validSlugs = new Set(categories.map(c => c.slug));
+    const hasGroupedKeys = Object.keys(parsed).some(k => validSlugs.has(k));
+    if ((!Array.isArray(parsed.pages) || parsed.pages.length === 0) && hasGroupedKeys) {
+      const normalizedPages = [];
+      for (const [key, val] of Object.entries(parsed)) {
+        if (!validSlugs.has(key)) continue;
+        if (!val || typeof val !== 'object') continue;
+        if (Array.isArray(val)) {
+          for (const item of val) {
+            if (item && typeof item === 'object' && item.title) {
+              normalizedPages.push({ category_slug: key, action: 'create', summary: item.summary || '', content: item.content || '', ...item });
+            }
+          }
+        } else if (val.title) {
+          normalizedPages.push({ category_slug: key, action: 'create', summary: val.summary || '', content: val.content || JSON.stringify(val), ...val });
+        } else {
+          for (const [name, detail] of Object.entries(val)) {
+            if (typeof detail === 'string') {
+              normalizedPages.push({ title: name, category_slug: key, action: 'create', summary: detail.slice(0, 60), content: '## ' + name + '\n\n' + detail });
+            } else if (detail && typeof detail === 'object') {
+              const md = Object.entries(detail).map(([k,v]) => `- **${k}**：${Array.isArray(v) ? v.join('、') : v}`).join('\n');
+              normalizedPages.push({ title: name, category_slug: key, action: 'create', summary: '', content: '## ' + name + '\n\n' + md });
+            }
+          }
+        }
+      }
+      parsed.pages = normalizedPages;
+      console.log('[wiki] normalized from grouped format:', normalizedPages.length, 'pages');
+      await dblog(env, 'ingest', 'NORMALIZED', { batch: i, pages: normalizedPages.length, first: normalizedPages[0]?.title || null });
+    }
+
+    console.log('[wiki] parsed:', { pages: parsed.pages?.length, links: parsed.links?.length, firstTitle: parsed.pages?.[0]?.title || null });
+    await dblog(env, 'ingest', 'PARSED_OK', { batch: i, pages: parsed.pages?.length || 0, links: parsed.links?.length || 0, page_cats: (parsed.pages || []).map(p => ({ title: p.title, slug: p.category_slug })) });
+
+    // ===== 代码侧校验（补 AI 可能跑偏的地方）=====
+    if (Array.isArray(parsed.pages)) {
+      const validSlugsSet = new Set(categories.map(c => c.slug));
+      const defaultCatSlug = categories[0]?.slug || null; // 兜底：第一个分类
+      const fixedPages = [];
+      for (const p of parsed.pages) {
+        // 1) slug 白名单校验
+        if (!p.category_slug || !validSlugsSet.has(p.category_slug)) {
+          await dblog(env, 'ingest', 'SLUG_INVALID', { batch: i, title: p.title, badSlug: p.category_slug, validSlugs: [...validSlugsSet] });
+          if (defaultCatSlug) {
+            p.category_slug = defaultCatSlug;
+            await dblog(env, 'ingest', 'SLUG_FALLBACK', { batch: i, title: p.title, fallbackSlug: defaultCatSlug });
+          } else {
+            p.category_slug = null; // 彻底没有分类时，写入后 category_id 就是 null
+          }
+        }
+        fixedPages.push(p);
+      }
+      parsed.pages = fixedPages;
+      await dblog(env, 'ingest', 'VALIDATED', { batch: i, pages: parsed.pages.length, validSlugs: [...validSlugsSet] });
+    }
+    // =============================================
 
     if (parsed.pages) allPages = allPages.concat(parsed.pages);
     if (parsed.links) allLinks = allLinks.concat(parsed.links);
     if (parsed.log_entry) allLogs.push(parsed.log_entry);
+    batch.forEach(s => processedSourceIds.add(s.id)); // batch 处理成功才标记
   }
 
   const now = Date.now();
@@ -695,50 +933,56 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   const pendingSourceIds = pending.map(s => s.id);
   const newPages = [];
   let createdCount = 0, updatedCount = 0;
+  const pageDebug = []; // 每一页的处理轨迹
 
   // 收集 AI 返回的 title → summary 映射（用于后面生成目录）
   const summaryMap = new Map();
 
   for (const p of allPages) {
-    if (!p.title) continue;
+    if (!p.title) { pageDebug.push({ title: '(empty)', branch: 'skip-no-title' }); continue; }
     const catId = slugToCatId[p.category_slug] || null;
     const summary = (p.summary || '').trim().slice(0, 80);
     if (summary) summaryMap.set(p.title, summary);
+    pageDebug.push({ title: p.title, category_slug: p.category_slug, catIdFound: !!catId, contentLen: (p.content || '').length });
 
-    // 先精确匹配，失败再模糊包含匹配（防 AI 给了「三国人物·张飞」vs 已有「张飞」）
-    let existing = await env.DB.prepare("SELECT id, title, source_ids FROM wiki_pages WHERE kb_id=? AND title=?")
-      .bind(params.kb_id, p.title).first();
-    if (!existing) {
-      // 模糊匹配：title 互相包含，取更短的那个（更通用的名称）
-      const fuzzy = await env.DB.prepare(
-        "SELECT id, title, source_ids FROM wiki_pages WHERE kb_id=? AND is_system=0 AND (title LIKE ? OR ? LIKE '%' || title || '%') ORDER BY length(title) ASC LIMIT 1"
-      ).bind(params.kb_id, '%' + p.title + '%', p.title).first();
-      if (fuzzy) {
-        existing = fuzzy;
-        // 用已有短名替换 AI 给的长名
-        p.title = fuzzy.title;
+    try {
+      // 先精确匹配，失败再模糊包含匹配（防 AI 给了「三国人物·张飞」vs 已有「张飞」）
+      let existing = await env.DB.prepare("SELECT id, title, source_ids, category_id FROM wiki_pages WHERE kb_id=? AND title=?")
+        .bind(params.kb_id, p.title).first();
+      if (!existing) {
+        // 双向模糊：只选"已有 title 是 AI title 子串"的情况（张飞 ⊂ 三国人物·张飞）
+        // 排除"AI title 是已有 title 子串"的情况（青椒 ⊂ 青椒炒肉丝 → 误伤！）
+        const fuzzy = await env.DB.prepare(
+          "SELECT id, title, source_ids, category_id FROM wiki_pages WHERE kb_id=? AND is_system=0 AND ? LIKE '%' || title || '%' AND LENGTH(title) < LENGTH(?) ORDER BY length(title) DESC LIMIT 1"
+        ).bind(params.kb_id, p.title, p.title).first();
+        if (fuzzy) {
+          existing = fuzzy;
+          pageDebug[pageDebug.length-1].fuzzyMatch = fuzzy.title;
+          p.title = fuzzy.title;
+        }
       }
-    }
 
-    if (existing) {
-      // 已有页面 → AI 应返回了整合后的完整 content，直接替换
-      let prevSources = [];
-      try { prevSources = JSON.parse(existing.source_ids || '[]'); } catch {}
-      const allSources = Array.from(new Set([...prevSources, ...pendingSourceIds]));
-
-      await env.DB.prepare(
-        "UPDATE wiki_pages SET content=?, category_id=?, source_ids=?, summary=?, updated_at=? WHERE id=?"
-      ).bind(p.content, catId, JSON.stringify(allSources), summary || null, now, existing.id).run();
-      updatedCount++;
-    } else {
-      // 新页面
-      const id = uuid();
-      await env.DB.prepare(
-        "INSERT INTO wiki_pages (id, kb_id, user_id, category_id, title, content, summary, source_ids, is_system, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,0,?,?)"
-      ).bind(id, params.kb_id, user.uid, catId, p.title, p.content, summary || null, JSON.stringify(pendingSourceIds), now, now).run();
-      newPages.push({ id, title: p.title });
-      createdCount++;
-    }
+      if (existing) {
+        let prevSources = [];
+        try { prevSources = JSON.parse(existing.source_ids || '[]'); } catch {}
+        const allSources = Array.from(new Set([...prevSources, ...pendingSourceIds]));
+        await dblog(env, 'ingest', 'PAGE_UPDATE', { title: p.title, slug: p.category_slug, catId: catId, existingCatId: existing.category_id });
+        await env.DB.prepare(
+          "UPDATE wiki_pages SET content=?, category_id=?, source_ids=?, summary=?, updated_at=? WHERE id=?"
+        ).bind(p.content, catId, JSON.stringify(allSources), summary || null, now, existing.id).run();
+        updatedCount++;
+        pageDebug[pageDebug.length-1].branch = 'update';
+      } else {
+        const id = uuid();
+        await dblog(env, 'ingest', 'PAGE_INSERT', { title: p.title, slug: p.category_slug, catId: catId });
+        await env.DB.prepare(
+          "INSERT INTO wiki_pages (id, kb_id, user_id, category_id, title, content, summary, source_ids, is_system, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,0,?,?)"
+        ).bind(id, params.kb_id, user.uid, catId, p.title, p.content, summary || null, JSON.stringify(pendingSourceIds), now, now).run();
+        newPages.push({ id, title: p.title });
+        createdCount++;
+        pageDebug[pageDebug.length-1].branch = 'insert';
+      }
+    } catch (e) { pageDebug[pageDebug.length-1].branch = 'ERROR'; pageDebug[pageDebug.length-1].error = e.message; console.error('[wiki] page save fail:', e.message, 'title=', p.title); /* 跳过有问题的 page */ }
   }
 
   // links
@@ -755,6 +999,84 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
     const [from, to] = pair.split('||');
     await env.DB.prepare("INSERT OR IGNORE INTO wiki_links (kb_id, user_id, from_title, to_title, relation, created_at) VALUES (?,?,?,?,?,?)")
       .bind(params.kb_id, user.uid, from, to, 'related', now).run();
+  }
+
+  // 双向补链：确保每条 (from→to) 的反向 (to→from) 也存在于 content 和 wiki_links
+  // 收集所有页面最新的 content（本次更新的 + DB 已有的）
+  const latestContents = new Map();
+  for (const p of allPages) if (p.content) latestContents.set(p.title, p.content);
+  const existingAll = await env.DB.prepare("SELECT title, content FROM wiki_pages WHERE kb_id=? AND (is_system=0 OR is_system IS NULL)")
+    .bind(params.kb_id).all();
+  for (const ep of existingAll.results) {
+    if (!latestContents.has(ep.title)) latestContents.set(ep.title, ep.content || '');
+  }
+
+  {
+
+    const backLinkRe = /\[\[([^\]]+)\]\]/g;
+    for (const pair of linkPairs) {
+      const [from, to] = pair.split('||');
+      if (from === to) continue;
+      let toContent = latestContents.get(to);
+      if (!toContent) continue; // to 页面不存在，跳过
+
+      // 检查 to 的 content 里有没有 [[from]]
+      backLinkRe.lastIndex = 0;
+      let hasBack = false, m;
+      while ((m = backLinkRe.exec(toContent)) !== null) {
+        if (m[1].trim() === from.trim()) { hasBack = true; break; }
+      }
+
+      if (!hasBack) {
+        // 在 to 页面末尾追加 [[from]]，已有"关联页面"section 就追加进去，没有就新建
+        const linkLine = `- [[${from}]]`;
+        if (toContent.includes('## 关联页面')) {
+          // 找到"关联页面"section，追加到它的列表里
+          toContent = toContent.replace(/(## 关联页面\n(?:.+\n)*?)(?=\n## |\n# |\n*$)/, `$1${linkLine}\n`);
+        } else {
+          toContent = toContent.trimEnd() + `\n\n## 关联页面\n${linkLine}\n`;
+        }
+        latestContents.set(to, toContent);
+        await env.DB.prepare("UPDATE wiki_pages SET content=?, updated_at=? WHERE kb_id=? AND title=?")
+          .bind(toContent, now, params.kb_id, to).run();
+        // 同时插入 wiki_links 反向边（确保图也是双向的）
+        await env.DB.prepare("INSERT OR IGNORE INTO wiki_links (kb_id, user_id, from_title, to_title, relation, created_at) VALUES (?,?,?,?,?,?)")
+          .bind(params.kb_id, user.uid, to, from, 'related', now).run();
+      }
+    }
+  }
+
+  // ===== 自检：孤立页面检测（content 里没有任何 [[xxx]]）=====
+  const isolatedRe = /\[\[([^\]]+)\]\]/g;
+  const allPageTitles = new Set((await env.DB.prepare("SELECT title FROM wiki_pages WHERE kb_id=? AND (is_system=0 OR is_system IS NULL)").bind(params.kb_id).all()).results.map(p => p.title));
+  const warnings = [];
+  for (const p of latestContents.entries()) {
+    const [title, content] = p;
+    if (title === '目录' || title === '日志') continue;
+    // 只检查本次涉及的页面（allPages 里的），已有老页面暂不动
+    const isRecent = allPages.some(ap => ap.title === title);
+    if (!isRecent) continue;
+    isolatedRe.lastIndex = 0;
+    const hasAnyLink = isolatedRe.test(content || '');
+    if (!hasAnyLink) {
+      await dblog(env, 'ingest', 'ISOLATED', { title });
+      warnings.push({ type: 'isolated', title });
+      // 尝试补一个链接：找同分类里已有的第一个页面
+      const catRow = await env.DB.prepare("SELECT category_id FROM wiki_pages WHERE kb_id=? AND title=?").bind(params.kb_id, title).first();
+      if (catRow?.category_id) {
+        const sib = await env.DB.prepare("SELECT title FROM wiki_pages WHERE kb_id=? AND category_id=? AND title!=? AND (is_system=0 OR is_system IS NULL) LIMIT 1")
+          .bind(params.kb_id, catRow.category_id, title).first();
+        if (sib) {
+          const fixedContent = (content || '').trimEnd() + `\n\n## 关联页面\n- [[${sib.title}]]\n`;
+          await env.DB.prepare("UPDATE wiki_pages SET content=?, updated_at=? WHERE kb_id=? AND title=?")
+            .bind(fixedContent, now, params.kb_id, title).run();
+          await env.DB.prepare("INSERT OR IGNORE INTO wiki_links (kb_id, user_id, from_title, to_title, relation, created_at) VALUES (?,?,?,?,?,?)")
+            .bind(params.kb_id, user.uid, title, sib.title, 'related', now).run();
+          warnings.push({ type: 'isolated_fixed', title, linkedTo: sib.title });
+          await dblog(env, 'ingest', 'ISOLATED_FIXED', { title, linkedTo: sib.title });
+        }
+      }
+    }
   }
 
   // 目录.md
@@ -776,7 +1098,7 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   const catTitle = '目录';
   const ec = await env.DB.prepare("SELECT id FROM wiki_pages WHERE kb_id=? AND is_system=1 AND title=?").bind(params.kb_id, catTitle).first();
   if (ec) await env.DB.prepare("UPDATE wiki_pages SET content=?, updated_at=? WHERE id=?").bind(catalog, now, ec.id).run();
-  else await env.DB.prepare("INSERT INTO wiki_pages (id, kb_id, user_id, category_id, title, content, is_system, created_at, updated_at) VALUES (?,?,?,?,?,1,?,?)")
+  else await env.DB.prepare("INSERT INTO wiki_pages (id, kb_id, user_id, category_id, title, content, is_system, created_at, updated_at) VALUES (?,?,?,?,?,?,1,?,?)")
     .bind(uuid(), params.kb_id, user.uid, null, catTitle, catalog, now, now).run();
 
   // 日志.md — 优先用 AI 返回的 log_entry，没有就硬编码拼
@@ -786,18 +1108,22 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   const logTitle = '日志';
   const el = await env.DB.prepare("SELECT id, content FROM wiki_pages WHERE kb_id=? AND is_system=1 AND title=?").bind(params.kb_id, logTitle).first();
   if (el) await env.DB.prepare("UPDATE wiki_pages SET content=?, updated_at=? WHERE id=?").bind(el.content + finalLog, now, el.id).run();
-  else await env.DB.prepare("INSERT INTO wiki_pages (id, kb_id, user_id, category_id, title, content, is_system, created_at, updated_at) VALUES (?,?,?,?,?,1,?,?)")
+  else await env.DB.prepare("INSERT INTO wiki_pages (id, kb_id, user_id, category_id, title, content, is_system, created_at, updated_at) VALUES (?,?,?,?,?,?,1,?,?)")
     .bind(uuid(), params.kb_id, user.uid, null, logTitle, '# 操作日志\n\n' + finalLog, now, now).run();
 
   // 标记已汇入 + 自动给 tags 追加 kb_id（支持一篇资料汇入多个 KB）
+  // 只标记实际处理成功的 source（AI_FAIL 的 source 保留 ingested=0，下次还能重试）
   for (const s of pending) {
-    const row = await env.DB.prepare("SELECT tags FROM wiki_sources WHERE id=?").bind(s.id).first();
-    let tags = [];
-    try { tags = JSON.parse(row?.tags || '[]'); } catch { tags = []; }
-    if (!Array.isArray(tags)) tags = [];
-    if (!tags.includes(params.kb_id)) tags.push(params.kb_id);
-    await env.DB.prepare("UPDATE wiki_sources SET ingested=1, ingested_at=?, tags=? WHERE id=?")
-      .bind(now, JSON.stringify(tags), s.id).run();
+    if (!processedSourceIds.has(s.id)) { await dblog(env, 'ingest', 'SOURCE_SKIP', { id: s.id, reason: 'batch_fail' }); continue; }
+    try {
+      const row = await env.DB.prepare("SELECT tags FROM wiki_sources WHERE id=?").bind(s.id).first();
+      let tags = [];
+      try { tags = JSON.parse(row?.tags || '[]'); } catch { tags = []; }
+      if (!Array.isArray(tags)) tags = [];
+      if (!tags.includes(params.kb_id)) tags.push(params.kb_id);
+      await env.DB.prepare("UPDATE wiki_sources SET ingested=1, ingested_at=?, tags=? WHERE id=?")
+        .bind(now, JSON.stringify(tags), s.id).run();
+    } catch (e) { console.error('[wiki] mark ingested fail:', e.message, 'source=', s.id); }
   }
 
   // embedding（只给新建页面做，更新的跳过）
@@ -810,14 +1136,39 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
     } catch { /* skip */ }
   }
 
+  await dblog(env, 'ingest', 'DONE', { ingested: processedSourceIds.size, totalPending: pending.length, created: createdCount, updated: updatedCount, links: linkPairs.size });
+
   return json({
     ok: true,
     ingested_count: pending.length,
     created: createdCount,
     updated: updatedCount,
     links_added: linkPairs.size,
-    pages: allPages.map(p => ({ title: p.title, category_slug: p.category_slug, summary: p.summary || '' }))
+    pages: allPages.map(p => ({ title: p.title, category_slug: p.category_slug, summary: p.summary || '' })),
+    debug: debugRaws,
+    page_debug: pageDebug,
+    warnings,
+    slug_to_catid: slugToCatId
   });
+}
+
+// ====== Debug 日志接口（tail 连不上时的替代通路） ======
+export async function handleWikiDebugLog(request, env) {
+  const url = new URL(request.url);
+  const clear = url.searchParams.get('clear');
+  if (clear === '1') {
+    try { await env.DB.prepare("DELETE FROM wiki_debug_log").run(); } catch {}
+    return json({ ok: true, cleared: true });
+  }
+  const limit = parseInt(url.searchParams.get('limit') || '50');
+  const { results } = await env.DB.prepare(
+    "SELECT ts, tag, msg, data FROM wiki_debug_log ORDER BY ts DESC LIMIT ?"
+  ).bind(limit).all();
+  return json({ logs: results.map(r => ({
+    time: new Date(r.ts).toLocaleTimeString(),
+    tag: r.tag, msg: r.msg,
+    data: r.data ? (() => { try { return JSON.parse(r.data); } catch { return r.data; } })() : null
+  })) });
 }
 
 // ====== 范本库 v4.1 ======
@@ -827,10 +1178,10 @@ export async function handleWikiListTemplates(request, env, JWT_SECRET, params) 
   const kb = await ensureKb(env, user.uid, params.kb_id);
   if (!kb) return json({ error: "kb not found" }, 404);
   const { results: official } = await env.DB.prepare(
-    "SELECT id, name, description, extract_hints, page_format, kind, builtin_key FROM wiki_templates WHERE user_id='system' AND kb_id IS NULL"
+    "SELECT id, name, description, extract_hints, page_format, kind, builtin_key, category FROM wiki_templates WHERE user_id='system' AND kb_id IS NULL ORDER BY category, name"
   ).all();
   const { results: mine } = await env.DB.prepare(
-    "SELECT id, name, description, extract_hints, page_format, kind FROM wiki_templates WHERE user_id=? AND kb_id=?"
+    "SELECT id, name, description, extract_hints, page_format, kind, category FROM wiki_templates WHERE user_id=? AND kb_id=?"
   ).bind(user.uid, params.kb_id).all();
   return json({ official, mine });
 }
@@ -880,4 +1231,222 @@ export async function handleWikiBindTemplate(request, env, JWT_SECRET, params) {
   if (info.meta.changes === 0) return json({ error: "category not found" }, 404);
 
   return json({ ok: true });
+}
+
+// ============================================================
+// 官方知识库预设（硬编码，避免 migration，方便快速迭代）
+// seed 时按 template_key 从 wiki_templates 表拿到 extract_hints / page_format
+// 全部用官方范本（kind=official, user_id='system'）
+// ============================================================
+const OFFICIAL_KB_PRESETS = [
+  {
+    slug: 'hongloumeng',
+    title: '📚 红楼梦研究',
+    description: '整理红楼人物、事件、地点，构建自己的红学研究库',
+    icon: '📚',
+    categories: [
+      { name: '人物', slug: 'renwu', sort_order: 0, template_key: 'person' },
+      { name: '事件', slug: 'shijian', sort_order: 1, template_key: 'event' },
+      { name: '地点', slug: 'didian', sort_order: 2, template_key: 'place' },
+      { name: '话题', slug: 'huati', sort_order: 3, template_key: 'topic' },
+    ],
+  },
+  {
+    slug: 'renwuzhi',
+    title: '👤 我的人物志',
+    description: '记录身边的家人、朋友、同事，整理他们的故事与联系',
+    icon: '👤',
+    categories: [
+      { name: '家人', slug: 'jiaren', sort_order: 0, template_key: 'person' },
+      { name: '朋友', slug: 'pengyou', sort_order: 1, template_key: 'person' },
+      { name: '同事', slug: 'tongshi', sort_order: 2, template_key: 'person' },
+      { name: '重要角色', slug: 'zhongyaojuese', sort_order: 3, template_key: 'person' },
+    ],
+  },
+  {
+    slug: 'dushu-guanying',
+    title: '🎬 读书观影',
+    description: '书籍、电影、剧集、游戏，整理看过的作品和感想',
+    icon: '🎬',
+    categories: [
+      // 书籍
+      { name: '书籍', slug: 'shuji', sort_order: 0, template_key: 'book' },
+      { name: '书籍人物', slug: 'shuji-renwu', sort_order: 1, template_key: 'book_character' },
+      // 电影
+      { name: '电影', slug: 'dianying', sort_order: 10, template_key: 'film' },
+      { name: '电影人物', slug: 'dianying-renwu', sort_order: 11, template_key: 'film_character' },
+      { name: '经典场景', slug: 'jingdian-changjing', sort_order: 12, template_key: 'film_scene' },
+      { name: '主题意象', slug: 'zhuti-yixiang', sort_order: 13, template_key: 'film_theme' },
+      // 剧集/游戏
+      { name: '剧集', slug: 'juji', sort_order: 20, template_key: 'tv_show' },
+      { name: '游戏', slug: 'youxi', sort_order: 30, template_key: 'game' },
+    ],
+  },
+  {
+    active: false, // 暂停：跟日记板块冲突
+    slug: 'riji-jinghua',
+    title: '📔 日记精华',
+    description: '从每天的日记中提炼精华，整理按日期、情绪、待办',
+    icon: '📔',
+    categories: [
+      { name: '按日期', slug: 'anriqi', sort_order: 0, template_key: 'diary' },
+      { name: '情绪', slug: 'qingxu', sort_order: 1, template_key: 'emotion' },
+      { name: '待办计划', slug: 'daiban', sort_order: 2, template_key: 'topic' },
+    ],
+  },
+  {
+    active: false, slug: 'mubiao-chengzhang',
+    title: '🎯 目标与成长',
+    description: '年度目标、习惯养成、复盘回顾 — 笔记导向，暂停',
+    icon: '🎯',
+    categories: [
+      { name: '年度目标', slug: 'niandu-mubiao', sort_order: 0, template_key: 'goal' },
+      { name: '本季度目标', slug: 'jidu-mubiao', sort_order: 1, template_key: 'goal' },
+      { name: '月度小目标', slug: 'yuedu-mubiao', sort_order: 2, template_key: 'goal' },
+      { name: '习惯养成', slug: 'xiguan', sort_order: 10, template_key: 'habit' },
+      { name: '情绪觉察', slug: 'qingxu', sort_order: 20, template_key: 'emotion' },
+      { name: '成长话题', slug: 'huati', sort_order: 30, template_key: 'topic' },
+    ],
+  },
+  {
+    active: false, slug: 'linggan-shouji',
+    title: '💡 灵感收集',
+    description: '笔记导向，暂停',
+    icon: '💡',
+    categories: [
+      { name: '摘抄金句', slug: 'zhaichao', sort_order: 0, template_key: 'inspiration' },
+      { name: '灵感笔记', slug: 'linggan', sort_order: 1, template_key: 'inspiration' },
+      { name: '待验证想法', slug: 'daiyanzheng', sort_order: 2, template_key: 'topic' },
+      { name: '个人观点', slug: 'guandian', sort_order: 10, template_key: 'topic' },
+    ],
+  },
+  {
+    active: false, slug: 'lvxing-zj',
+    title: '✈️ 旅行足迹',
+    description: '笔记导向，暂停',
+    icon: '✈️',
+    categories: [
+      { name: '旅行地', slug: 'lvxingdi', sort_order: 0, template_key: 'travel_place' },
+      { name: '美食地图', slug: 'meishi', sort_order: 10, template_key: 'topic' },
+      { name: '住宿体验', slug: 'zhusu', sort_order: 20, template_key: 'topic' },
+    ],
+  },
+  {
+    active: true,
+    slug: 'boke-shipin',
+    title: '🎙️ 播客与视频库',
+    description: '小宇宙/苹果播客/B站/YouTube — 节目、单集、嘉宾、金句的结构化整理',
+    icon: '🎙️',
+    categories: [
+      { name: '播客频道', slug: 'pindao', sort_order: 0, template_key: 'podcast' },
+      { name: '单集笔记', slug: 'danji', sort_order: 1, template_key: 'episode' },
+      { name: '嘉宾/UP主', slug: 'jiabin', sort_order: 10, template_key: 'person' },
+      { name: '主题金句', slug: 'jinju', sort_order: 20, template_key: 'topic' },
+    ],
+  },
+  {
+    active: true,
+    slug: 'meishi-caipu',
+    title: '🍳 美食菜谱库',
+    description: '菜谱、食材、烹饪技巧 — 把喜欢的菜系统化管理起来',
+    icon: '🍳',
+    categories: [
+      { name: '菜谱', slug: 'caipu', sort_order: 0, template_key: 'recipe' },
+      { name: '食材', slug: 'shicai', sort_order: 10, template_key: 'ingredient' },
+      { name: '烹饪技巧', slug: 'jiqiao', sort_order: 20, template_key: 'topic' },
+    ],
+  },
+  {
+    active: true,
+    slug: 'xuexi-biji',
+    title: '🎓 学习笔记',
+    description: '课程、概念定理、论文书单 — 构建自己的知识体系',
+    icon: '🎓',
+    categories: [
+      { name: '课程', slug: 'kecheng', sort_order: 0, template_key: 'course' },
+      { name: '概念定理', slug: 'gainian', sort_order: 10, template_key: 'concept' },
+      { name: '论文/书单', slug: 'lunwen', sort_order: 20, template_key: 'book' },
+      { name: '我的观点', slug: 'guandian', sort_order: 30, template_key: 'topic' },
+    ],
+  },
+  {
+    active: true,
+    slug: 'jiankang-dangan',
+    title: '💊 健康档案',
+    description: '药品、症状、体检记录 — 把自己的健康知识库结构化管理',
+    icon: '💊',
+    categories: [
+      { name: '药品档案', slug: 'yaopin', sort_order: 0, template_key: 'medicine' },
+      { name: '症状记录', slug: 'zhengzhuang', sort_order: 10, template_key: 'symptom' },
+      { name: '体检/检查', slug: 'tijian', sort_order: 20, template_key: 'health_record' },
+    ],
+  },
+];
+
+// GET /api/wiki/official/presets — 列出所有官方预设
+export async function handleWikiListOfficialPresets(request, env, JWT_SECRET) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const publicList = OFFICIAL_KB_PRESETS.map(p => ({
+    slug: p.slug,
+    title: p.title,
+    description: p.description,
+    icon: p.icon,
+    category_count: p.categories.length,
+  }));
+  return json({ presets: publicList });
+}
+
+// ===== 可复用：把一个官方预设 seed 给指定用户（幂等：slug 已存在就跳过）=====
+async function seedOfficialPreset(env, userId, preset) {
+  // 幂等检查：该用户是否已经有同 slug 的 KB
+  const exist = await env.DB.prepare(
+    "SELECT id FROM wiki_knowledge_bases WHERE user_id=? AND slug=?"
+  ).bind(userId, preset.slug).first();
+  if (exist) return { skipped: true, kb_id: exist.id };
+
+  const now = Date.now();
+  const kbId = uuid();
+
+  await env.DB.prepare(
+    "INSERT INTO wiki_knowledge_bases (id, user_id, slug, title, description, is_official, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)"
+  ).bind(kbId, userId, preset.slug, preset.title, preset.description || '', 1, now, now).run();
+
+  // 查所有用到的官方范本
+  const tplKeys = [...new Set(preset.categories.map(c => c.template_key))];
+  const tplRows = await env.DB.prepare(
+    "SELECT builtin_key, extract_hints, page_format FROM wiki_templates WHERE builtin_key IN (" +
+    tplKeys.map(() => '?').join(',') + ") AND user_id='system' AND kb_id IS NULL"
+  ).bind(...tplKeys).all();
+  const tplMap = {};
+  for (const r of tplRows.results) tplMap[r.builtin_key] = r;
+
+  // 创建每个分类
+  for (const cat of preset.categories) {
+    const tpl = tplMap[cat.template_key];
+    if (!tpl) {
+      console.warn(`[auto-seed] template ${cat.template_key} not found, skip cat ${cat.name}`);
+      continue;
+    }
+    const catId = uuid();
+    await env.DB.prepare(
+      "INSERT INTO wiki_categories (id, kb_id, user_id, name, slug, sort_order, extract_hints, page_format, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    ).bind(catId, kbId, userId, cat.name, cat.slug, cat.sort_order, tpl.extract_hints, tpl.page_format, now, now).run();
+  }
+  return { skipped: false, kb_id: kbId };
+}
+
+// POST /api/wiki/official/seed — 手动 seed 指定预设
+export async function handleWikiSeedOfficialPreset(request, env, JWT_SECRET) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const body = await readBody(request);
+  const slug = body.slug;
+  if (!slug) return json({ error: "slug required" }, 400);
+  const preset = OFFICIAL_KB_PRESETS.find(p => p.slug === slug);
+  if (!preset) return json({ error: "preset not found" }, 404);
+
+  const result = await seedOfficialPreset(env, user.uid, preset);
+  if (result.skipped) return json({ ok: true, skipped: true, kb_id: result.kb_id, message: "已存在" });
+  return json({ ok: true, kb_id: result.kb_id, title: preset.title });
 }

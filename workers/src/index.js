@@ -26,9 +26,11 @@ import {
   handleWikiListCategories, handleWikiAddCategory, handleWikiUpdateCategory, handleWikiDeleteCategory,
   handleWikiListSources, handleWikiAddSourceText, handleWikiUploadSourceFile, handleWikiDeleteSource, handleWikiBatchDeleteSources, handleWikiGlobalListSources, handleWikiGlobalAddSource, handleWikiGlobalDeleteSource, handleWikiUpdateSourceTags,
   saveDiaryToWikiSources,
-  handleWikiListPages, handleWikiGetPage, handleWikiUpdatePage, handleWikiGenerateEntity, handleWikiSearch, handleWikiGraph,
+  handleWikiListPages, handleWikiGetPage, handleWikiUpdatePage, handleWikiDeletePage, handleWikiGenerateEntity, handleWikiSearch, handleWikiGraph,
   handleWikiIngestAll,
   handleWikiListTemplates, handleWikiAddTemplate, handleWikiDeleteTemplate, handleWikiBindTemplate,
+  handleWikiListOfficialPresets, handleWikiSeedOfficialPreset,
+  handleWikiDebugLog,
 } from "./wiki.js";
 
 const ALLOWED_ORIGINS = [
@@ -132,6 +134,7 @@ export default {
       ["GET",    "/api/wiki/kbs/:kb_id/pages",                 handleWikiListPages],
       ["GET",    "/api/wiki/kbs/:kb_id/pages/:page_id",        handleWikiGetPage],
       ["PATCH",  "/api/wiki/kbs/:kb_id/pages/:page_id",        handleWikiUpdatePage],
+      ["DELETE", "/api/wiki/kbs/:kb_id/pages/:page_id",        handleWikiDeletePage],
       ["POST",   "/api/wiki/kbs/:kb_id/generate-entity",       handleWikiGenerateEntity],
       ["GET",    "/api/wiki/kbs/:kb_id/graph",                 handleWikiGraph],
       ["GET",    "/api/wiki/kbs/:kb_id/search",                handleWikiSearch],
@@ -140,6 +143,10 @@ export default {
       ["POST",   "/api/wiki/kbs/:kb_id/templates",             handleWikiAddTemplate],
       ["DELETE", "/api/wiki/kbs/:kb_id/templates",             handleWikiDeleteTemplate],
       ["POST",   "/api/wiki/kbs/:kb_id/templates/bind",        handleWikiBindTemplate],
+      // 官方知识库预设（硬编码 seed）
+      ["GET",    "/api/wiki/official/presets",                  handleWikiListOfficialPresets],
+      ["POST",   "/api/wiki/official/seed",                     handleWikiSeedOfficialPreset],
+      ["GET",    "/api/wiki/debug-log",                          handleWikiDebugLog],
     ];
 
     // 路由器：支持 :id 参数
@@ -162,7 +169,8 @@ export default {
           try {
             return await handler(request, env, JWT_SECRET, params);
           } catch (e) {
-            return json({ error: e.message || "internal error" }, 500);
+            console.error("[FATAL]", method, p, e);
+            return json({ error: e.message || "internal error", stack: e.stack || null }, 500);
           }
         }
       }
@@ -331,9 +339,13 @@ async function handleRegister(request, env, JWT_SECRET) {
   const now = Date.now();
   const id = uuid();
 
+  // 随机分配一个默认头像 key（8 只里挑一只）
+  const AVATAR_POOL = ["avatar-plush","avatar-bunny","avatar-cat","avatar-bear","avatar-fox","avatar-pink-round","avatar-blue-round","avatar-purple-round"];
+  const defaultAvatar = AVATAR_POOL[Math.abs(hashCode(email + now)) % AVATAR_POOL.length];
+
   await env.DB.prepare(
-    "INSERT INTO users (id, email, password_hash, nickname, created_at, updated_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-  ).bind(id, email, `${salt}$${pwHash}`, nickname || "", now, now, now).run();
+    "INSERT INTO users (id, email, password_hash, nickname, avatar, created_at, updated_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, email, `${salt}$${pwHash}`, nickname || "", defaultAvatar, now, now, now).run();
 
   await env.DB.prepare(
     "INSERT INTO profiles (user_id, updated_at) VALUES (?, ?)"
@@ -342,8 +354,11 @@ async function handleRegister(request, env, JWT_SECRET) {
   const token = await signJWT({ uid: id, email }, JWT_SECRET);
   // 记录注册活动
   try { await logActivity(env, id, "register", null); } catch {}
-  return json({ token, user: { id, email, nickname: nickname || "" } }, 201);
+  return json({ token, user: { id, email, nickname: nickname || "", avatar: defaultAvatar } }, 201);
 }
+
+// 简单字符串 hash，用于随机选头像
+function hashCode(s) { let h = 0; for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0; return h; }
 
 async function handleLogin(request, env, JWT_SECRET) {
   const { email, password } = await readBody(request);

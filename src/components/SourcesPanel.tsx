@@ -290,23 +290,6 @@ export default function SourcesPanel() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 pt-4 space-y-4">
-        {/* KB 筛选 + 添加按钮 */}
-        <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-4 space-y-3">
-          <div className="flex gap-2 items-center">
-            <span className="text-xs text-paper-ink2 whitespace-nowrap shrink-0">🏷️ 筛选：</span>
-            <select
-              value={kbFilter}
-              onChange={e => setKbFilter(e.target.value)}
-              className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-paper-line bg-paper-card text-sm"
-            >
-              <option value="">全部资料</option>
-              {kbs.map(k => (
-                <option key={k.id} value={k.id}>{k.title}</option>
-              ))}
-            </select>
-          </div>
-        </section>
-
         {/* 添加文本区 */}
         <section className="bg-paper-card rounded-card shadow-card border border-paper-line/50 p-4 space-y-3">
           <div className="flex gap-2">
@@ -395,6 +378,21 @@ export default function SourcesPanel() {
             )}
           </div>
         )}
+
+        {/* KB 筛选 — 放在资料列表上方 */}
+        <section className="flex gap-2 items-center">
+          <span className="text-xs text-paper-ink2 whitespace-nowrap shrink-0">🏷️ 筛选：</span>
+          <select
+            value={kbFilter}
+            onChange={e => setKbFilter(e.target.value)}
+            className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-paper-line bg-paper-card text-sm"
+          >
+            <option value="">全部资料</option>
+            {kbs.map(k => (
+              <option key={k.id} value={k.id}>{k.title}</option>
+            ))}
+          </select>
+        </section>
 
         {/* 待汇入列表 */}
         {pending.length > 0 && (

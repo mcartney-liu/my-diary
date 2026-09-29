@@ -1063,9 +1063,10 @@ export async function summarizeDay(dayDiaries: Diary[], date: string): Promise<s
 
   const parts = dayDiaries.map(d => {
     const title = (d.title || '').trim();
-    // 跳过模板默认标题（带 emoji 前缀的默认模板标题）
-    const startsWithEmoji = (() => { try { return /^[\u{1F300}-\u{1FAFF}]/u.test(title); } catch { return false; } })();
-    const isDefaultTitle = DEFAULT_TITLES.some(t => title.includes(t)) || (title.length < 12 && startsWithEmoji);
+    // 只靠显式黑名单过滤模板默认标题（如"今日日记""旅行日记"）。
+    // 启发式（长度<12 + emoji）太宽：AI 快记生成的标题（"✈️ 平坝老家的清新空气" 9字）和模板默认标题一样短，
+    // 但前者有信息量，不能丢。靠黑名单就够了。
+    const isDefaultTitle = DEFAULT_TITLES.some(t => title.includes(t));
 
     let body = '';
     let financeBody = '';  // 🆕 专门收集 finance_item 流水描述

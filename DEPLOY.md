@@ -397,12 +397,113 @@ npm run dev                                             # localhost:5173 (Vite)
 
 ---
 
+## 🔍 Wiki 知识库日志排查（v0.5.4 新增）
+
+### 背景
+
+Agent 本机无法连接 `*.workers.dev`（DNS 劫持 + 网络层深包检测），WebSocket 长连接（`wrangler tail`、miniflare remote）全部秒断。
+**解决办法**：Worker 把关键日志写入 D1 表 `wiki_debug_log`，用 `wrangler d1 execute` 查——这是短 HTTP，始终能通。
+
+### 日志通路
+
+```
+Worker 执行 wiki 汇入
+  → dblog(env, 'ingest', <MSG>, { ... })
+  → INSERT INTO wiki_debug_log (ts, tag, msg, data)
+  → Agent 用 wrangler d1 execute --remote SELECT 查出来
+```
+
+### 查表必备命令
+
+```bash
+# === dev 环境（pages.dev 测试时用这个！）===
+cd workers
+DB=mydiary-db-dev
+
+# 最新日志（时间倒序）
+wrangler d1 execute $DB --remote --command "SELECT ts, msg, substr(data,1,300) as data FROM wiki_debug_log ORDER BY ts DESC LIMIT 20"
+
+# 按时间范围查（毫秒时间戳）
+wrangler d1 execute $DB --remote --command "SELECT msg, data FROM wiki_debug_log WHERE ts >= 1790638314000 ORDER BY ts ASC"
+
+# 清空 + reset source 重测
+wrangler d1 execute $DB --remote --command "DELETE FROM wiki_debug_log"
+wrangler d1 execute $DB --remote --command "UPDATE wiki_sources SET ingested=0 WHERE kb_id='<目标KB_ID>'"
+
+# === prod 环境 ===
+DB=mydiary-db
+# 同上命令，换 DB 名
+```
+
+### msg 字段速查（wiki.js 写入的所有 tag）
+
+| msg | 含义 | data 里有啥 |
+|-----|------|------------|
+| `START` | 汇入开始 | kb_id, kb_title |
+| `LLM_ENV` | 检查 Agnes 配置 | hasEndpoint, hasKey, endpointPrefix |
+| `LLM_AGNES_OK` | Agnes 调用成功 | contentLen |
+| `LLM_AGNES_EXCEPTION` | Agnes 报错 | msg（AbortError 等） |
+| `LLM_FALLBACK_WORKERS` | fallback 到 Workers AI | model |
+| `LLM_NO_SECRETS` | Agnes endpoint/key 没配 | — |
+| `AI_RAW` | AI 原始返回 | preview（前 500 字） |
+| `AI_FAIL` | AI 调用超时/异常 | error（3046 是 Cloudflare 排队超时） |
+| `PARSE_FAIL` | JSON 解析失败 | raw |
+| `PARSED_OK` | 解析成功 | pages, links, page_cats |
+| `VALIDATED` | slug 白名单校验通过 | validSlugs |
+| `SLUG_INVALID` | AI 返回了白名单外的 slug | badSlug, validSlugs |
+| `PAGE_INSERT` | 新建页面 | title, slug, catId |
+| `PAGE_UPDATE` | 更新页面 | title, slug, catId, existingCatId |
+| `SOURCE_SKIP` | AI_FAIL 的 source 没标记 ingested | reason |
+| `ISOLATED` / `ISOLATED_FIXED` | 孤儿页面（无 [[链接]]）被自动补链 | title, linkedTo |
+| `DONE` | 全部完成 | ingested, totalPending, created, updated, links |
+
+### 常见问题排查流程
+
+**问题 1：页面没按分类显示**
+```sql
+-- 查页面实际 category
+SELECT p.title, c.name as cat, c.slug FROM wiki_pages p
+JOIN wiki_categories c ON p.category_id=c.id
+WHERE p.kb_id='<kb_id>' ORDER BY c.name;
+
+-- 查 AI 本轮返回的 page_cats
+SELECT data FROM wiki_debug_log WHERE msg='PARSED_OK' ORDER BY ts DESC LIMIT 1;
+```
+
+**问题 2：三国内容混进美食 KB**
+```sql
+-- 查 source 的 kb_id
+SELECT id, title, kb_id FROM wiki_sources WHERE kb_id IS NULL;
+-- 根因：之前代码漏了 AND kb_id IS NOT NULL，NULL 的 source 被自动匹配进来了（v0.5.4 已修）
+
+-- 清理：
+DELETE FROM wiki_pages WHERE kb_id='<美食KB_ID>' AND title IN ('曹操','刘备','孙权','长坂坡之战');
+```
+
+**问题 3：AI 一直超时 3046**
+```
+看日志里 LLM_AGNES_EXCEPTION 还是 LLM_FALLBACK_WORKERS
+→ Agnes 超时（已改 90s）：查 endpoint 是否可达
+→ Workers AI 也超时：Cloudflare 侧排队，重试或加 retry 逻辑
+```
+
+### 关键环境变量
+
+| Secret | 位置 | 用途 |
+|--------|------|------|
+| `AGNES_ENDPOINT` | Worker → Settings → Variables | Agnes API URL，dev 和 prod 各配一份 |
+| `AGNES_API_KEY` | 同上 | Agnes API Key |
+
+**Agnes 优先 Workers AI 兜底**，代码见 `workers/src/wiki.js` 的 `wikiCallLLM` 函数。
+
+---
+
 ## 🧪 测试账号
 
 | 环境 | 账号 | 密码 | 备注 |
 |------|------|------|------|
 | 生产 | test@test.com | test123456 | 真实数据 |
-| 测试 | 自己注册 | 自己设 | dev D1 干净的，随便玩 |
+| 测试 | 181810136@qq.com | liuxiang520 | dev D1，干净测试库 |
 
 ---
 

@@ -374,7 +374,7 @@ export function extractMemory(text: string) {
 }
 
 // ====== Wiki 知识库 v4 ======
-export interface WikiKB { id: string; title: string; created_at: number; updated_at: number; }
+export interface WikiKB { id: string; slug?: string; title: string; description?: string; is_official?: number; created_at: number; updated_at: number; }
 export interface WikiCategory {
   id: string; kb_id: string; user_id: string; name: string; slug: string;
   sort_order: number; extract_hints: string; page_format: string;
@@ -389,18 +389,22 @@ export interface WikiPage {
   id: string; kb_id: string; category_id: string | null; title: string;
   content: string; is_system: number; created_at: number; updated_at: number; summary?: string;
 }
-export interface WikiLink { from_title: string; to_title: string; relation: string; }
+export interface WikiLink {
+  from_title: string; to_title: string; relation: string;
+  from_page_id?: string | null; to_page_id?: string | null;
+  from_is_system?: number; to_is_system?: number;
+}
 
 export function wikiListKbs() { return request<{ kbs: WikiKB[] }>('/api/wiki/kbs'); }
-export function wikiAddKb(title: string) { return request<WikiKB>('/api/wiki/kbs', { method: 'POST', body: JSON.stringify({ title }) }); }
-export function wikiUpdateKb(kbId: string, title: string) { return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId, { method: 'PATCH', body: JSON.stringify({ title }) }); }
+export function wikiAddKb(title: string, description?: string) { return request<WikiKB>('/api/wiki/kbs', { method: 'POST', body: JSON.stringify({ title, description }) }); }
+export function wikiUpdateKb(kbId: string, patch: { title?: string; description?: string }) { return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId, { method: 'PATCH', body: JSON.stringify(patch) }); }
 export function wikiDeleteKb(kbId: string) { return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId, { method: 'DELETE' }); }
 
 export function wikiListCategories(kbId: string) { return request<{ categories: WikiCategory[]; kb: WikiKB }>('/api/wiki/kbs/' + kbId + '/categories'); }
 export function wikiAddCategory(kbId: string, cat: { name: string; page_format?: string }) {
   return request<{ id: string; name: string; slug: string; ok: boolean }>('/api/wiki/kbs/' + kbId + '/categories', { method: 'POST', body: JSON.stringify(cat) });
 }
-export function wikiUpdateCategory(kbId: string, patch: { id: string; name?: string; page_format?: string }) {
+export function wikiUpdateCategory(kbId: string, patch: { id: string; name?: string; page_format?: string; extract_hints?: string }) {
   return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId + '/categories', { method: 'PATCH', body: JSON.stringify(patch) });
 }
 export function wikiDeleteCategory(kbId: string, id: string) {
@@ -454,7 +458,7 @@ export function wikiIngestAll(kbId: string, ids?: string[]) {
 // ====== 范本库 v4.1 ======
 export interface WikiTemplate {
   id: string; name: string; description?: string; extract_hints: string; page_format: string;
-  kind: 'official' | 'user'; builtin_key?: string;
+  kind: 'official' | 'user'; builtin_key?: string; category?: string;
 }
 export function wikiListTemplates(kbId: string) {
   return request<{ official: WikiTemplate[]; mine: WikiTemplate[] }>('/api/wiki/kbs/' + kbId + '/templates');
@@ -470,6 +474,10 @@ export function wikiBindTemplate(kbId: string, templateId: string, categoryId: s
 }
 export async function wikiUpdatePage(kbId: string, pageId: string, data: { content?: string; summary?: string; title?: string; category_id?: string | null }) {
   return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId + '/pages/' + pageId, { method: 'PATCH', body: JSON.stringify(data) });
+}
+
+export async function wikiDeletePage(kbId: string, pageId: string) {
+  return request<{ ok: boolean; deleted_title?: string }>('/api/wiki/kbs/' + kbId + '/pages/' + pageId, { method: 'DELETE' });
 }
 
 export async function wikiGenerateEntity(kbId: string, data: { entity_name: string; source_text: string; category_id?: string }) {
@@ -489,4 +497,21 @@ export function wikiGlobalDeleteSource(sourceId: string) {
 }
 export function wikiUpdateSourceTags(sourceId: string, tags: string[]) {
   return request<{ ok: boolean }>('/api/wiki/sources/' + sourceId + '/tags', { method: 'PATCH', body: JSON.stringify({ tags }) });
+}
+
+export interface WikiOfficialPreset {
+  slug: string;
+  title: string;
+  description: string;
+  icon: string;
+  category_count: number;
+}
+export function wikiListOfficialPresets() {
+  return request<{ presets: WikiOfficialPreset[] }>('/api/wiki/official/presets');
+}
+export function wikiSeedOfficialPreset(slug: string) {
+  return request<{ ok: boolean; kb_id: string; title: string }>('/api/wiki/official/seed', {
+    method: 'POST',
+    body: JSON.stringify({ slug }),
+  });
 }
