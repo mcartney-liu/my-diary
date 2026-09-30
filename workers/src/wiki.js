@@ -39,35 +39,55 @@ async function wikiCallLLM(env, messages, maxTokens = 4096) {
   await dblog(env, 'ingest', 'LLM_ENV', { hasEndpoint: !!endpoint, hasKey: !!apiKey, endpointPrefix: endpoint.slice(0, 30), model: WIKI_LLM_MODEL });
   console.log('[wiki] wikiCallLLM:', { hasEndpoint: !!endpoint, hasKey: !!apiKey, model: WIKI_LLM_MODEL, maxTokens });
   if (apiKey && endpoint) {
-    try {
+    //  Agnes 带 2 次重试（429 或网络问题时等 1.5s 再试）
+    const MAX_RETRIES = 2;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        await dblog(env, 'ingest', 'LLM_AGNES_RETRY', { attempt });
+        console.warn('[wiki] Agnes retry attempt', attempt);
+        await new Promise(r => setTimeout(r, 1500));
+      }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 90000);
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: WIKI_LLM_MODEL, messages, max_tokens: maxTokens, temperature: 0.1 }),
-        signal: controller.signal,
-      });
+      let res;
+      try {
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: WIKI_LLM_MODEL, messages, max_tokens: maxTokens, temperature: 0.1 }),
+          signal: controller.signal,
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        // 网络异常也重试
+        if (attempt < MAX_RETRIES) continue;
+        console.warn('[wiki] Agnes 网络异常，fallback Workers AI:', e.message);
+        await dblog(env, 'ingest', 'LLM_AGNES_EXCEPTION', { msg: e.message });
+        break;
+      }
       clearTimeout(timer);
       console.log('[wiki] Agnes status:', res.status);
-      if (res.ok) {
-        const data = await res.json();
-        const content = data?.choices?.[0]?.message?.content || '';
-        console.log('[wiki] Agnes content preview:', (content || '').slice(0, 100));
-        if (content) {
-          await dblog(env, 'ingest', 'LLM_AGNES_OK', { contentLen: content.length });
-          return content;
-        }
-        console.warn('[wiki] Agnes 返回空 content，完整响应:', JSON.stringify(data).slice(0, 300));
-        await dblog(env, 'ingest', 'LLM_AGNES_EMPTY', { respPreview: JSON.stringify(data).slice(0, 200) });
-      } else {
+
+      // 429 重试；其他非 2xx 也重试一次
+      if (!res.ok) {
         const errText = await res.text().catch(() => '');
         console.warn('[wiki] Agnes HTTP', res.status, errText.slice(0, 200));
         await dblog(env, 'ingest', 'LLM_AGNES_HTTP_ERR', { status: res.status, err: errText.slice(0, 200) });
+        if (attempt < MAX_RETRIES) continue;
+        break; // 最后一次也失败了，fallback
       }
-    } catch (e) {
-      console.warn('[wiki] Agnes 异常，fallback Workers AI:', e.message);
-      await dblog(env, 'ingest', 'LLM_AGNES_EXCEPTION', { msg: e.message });
+
+      // 成功
+      const data = await res.json();
+      const content = data?.choices?.[0]?.message?.content || '';
+      console.log('[wiki] Agnes content preview:', (content || '').slice(0, 100));
+      if (content) {
+        await dblog(env, 'ingest', 'LLM_AGNES_OK', { contentLen: content.length });
+        return content;
+      }
+      await dblog(env, 'ingest', 'LLM_AGNES_EMPTY', { respPreview: JSON.stringify(data).slice(0, 200) });
+      if (attempt < MAX_RETRIES) continue;
+      break;
     }
   } else {
     await dblog(env, 'ingest', 'LLM_NO_SECRETS', { hasEndpoint: !!endpoint, hasKey: !!apiKey });
@@ -672,6 +692,10 @@ export async function handleWikiSearch(request, env, JWT_SECRET, params) {
 
 // ====== 核心：汇入 ======
 function buildWikiSystemPrompt(kb, categories, existingPages) {
+  // 检测是否为数学题库（分类 slug 含 zhishidian + jieti-fangfa）
+  const slugs = new Set(categories.map(c => c.slug));
+  const isMathKB = slugs.has('zhishidian') && slugs.has('jieti-fangfa');
+
   let catSection = categories.map(c => {
     // 剥掉模板第一行的 `# {{xxx}}\n`——title 字段已经是页面标题，content 从 ## 开始
     const fmt = (c.page_format || '').replace(/^#\s*[^\n]*\n+/, '');
@@ -726,6 +750,35 @@ ${existingSection}
 7. 页面内容严格按模板格式，用 Markdown（## 小标题、### 小节、加粗、列表等）。**注意：content 开头绝对不能出现 # 大标题——title 字段已经是页面标题了。模板里如果第一行是井号加大括号占位符（比如"# 菜名"），生成时直接跳过那行，正文从模板的第一个 ## 开始。**
 8. **双向链接原则**：如果页面 A 的 content 里写了 [[B]]，页面 B 的 content 里也必须写 [[A]]。所有跨页面的关系必须双向显式声明，不能只单边链接。比如布洛芬写了 [[胃胀气]]，胃胀气也必须写 [[布洛芬]]。
 9. 简单流畅的白话，不编造资料里没有的信息。
+${isMathKB ? `
+
+## 📐 数学题库专属规则（本知识库启用）
+本知识库是数学解题知识库，汇入资料时必须遵循以下额外规则：
+
+### 年级分类（一年级 → 六年级）
+- **先判断年级**：根据题目难度、数字大小、运算类型自动归入对应年级分类。如果资料里明确写了"年级：三年级"，直接用；没写的由你判断。
+- 一~二年级：百以内加减法、表内乘除、简单图形
+- 三~四年级：多位数乘除、分数初步、运算律
+- 五~六年级：小数、方程、面积体积、比例
+
+### 知识点分类（独立成页）
+- 从每道题里**抽出所有涉及的知识点**（如"除法"、"平均分"、"行程问题"），在「知识点」分类下新建或 update。
+- 同一知识点出现在多道题里时，**必须 update 已有页面**，把新的题目加到"常见题型"里，不要重复创建。
+- 知识点页面的 content 里必须用 [[题目名]] 链接到用到它的每道题。
+
+### 解题方法分类（独立成页）
+- **从多道题里归纳通用解法**。如果 3 道以上的题都用了"画图法"解题，就在「解题方法」分类下建《画图法》页。
+- 解题方法页的 title 要**具体**（如"画图法解行程问题"而非"方法1"）。
+- 每道题目里的"解题思路"必须和对应的方法页互相 [[双向链接]]。
+
+### 题目页面
+- title 要**概括性强**（如"小明分 24 颗糖"而非"数学题1"）。
+- content 里"所属知识点"部分必须列出所有涉及的知识点名称，并用 [[知识点名]] 链接。
+- "年级"字段如果资料里没写，由你根据难度判断填写。
+- 豆包等外部 AI 生成的回答里可能有"1. 题目 2. 知识点 3. 解题思路"这种编号结构，直接提取对应段落即可，不要重新组织。
+- **禁止 LaTeX 数学标记**：不要用任何反斜杠开头的数学公式标记，也不要用 $ 包围数学表达式。所有数学表达式用纯文本写，如 "84 / 4 = 21"、"最大公因数是 2"、"2 x 3 x 7 = 42"。
+- **模板占位符替换**：如果 page_format 里有双大括号占位符（提示文字），不要原样复制——把占位符当说明，实际内容填真实值（如 "五年级"）。
+` : ''}
 
 ## 输出格式 — 严格 JSON，不要解释文字或 markdown 代码块
 {
@@ -768,24 +821,34 @@ function repairAiJson(text) {
   try { return JSON.parse(stripJsonFences(text)); } catch {}
 
   const stripped = stripJsonFences(text);
-  // 兜底：用宽松模式替换实际换行符（在字符串内部）
-  let fixed = stripped;
-  // 把字符串内部的裸换行替换为 \n
-  fixed = fixed.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(?=\s*[:\[\],}])/g, (m, inner) => {
-    return '"' + inner.replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"';
+
+  // 预处理：把字符串内部的裸反斜杠（JSON 不认识的）转义
+  // JSON 合法转义只有：\" \\ \/ \b \f \n \r \t \uXXXX
+  let escaped = stripped.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(?=\s*[:\[\],}])/g, (m, inner) => {
+    // 把字符串内部所有裸反斜杠（不是合法 JSON 转义的）转义成双反斜杠
+    // 先处理 LaTeX 常见标记：\( \) \[ \] \frac \times 等
+    let fixed = inner
+      // 裸反斜杠（后面不是合法 JSON 转义）→ 双反斜杠
+      .replace(/\\(?!["\\/bfnrtu])/g, '\\\\')
+      // 把字符串内部的裸换行替换为 \n
+      .replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+    return '"' + fixed + '"';
   });
-  try { return JSON.parse(fixed); } catch {}
+  try { return JSON.parse(escaped); } catch {}
 
   // 最后一招：暴力截断到最后一个完整的 }
   const lastBrace = stripped.lastIndexOf('}');
   if (lastBrace > 0) {
     const truncated = stripped.substring(0, lastBrace + 1);
-    try { return JSON.parse(truncated); } catch {}
-    // 再次宽松替换
-    fixed = truncated.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(?=\s*[:\[\],}])/g, (m, inner) => {
-      return '"' + inner.replace(/\n/g, '\\n').replace(/\r/g, '\\r') + '"';
+    // 同样的预处理
+    let tEscaped = truncated.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(?=\s*[:\[\],}])/g, (m, inner) => {
+      let fixed = inner
+        .replace(/\\(?!["\\/bfnrtu])/g, '\\\\')
+        .replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+      return '"' + fixed + '"';
     });
-    try { return JSON.parse(fixed); } catch {}
+    try { return JSON.parse(tEscaped); } catch {}
+    try { return JSON.parse(truncated); } catch {}
   }
   return null;
 }
@@ -1398,6 +1461,23 @@ const OFFICIAL_KB_PRESETS = [
       { name: '体检/检查', slug: 'tijian', sort_order: 20, template_key: 'health_record' },
     ],
   },
+  {
+    active: true,
+    slug: 'xiaoxue-shuxue',
+    title: '📐 小学数学解题知识库',
+    description: '一年级到六年级，每道题按年级、知识点、解题方法三维整理，错题不再白错',
+    icon: '📐',
+    categories: [
+      { name: '一年级', slug: 'yinianji',     sort_order: 0,  template_key: 'math_problem' },
+      { name: '二年级', slug: 'ernianji',     sort_order: 10, template_key: 'math_problem' },
+      { name: '三年级', slug: 'sannianji',     sort_order: 20, template_key: 'math_problem' },
+      { name: '四年级', slug: 'sinianji',     sort_order: 30, template_key: 'math_problem' },
+      { name: '五年级', slug: 'wunianji',     sort_order: 40, template_key: 'math_problem' },
+      { name: '六年级', slug: 'liunianji',    sort_order: 50, template_key: 'math_problem' },
+      { name: '知识点', slug: 'zhishidian',   sort_order: 90, template_key: 'math_concept' },
+      { name: '解题方法', slug: 'jieti-fangfa', sort_order: 95, template_key: 'math_strategy' },
+    ],
+  },
 ];
 
 // GET /api/wiki/official/presets — 列出所有官方预设
@@ -1493,28 +1573,36 @@ export async function handleWikiSuggestTitle(request, env, JWT_SECRET) {
 }
 
 export async function handleWikiCheckMatch(request, env, JWT_SECRET, params) {
-  const user = await auth(request, env, JWT_SECRET);
-  if (!user) return json({ error: "unauthorized" }, 401);
-  const body = await readBody(request);
-  const kbId = params.kbId;
-  const text = (body.text || "").trim();
-  if (!kbId || !text) return json({ match: "high" });
-
-  // 拿 KB 信息
-  const kb = await env.DB.prepare("SELECT title, description FROM wiki_kbs WHERE id=? AND user_id=?").bind(kbId, user.uid).first();
-  if (!kb) return json({ match: "high" });
-
-  const truncated = text.slice(0, 600);
   try {
-    const raw = await wikiCallLLM(env, [
-      { role: 'system', content: '你是知识库主题匹配评估器。判断一段文本和一个知识库的主题是否相关。只回答 high / medium / low：high=强相关，medium=弱相关，low=不相关。' },
-      { role: 'user', content: `知识库主题：${kb.title}${kb.description ? '（' + kb.description + '）' : ''}\n\n文本：${truncated}` }
-    ], 10);
-    const ans = (raw || '').trim().toLowerCase();
-    if (ans.startsWith('high')) return json({ match: 'high' });
-    if (ans.startsWith('medium')) return json({ match: 'medium' });
-    return json({ match: 'low' });
-  } catch {
-    return json({ match: 'high' }); // AI 失败不阻塞
+    await dblog(env, 'check_match', 'START', { params, hasAuth: !!request.headers.get('Authorization') });
+    const user = await auth(request, env, JWT_SECRET);
+    if (!user) { await dblog(env, 'check_match', 'UNAUTH', {}); return json({ error: "unauthorized" }, 401); }
+    const body = await readBody(request);
+    const kbId = params.kbId;
+    const text = (body.text || "").trim();
+    if (!kbId || !text) return json({ match: "high" });
+
+    const kb = await env.DB.prepare("SELECT title, description FROM wiki_knowledge_bases WHERE id=? AND user_id=?").bind(kbId, user.uid).first();
+    if (!kb) return json({ match: "high" });
+    await dblog(env, 'check_match', 'KB_FOUND', { title: kb.title, uid: user.uid });
+
+    const truncated = text.slice(0, 600);
+    try {
+      const raw = await wikiCallLLM(env, [
+        { role: 'system', content: '你是知识库主题匹配评估器。判断一段文本和一个知识库的主题是否相关。只回答 high / medium / low：high=强相关，medium=弱相关，low=不相关。' },
+        { role: 'user', content: `知识库主题：${kb.title}${kb.description ? '（' + kb.description + '）' : ''}\n\n文本：${truncated}` }
+      ], 10);
+      const ans = (raw || '').trim().toLowerCase();
+      await dblog(env, 'check_match', 'LLM_OK', { ans });
+      if (ans.startsWith('high')) return json({ match: 'high' });
+      if (ans.startsWith('medium')) return json({ match: 'medium' });
+      return json({ match: 'low' });
+    } catch (e) {
+      await dblog(env, 'check_match', 'LLM_ERR', { msg: e?.message, stack: e?.stack?.slice(0, 300) });
+      return json({ match: 'high' });
+    }
+  } catch (e) {
+    await dblog(env, 'check_match', 'FATAL', { msg: e?.message, stack: e?.stack?.slice(0, 500) });
+    throw e; // 让 index.js 的 catch 打 500
   }
 }

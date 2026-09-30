@@ -12,7 +12,11 @@ export const API_BASE =
   envBase !== undefined ? envBase :
   (import.meta.env.DEV ? "https://mydiary-api-dev.mcartneyliu.workers.dev" : "");
 
-const TOKEN_KEY = "mydiary-web:auth:token";
+// 按 hostname 区分 token 存储，避免 prod/dev 共用 key 导致 token 用错 JWT_SECRET 验证
+const _host = typeof window !== 'undefined' ? window.location.hostname : '';
+const TOKEN_KEY = _host.includes('dev.pages') || _host.includes('localhost') || _host.includes('127.0.0.1')
+  ? "mydiary-web-dev:auth:token"
+  : "mydiary-web:auth:token";
 
 /** 存 token */
 export function setToken(t: string | null) {

@@ -6,6 +6,7 @@ import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import ConfirmDialog from "./ConfirmDialog";
+import Modal from "./Modal";
 import {
   wikiListKbs, wikiAddKb, wikiUpdateKb, wikiDeleteKb,
   wikiListCategories, wikiAddCategory, wikiUpdateCategory, wikiDeleteCategory,
@@ -48,6 +49,12 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
   const [seeding, setSeeding] = useState(false);
   const [newKbName, setNewKbName] = useState("");
   const [newKbDesc, setNewKbDesc] = useState("");
+  const [confirm, setConfirm] = useState<{
+    open: boolean; title: string; message: string;
+    confirmText?: string; cancelText?: string;
+    confirmTone?: "default" | "danger";
+    onConfirm: () => void;
+  }>({ open: false, title: "", message: "", onConfirm: () => {} });
 
   async function loadKbs() {
     setKbLoading(true);
@@ -106,24 +113,42 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
 
   async function submitIngest() {
     if (!ingestFor || !ingestText.trim()) return;
-    // ⚠️ 预检：内容和这个知识库主题匹配度？
+    const kbTitle = kbs.find(k => k.id === ingestFor)?.title || '';
+
+    // 预检：主题匹配度
     try {
-      const kbTitle = kbs.find(k => k.id === ingestFor)?.title || '';
       const match = await wikiCheckMatch(ingestFor, ingestText);
       if (match.match === 'low') {
-        const ok = confirm(`🌾 小麦觉得这段内容和「${kbTitle}」主题不太匹配哦～\n确定要汇入吗？也可以取消，先去「我的 → 知识」点「+ 新建」建个更合适的知识库。`);
-        if (!ok) return;
+        setConfirm({
+          open: true,
+          title: '🤔 主题不太匹配',
+          message: `小麦 觉得这段内容和「${kbTitle}」关联度比较低～\n要继续汇入吗？也可以取消，先去「我的 → 知识」点「+ 新建」建个更合适的知识库。`,
+          confirmText: '继续汇入',
+          cancelText: '取消',
+          onConfirm: () => { continueIngest(); setConfirm(c => ({ ...c, open: false })); },
+        });
+        return;
       } else if (match.match === 'medium') {
-        const ok = confirm(`🌾 小麦觉得这段内容和「${kbTitle}」主题关联不算太强，确定要汇入吗？`);
-        if (!ok) return;
+        setConfirm({
+          open: true,
+          title: '💭 主题关联一般',
+          message: `小麦 觉得这段内容和「${kbTitle}」关联不算太强，确定要汇入吗？`,
+          confirmText: '继续汇入',
+          cancelText: '取消',
+          onConfirm: () => { continueIngest(); setConfirm(c => ({ ...c, open: false })); },
+        });
+        return;
       }
-    } catch { /* AI 预检失败不阻塞，直接继续 */ }
+    } catch { /* AI 预检失败不阻塞 */ }
+    continueIngest();
+  }
+
+  async function continueIngest() {
+    if (!ingestFor) return;
     setIngestLoading(true);
     try {
-      // ① 先存原文到资料库（wiki_sources），标记 kb_id
       const name = ingestName.trim() || ingestText.trim().slice(0, 30);
       await wikiGlobalAddSource({ kb_id: ingestFor, title: name, text: ingestText });
-      // ② 走资料库完整汇入流程（AI 批量生成实体）
       await wikiIngestAll(ingestFor);
       alert("✅ 已汇入，小麦 正在生成实体...");
       const refreshedKbId = ingestFor;
@@ -166,16 +191,26 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
     
   }
 
-  async function deleteKb(id: string) {
-    if (!confirm("确定删除此知识库？所有相关数据都会消失。")) return;
-    await wikiDeleteKb(id);
-    const remain = kbs.filter(k => k.id !== id);
-    setKbs(remain);
-    setCurKbId(remain[0]?.id || null);
+  function deleteKb(id: string, title?: string) {
+    setConfirm({
+      open: true,
+      title: '删除知识库',
+      message: title ? `确定删除「${title}」？此操作不可恢复，所有相关数据都会消失！` : '确定删除此知识库？所有相关数据都会消失。',
+      confirmText: '删除',
+      cancelText: '取消',
+      confirmTone: 'danger',
+      onConfirm: async () => {
+        setConfirm(c => ({ ...c, open: false }));
+        await wikiDeleteKb(id);
+        setKbs(kbs.filter(k => k.id !== id));
+        setCurKbId(prev => prev === id ? null : prev);
+      },
+    });
   }
 
 
   return (
+    <>
     <section className={minimal ? "" : "bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5"}>
       {/* minimal 模式 — 顶部说明 */}
       {minimal && (
@@ -396,7 +431,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
                       {!kb.is_official && (
                         <>
                           <button
-                            onClick={(e) => { e.stopPropagation(); if (confirm(`确定删除知识库「${kb.title}」？此操作不可恢复！`)) deleteKb(kb.id); }}
+                            onClick={(e) => { e.stopPropagation(); deleteKb(kb.id, kb.title); }}
                             className="w-6 h-6 flex items-center justify-center rounded text-paper-ink3 hover:text-red-500 hover:bg-red-50 transition"
                             title="删除此知识库"
                           >🗑️</button>
@@ -419,86 +454,102 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
       {mainTab === 'list' && <PagesTab kbs={kbs} mode="list" />}
 
       {/* 配置面板（点 KB ⚙️ 或新建后自动弹出） */}
-      {configFor && (
-        <div className="fixed inset-0 z-40 bg-black/40 flex items-center justify-center p-4" onClick={() => setConfigFor(null)}>
-          <div className="bg-paper-bg rounded-xl border border-paper-line w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 bg-paper-bg border-b border-paper-line px-4 py-2 flex items-center justify-between z-10">
-              <div className="text-sm font-medium text-paper-ink">⚙️ 配置：{kbs.find(k => k.id === configFor)?.title || ''}</div>
-              <button onClick={() => setConfigFor(null)} className="text-paper-ink3 hover:text-paper-ink text-lg leading-none">×</button>
-            </div>
-            <SettingsTab
-              kbs={kbs} curKbId={configFor} onSelect={setCurKbId}
-              onCreateKb={createKb}  onKbsChanged={loadKbs}
-              onOpenPreset={() => { setShowPresetPicker(true); }}
-              kbLoading={kbLoading}  compact={true}
-            />
-          </div>
+      <Modal
+        open={!!configFor}
+        onClose={() => setConfigFor(null)}
+        title={<span>⚙️ 配置：{kbs.find(k => k.id === configFor)?.title || ''}</span>}
+        size="lg"
+        scrollable
+      >
+        <div className="p-4">
+          <SettingsTab
+            kbs={kbs} curKbId={configFor} onSelect={setCurKbId}
+            onCreateKb={createKb}  onKbsChanged={loadKbs}
+            onOpenPreset={() => { setShowPresetPicker(true); }}
+            kbLoading={kbLoading}  compact={true}
+          />
         </div>
-      )}
+      </Modal>
 
-      {/* 新建知识库弹窗（第1步：起名） */}
-      {showNewKbDialog && (
-        <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4" onClick={() => setShowNewKbDialog(false)}>
-          <div className="bg-paper-card rounded-lg p-4 w-[320px] shadow-xl" onClick={e => e.stopPropagation()}>
-            <div className="font-medium text-sm mb-3">📝 新建知识库</div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
-                <input value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="如：我的美食菜谱"
-                  className="w-full px-2 py-1.5 rounded border border-paper-line text-sm" autoFocus />
-              </div>
-              <div>
-                <label className="text-xs text-paper-ink2 block mb-0.5">说明（可选）</label>
-                <input value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="一句话描述"
-                  className="w-full px-2 py-1.5 rounded border border-paper-line text-sm" />
-              </div>
+      <Modal
+        open={showNewKbDialog}
+        onClose={() => { setShowNewKbDialog(false); setNewKbName(''); setNewKbDesc(''); }}
+        title="📝 新建知识库"
+        size="sm"
+      >
+        <div className="p-5">
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
+              <input value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="如：我的美食菜谱"
+                className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" autoFocus />
             </div>
-            <div className="flex gap-2 justify-end mt-4">
-              <button onClick={() => { setShowNewKbDialog(false); setNewKbName(''); setNewKbDesc(''); }}
-                className="px-3 py-1 text-xs text-paper-ink2">取消</button>
-              <button onClick={() => createKb(newKbName, newKbDesc)} disabled={!newKbName.trim()}
-                className="px-3 py-1 text-xs bg-paper-ink text-white rounded disabled:opacity-50">确定</button>
+            <div>
+              <label className="text-xs text-paper-ink2 block mb-0.5">说明（可选）</label>
+              <input value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="一句话描述"
+                className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" />
             </div>
           </div>
+          <div className="flex gap-2 justify-end mt-5">
+            <button onClick={() => { setShowNewKbDialog(false); setNewKbName(''); setNewKbDesc(''); }}
+              className="px-4 py-2 text-sm text-paper-ink2 hover:bg-paper-surface rounded-lg transition">取消</button>
+            <button onClick={() => createKb(newKbName, newKbDesc)} disabled={!newKbName.trim()}
+              className="px-4 py-2 text-sm bg-paper-accent text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition">确定</button>
+          </div>
         </div>
-      )}
+      </Modal>
 
-      {/* 官方预设选择弹窗 */}
-      {showPresetPicker && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !seeding && setShowPresetPicker(false)}>
-          <div className="bg-paper-bg rounded-2xl border border-paper-line p-5 max-w-md w-full max-h-[85vh] overflow-auto shadow-xl" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-semibold text-paper-ink mb-1">🎁 选择一个官方知识库</h3>
-            <p className="text-xs text-paper-ink3 mb-4">一键创建，自带分类和范本，马上就能用</p>
-            <div className="space-y-3">
-              {officialPresets.map(p => (
-                <button
-                  key={p.slug}
-                  disabled={seeding}
-                  onClick={() => handleSeed(p.slug)}
-                  className="w-full text-left p-3 rounded-xl border border-paper-line bg-paper-surface hover:bg-paper-card hover:border-paper-accent/40 transition disabled:opacity-50 disabled:cursor-wait"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{p.icon}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-paper-ink">{p.title}</div>
-                      <div className="text-xs text-paper-ink3 truncate">{p.description}</div>
-                    </div>
-                    <span className="text-xs text-paper-ink2 bg-paper-card px-2 py-0.5 rounded-full shrink-0">
-                      {p.category_count} 个分类
-                    </span>
+      <Modal
+        open={showPresetPicker}
+        onClose={() => !seeding && setShowPresetPicker(false)}
+        closeOnMask={!seeding}
+        showClose={!seeding}
+        title={<div><div className="text-base">🎁 选择一个官方知识库</div><div className="text-xs text-paper-ink3 font-normal">一键创建，自带分类和范本，马上就能用</div></div>}
+        size="md"
+        scrollable
+      >
+        <div className="p-5">
+          <div className="space-y-3">
+            {officialPresets.map(p => (
+              <button
+                key={p.slug}
+                disabled={seeding}
+                onClick={() => handleSeed(p.slug)}
+                className="w-full text-left p-3 rounded-xl border border-paper-line bg-paper-surface hover:bg-paper-card hover:border-paper-accent/40 transition disabled:opacity-50 disabled:cursor-wait"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{p.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-paper-ink">{p.title}</div>
+                    <div className="text-xs text-paper-ink3 truncate">{p.description}</div>
                   </div>
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => !seeding && setShowPresetPicker(false)}
-              disabled={seeding}
-              className="mt-4 w-full text-xs text-paper-ink3 hover:text-paper-ink2 disabled:opacity-50"
-            >取消</button>
+                  <span className="text-xs text-paper-ink2 bg-paper-card px-2 py-0.5 rounded-full shrink-0">
+                    {p.category_count} 个分类
+                  </span>
+                </div>
+              </button>
+            ))}
           </div>
+          <button
+            onClick={() => !seeding && setShowPresetPicker(false)}
+            disabled={seeding}
+            className="mt-4 w-full text-xs text-paper-ink3 hover:text-paper-ink2 disabled:opacity-50"
+          >取消</button>
         </div>
-      )}
+      </Modal>
     </section>
+
+    <ConfirmDialog
+      open={confirm.open}
+      title={confirm.title}
+      message={confirm.message}
+      confirmText={confirm.confirmText}
+      cancelText={confirm.cancelText}
+      confirmTone={confirm.confirmTone}
+      onConfirm={confirm.onConfirm}
+      onCancel={() => setConfirm(c => ({ ...c, open: false }))}
+    />
+    </>
   );
 }
 
@@ -522,6 +573,12 @@ function SettingsTab(props: {
   const [editTitleValue, setEditTitleValue] = useState("");
   const [editingDesc, setEditingDesc] = useState(false);
   const [editDescValue, setEditDescValue] = useState("");
+  const [confirm, setConfirm] = useState<{
+    open: boolean; title: string; message: string;
+    confirmText?: string; cancelText?: string;
+    confirmTone?: "default" | "danger";
+    onConfirm: () => void;
+  }>({ open: false, title: "", message: "", onConfirm: () => {} });
   const [toast, setToast] = useState<string | null>(null);
 
   function showToast(msg: string) {
@@ -563,11 +620,21 @@ function SettingsTab(props: {
     setEditingId(null); loadCats();
     showToast("✅ 分类已更新");
   }
-  async function delCat(id: string) {
-    if (!confirm("确定删除此分类？已生成的页面保留。")) return;
-    if (!curKb) return;
-    await wikiDeleteCategory(curKb.id, id); loadCats();
-    showToast("🗑️ 分类已删除");
+  function delCat(id: string) {
+    setConfirm({
+      open: true,
+      title: '删除分类',
+      message: '确定删除此分类？已生成的页面保留。',
+      confirmText: '删除',
+      cancelText: '取消',
+      confirmTone: 'danger',
+      onConfirm: async () => {
+        setConfirm(c => ({ ...c, open: false }));
+        if (!curKb) return;
+        await wikiDeleteCategory(curKb.id, id); loadCats();
+        showToast("🗑️ 分类已删除");
+      },
+    });
   }
 
   function handleCreateKb() {
@@ -600,27 +667,36 @@ function SettingsTab(props: {
         <button onClick={onOpenPreset}
           className="w-full px-4 py-2 mt-2 bg-paper-accent text-white rounded-md text-xs">🎁 从官方预设创建</button>
         {toast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-4 py-2 rounded shadow-lg z-50">{toast}</div>}
-        {showNewKbDialog && (
-          <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center" onClick={() => setShowNewKbDialog(false)}>
-            <div className="bg-paper-card rounded-lg p-4 w-[300px] shadow-xl" onClick={e => e.stopPropagation()}>
-              <div className="font-medium text-sm mb-3">新建知识库</div>
+        <Modal
+          open={showNewKbDialog}
+          onClose={() => { setShowNewKbDialog(false); setNewKbName(""); setNewKbDesc(""); }}
+          title="📝 新建知识库"
+          size="sm"
+        >
+          <div className="p-5 space-y-3">
+            <div>
+              <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
               <input autoFocus value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="输入知识库名称"
                 onKeyDown={e => e.key === 'Enter' && handleCreateKb()}
-                className="w-full px-3 py-2 rounded-md border border-paper-line text-sm mb-2" />
-              <textarea value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="这个知识库是做什么的？（可选）" rows={3}
-                className="w-full px-3 py-2 rounded-md border border-paper-line text-sm resize-none" />
-              <div className="flex gap-2 justify-end mt-3">
-                <button onClick={() => { setShowNewKbDialog(false); setNewKbName(""); setNewKbDesc(""); }} className="px-3 py-1 text-xs text-paper-ink2">取消</button>
-                <button onClick={handleCreateKb} disabled={!newKbName.trim()} className="px-3 py-1 text-xs bg-paper-ink text-white rounded disabled:opacity-50">确定</button>
-              </div>
+                className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" />
+            </div>
+            <div>
+              <label className="text-xs text-paper-ink2 block mb-0.5">说明（可选）</label>
+              <textarea value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="这个知识库是做什么的？" rows={3}
+                className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm resize-none focus:outline-none focus:border-paper-accent/60" />
+            </div>
+            <div className="flex gap-2 justify-end pt-1">
+              <button onClick={() => { setShowNewKbDialog(false); setNewKbName(""); setNewKbDesc(""); }} className="px-4 py-2 text-sm text-paper-ink2 hover:bg-paper-surface rounded-lg transition">取消</button>
+              <button onClick={handleCreateKb} disabled={!newKbName.trim()} className="px-4 py-2 text-sm bg-paper-accent text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition">确定</button>
             </div>
           </div>
-        )}
+        </Modal>
       </div>
     );
   }
 
   return (
+    <>
     <div className="space-y-4 relative">
       {/* KB 管理行 */}
       <div className="flex gap-3 items-start">
@@ -713,24 +789,43 @@ function SettingsTab(props: {
       {/* Toast */}
       {toast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-4 py-2 rounded shadow-lg z-50">{toast}</div>}
 
-      {/* 新建知识库弹框 */}
-      {showNewKbDialog && (
-        <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center" onClick={() => setShowNewKbDialog(false)}>
-          <div className="bg-paper-card rounded-lg p-4 w-[300px] shadow-xl" onClick={e => e.stopPropagation()}>
-            <div className="font-medium text-sm mb-3">新建知识库</div>
+      <Modal
+        open={showNewKbDialog}
+        onClose={() => { setShowNewKbDialog(false); setNewKbName(""); setNewKbDesc(""); }}
+        title="📝 新建知识库"
+        size="sm"
+      >
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
             <input autoFocus value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="输入知识库名称"
               onKeyDown={e => e.key === 'Enter' && handleCreateKb()}
-              className="w-full px-3 py-2 rounded-md border border-paper-line text-sm mb-2" />
-            <textarea value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="这个知识库是做什么的？（可选）" rows={3}
-              className="w-full px-3 py-2 rounded-md border border-paper-line text-sm resize-none" />
-            <div className="flex gap-2 justify-end mt-3">
-              <button onClick={() => { setShowNewKbDialog(false); setNewKbName(""); setNewKbDesc(""); }} className="px-3 py-1 text-xs text-paper-ink2">取消</button>
-              <button onClick={handleCreateKb} disabled={!newKbName.trim()} className="px-3 py-1 text-xs bg-paper-ink text-white rounded disabled:opacity-50">确定</button>
-            </div>
+              className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" />
+          </div>
+          <div>
+            <label className="text-xs text-paper-ink2 block mb-0.5">说明（可选）</label>
+            <textarea value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="这个知识库是做什么的？" rows={3}
+              className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm resize-none focus:outline-none focus:border-paper-accent/60" />
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <button onClick={() => { setShowNewKbDialog(false); setNewKbName(""); setNewKbDesc(""); }} className="px-4 py-2 text-sm text-paper-ink2 hover:bg-paper-surface rounded-lg transition">取消</button>
+            <button onClick={handleCreateKb} disabled={!newKbName.trim()} className="px-4 py-2 text-sm bg-paper-accent text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition">确定</button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
+
+    <ConfirmDialog
+      open={confirm.open}
+      title={confirm.title}
+      message={confirm.message}
+      confirmText={confirm.confirmText}
+      cancelText={confirm.cancelText}
+      confirmTone={confirm.confirmTone}
+      onConfirm={confirm.onConfirm}
+      onCancel={() => setConfirm(c => ({ ...c, open: false }))}
+    />
+    </>
   );
 }
 
