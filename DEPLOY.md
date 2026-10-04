@@ -464,7 +464,7 @@ npm run dev                                             # localhost:5173 (Vite)
 
 ---
 
-## 🔍 Wiki 知识库日志排查（v0.5.4 新增）
+## 🔍 Wiki 知识库日志排查（v0.5.5 更新）
 
 ### 背景
 
@@ -474,55 +474,85 @@ Agent 本机无法连接 `*.workers.dev`（DNS 劫持 + 网络层深包检测）
 ### 日志通路
 
 ```
-Worker 执行 wiki 汇入
-  → dblog(env, 'ingest', <MSG>, { ... })
-  → INSERT INTO wiki_debug_log (ts, tag, msg, data)
+Worker 执行 wiki 汇入（或任何 handler 抛出 fatal）
+  → dblog(env, 'ingest' | 'fatal' | 'diary' | 'ai', <MSG>, { ... })
+  → INSERT INTO wiki_debug_log (id TEXT, ts INTEGER, tag TEXT, msg TEXT, data TEXT)
   → Agent 用 wrangler d1 execute --remote SELECT 查出来
 ```
 
-### 查表必备命令
+### Tag 对照表
 
-```bash
-# === dev 环境（pages.dev 测试时用这个！）===
-cd workers
-DB=mydiary-db-dev
+| tag | 覆盖范围 | 写入位置 |
+|-----|---------|---------|
+| `ingest` | 知识库汇入全链路 | workers/src/wiki.js（37 处） |
+| `check_match` | 知识库匹配分类（AI） | workers/src/wiki.js（8 处） |
+| `fatal` | **全局兜底** — 所有 handler 未 catch 的异常 | workers/src/index.js（全局 try/catch） |
+| `diary` | 写日记保存失败 | workers/src/index.js |
+| `ai` | AI 问答失败 / embedding reindex 失败 | workers/src/index.js |
+| `auth` | 登录后 last_login_at 更新失败 | workers/src/index.js |
 
-# 最新日志（时间倒序）
-wrangler d1 execute $DB --remote --command "SELECT ts, msg, substr(data,1,300) as data FROM wiki_debug_log ORDER BY ts DESC LIMIT 20"
-
-# 按时间范围查（毫秒时间戳）
-wrangler d1 execute $DB --remote --command "SELECT msg, data FROM wiki_debug_log WHERE ts >= 1790638314000 ORDER BY ts ASC"
-
-# 清空 + reset source 重测
-wrangler d1 execute $DB --remote --command "DELETE FROM wiki_debug_log"
-wrangler d1 execute $DB --remote --command "UPDATE wiki_sources SET ingested=0 WHERE kb_id='<目标KB_ID>'"
-
-# === prod 环境 ===
-DB=mydiary-db
-# 同上命令，换 DB 名
-```
-
-### msg 字段速查（wiki.js 写入的所有 tag）
+### msg 字段速查（wiki.js 写入）
 
 | msg | 含义 | data 里有啥 |
 |-----|------|------------|
 | `START` | 汇入开始 | kb_id, kb_title |
-| `LLM_ENV` | 检查 Agnes 配置 | hasEndpoint, hasKey, endpointPrefix |
-| `LLM_AGNES_OK` | Agnes 调用成功 | contentLen |
-| `LLM_AGNES_EXCEPTION` | Agnes 报错 | msg（AbortError 等） |
-| `LLM_FALLBACK_WORKERS` | fallback 到 Workers AI | model |
-| `LLM_NO_SECRETS` | Agnes endpoint/key 没配 | — |
+| `LLM_ENV` | 检查 DeepSeek 配置 | hasEndpoint, hasKey, endpointPrefix, model |
+| `LLM_DEEPSEEK_OK` | DeepSeek 调用成功 | contentLen |
+| `LLM_DEEPSEEK_EMPTY` | content 为空（可能思考链没关） | respPreview |
+| `LLM_DEEPSEEK_FALLBACK_REASONING` | content 空但 reasoning_content 有，兜底捞出来 | len |
+| `LLM_DEEPSEEK_EXCEPTION` | DeepSeek 网络异常 | msg |
+| `LLM_DEEPSEEK_HTTP_ERR` | DeepSeek 返回 4xx/5xx | status, err |
+| `LLM_DEEPSEEK_RETRY` | 第 N 次重试 | attempt |
+| `LLM_NO_SECRETS` | DEEPSEEK_API_KEY 没配 | — |
+| `LLM_FALLBACK_WORKERS` | fallback 到 Workers AI llama | model |
 | `AI_RAW` | AI 原始返回 | preview（前 500 字） |
-| `AI_FAIL` | AI 调用超时/异常 | error（3046 是 Cloudflare 排队超时） |
-| `PARSE_FAIL` | JSON 解析失败 | raw |
+| `AI_FAIL` | AI 调用超时/异常 | error |
+| `PARSE_FAIL` | JSON 解析失败 | steps（每步错误原因）+ head + tail |
 | `PARSED_OK` | 解析成功 | pages, links, page_cats |
 | `VALIDATED` | slug 白名单校验通过 | validSlugs |
 | `SLUG_INVALID` | AI 返回了白名单外的 slug | badSlug, validSlugs |
-| `PAGE_INSERT` | 新建页面 | title, slug, catId |
-| `PAGE_UPDATE` | 更新页面 | title, slug, catId, existingCatId |
-| `SOURCE_SKIP` | AI_FAIL 的 source 没标记 ingested | reason |
-| `ISOLATED` / `ISOLATED_FIXED` | 孤儿页面（无 [[链接]]）被自动补链 | title, linkedTo |
+| `PAGE_INSERT` | 新建页面 | title, slug |
+| `PAGE_UPDATE` | 更新页面 | title, slug |
+| `SOURCE_SKIP` | 某条 source 被跳过（batch_fail） | id, reason |
+| `ISOLATED` / `ISOLATED_FIXED` | 孤儿页面自动补链 | title, linkedTo |
 | `DONE` | 全部完成 | ingested, totalPending, created, updated, links |
+
+### msg 字段速查（index.js 写入）
+
+| msg | 含义 | data 里有啥 |
+|-----|------|------------|
+| （全局 catch 无 msg） | 任意 handler 抛异常 | msg, stack（前 300 字） |
+| `SAVE_FAIL` | 写日记主流程崩了 | msg, stack |
+| `ASK_FAIL` | AI 问答崩了 | msg, stack |
+| `REINDEX_FAIL` | embedding 重建崩了 | msg |
+| `LOGIN_TIME_FAIL` | 登录后 last_login_at 更新失败 | msg |
+
+### 查表必备命令
+
+```bash
+# === prod 环境 ===
+cd workers
+DB=mydiary-db
+
+# 最新 20 条
+wrangler d1 execute $DB --remote --command "SELECT ts, tag, msg, substr(data,1,300) as data FROM wiki_debug_log ORDER BY ts DESC LIMIT 20"
+
+# 只看 fatal 错误（所有 handler 未 catch 的异常）
+wrangler d1 execute $DB --remote --command "SELECT * FROM wiki_debug_log WHERE tag='fatal' ORDER BY ts DESC"
+
+# 只看 ingest 链路
+wrangler d1 execute $DB --remote --command "SELECT * FROM wiki_debug_log WHERE tag='ingest' ORDER BY ts DESC"
+
+# 今天的所有日志（ts 是毫秒时间戳）
+wrangler d1 execute $DB --remote --command "SELECT * FROM wiki_debug_log WHERE ts > 1727740800000 ORDER BY ts DESC"
+
+# 按时间范围查
+wrangler d1 execute $DB --remote --command "SELECT msg, data FROM wiki_debug_log WHERE ts >= 1790638314000 ORDER BY ts ASC"
+
+# === dev 环境（pages.dev 测试时用这个！）===
+DB=mydiary-db-dev
+# 同上命令，换 DB 名
+```
 
 ### 常见问题排查流程
 
@@ -541,27 +571,69 @@ SELECT data FROM wiki_debug_log WHERE msg='PARSED_OK' ORDER BY ts DESC LIMIT 1;
 ```sql
 -- 查 source 的 kb_id
 SELECT id, title, kb_id FROM wiki_sources WHERE kb_id IS NULL;
--- 根因：之前代码漏了 AND kb_id IS NOT NULL，NULL 的 source 被自动匹配进来了（v0.5.4 已修）
-
--- 清理：
-DELETE FROM wiki_pages WHERE kb_id='<美食KB_ID>' AND title IN ('曹操','刘备','孙权','长坂坡之战');
+-- 根因：之前代码漏了 AND kb_id IS NOT NULL，NULL 的 source 被自动匹配进来了
 ```
 
-**问题 3：AI 一直超时 3046**
+**问题 3：AI 一直返回空 content**
 ```
-看日志里 LLM_AGNES_EXCEPTION 还是 LLM_FALLBACK_WORKERS
-→ Agnes 超时（已改 90s）：查 endpoint 是否可达
-→ Workers AI 也超时：Cloudflare 侧排队，重试或加 retry 逻辑
+dblog 里连续 LLM_DEEPSEEK_EMPTY（content 为 ""）
+→ 根因：deepseek-v4-flash 默认开思考链，正式回复走 reasoning_content
+→ 代码已加 thinking: { type: "disabled" } + reasoning_content 兜底
+→ 如果还发生：查 DEEPSEEK_API_KEY 是否有权限，或换 deepseek-chat 模型
 ```
+
+**问题 4：LLM_DEEPSEEK_OK 但 PARSE_FAIL**
+```
+→ 根因：AI 输出 JSON 里有 trailing comma、裸反斜杠、尾部截断
+→ dblog 的 steps 数组会告诉你每一步 parse 卡在哪
+→ repairAiJson 四层修复：原生 parse → 去 trailing comma → LaTeX 反斜杠 → 截断到最后 }
+```
+
+**问题 5：wiki_debug_log 全是空的（最坑的坑！）**
+```sql
+-- 先查表结构
+PRAGMA table_info(wiki_debug_log);
+-- dev：id TEXT PRIMARY KEY（正确）
+-- prod：id INTEGER PRIMARY KEY（错误！uuid() 字符串插 INTEGER → SQLITE_MISMATCH → 被 catch {} 吞了）
+
+-- 修复 prod：
+ALTER TABLE wiki_debug_log RENAME TO wiki_debug_log_old;
+CREATE TABLE wiki_debug_log (id TEXT PRIMARY KEY, ts INTEGER NOT NULL, tag TEXT, msg TEXT, data TEXT);
+DROP TABLE wiki_debug_log_old;
+-- ✅ 2026-10-01 已修复
+```
+
+### AI 调用配置（v0.5.5 换了 DeepSeek）
+
+| 项 | 旧值 | 新值 |
+|----|------|------|
+| 模型 | agnes-3.0-flash | **deepseek-v4-flash** |
+| 环境变量 | AGNES_ENDPOINT / AGNES_API_KEY | **DEEPSEEK_API_KEY**（endpoint 硬编码在代码里） |
+| 请求参数 | temperature: 0.1 | + **thinking: { type: "disabled" }**（必须关思考链） |
+| Endpoint | 可变 | **https://api.deepseek.com/v1/chat/completions** |
+
+请求体（workers/src/wiki.js line 58）：
+```json
+{ "model": "deepseek-v4-flash", "messages": [...], "max_tokens": 4096, "temperature": 0.1, "thinking": { "type": "disabled" } }
+```
+
+**必须关思考模式**：deepseek-v4-flash 默认开思考链，正式回复塞到 reasoning_content，content 是空字符串。代码双保险：请求时 thinking disabled + 响应时 content 为空 fallback reasoning_content。
 
 ### 关键环境变量
 
 | Secret | 位置 | 用途 |
 |--------|------|------|
-| `AGNES_ENDPOINT` | Worker → Settings → Variables | Agnes API URL，dev 和 prod 各配一份 |
-| `AGNES_API_KEY` | 同上 | Agnes API Key |
+| `DEEPSEEK_API_KEY` | Worker → Settings → Variables | DeepSeek API Key，dev 和 prod **各配一份** |
 
-**Agnes 优先 Workers AI 兜底**，代码见 `workers/src/wiki.js` 的 `wikiCallLLM` 函数。
+**DeepSeek 优先 Workers AI 兜底**，代码见 `workers/src/wiki.js` 的 `wikiCallLLM` 函数（重试 2 次后 fallback）。
+
+---
+
+### 已发现的 prod/dev schema 漂移（继续之前的记录）
+
+| 日期 | 差异 | 修复 |
+|---|---|---|
+| 2026-10-01 | prod wiki_debug_log.id 是 INTEGER，dev 是 TEXT | 重建 prod 表，id 改为 TEXT PRIMARY KEY |
 
 ---
 

@@ -1,6 +1,6 @@
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Diary } from "../types";
 import { FINANCE_CATEGORIES, resolveCategory, categoryMeta } from "../categories";
 
@@ -53,10 +53,35 @@ export default function FinancePage({ diaries }: Props) {
     return list.sort((a, b) => b.date.localeCompare(a.date)); // 日期倒序
   }, [diaries]);
 
-  // 本月聚合
+  // 月份切换状态
+  const [selectedYm, setSelectedYm] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const monthItems = useMemo(
+    () => items.filter((i) => i.date.startsWith(selectedYm)),
+    [items, selectedYm]
+  );
+
+  // 月份导航
   const now = new Date();
-  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const monthItems = useMemo(() => items.filter((i) => i.date.startsWith(ym)), [items, ym]);
+  const nowYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const isCurrentMonth = selectedYm === nowYm;
+  const goPrevMonth = () => {
+    const [y, m] = selectedYm.split("-").map(Number);
+    const d = new Date(y, m - 2, 1); // month 是 0-index，减 1 再减 1 = 目标 -2
+    setSelectedYm(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
+  const goNextMonth = () => {
+    const [y, m] = selectedYm.split("-").map(Number);
+    const d = new Date(y, m, 1); // month 是 0-index，m 已经是"下个月"的 index
+    setSelectedYm(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
+  const resetToNow = () => setSelectedYm(nowYm);
+
+  // 显示用：2026年10月
+  const [selY, selM] = selectedYm.split("-").map(Number);
+  const ymLabel = `${selY}年${selM}月`;
 
   const monthExpense = useMemo(
     () => monthItems.filter((i) => i.direction === "expense").reduce((s, i) => s + i.value, 0),
@@ -119,11 +144,38 @@ export default function FinancePage({ diaries }: Props) {
             <ArrowLeft size={20} className="text-paper-ink" />
           </button>
           <h1 className="text-base text-paper-ink font-medium">💰 记账统计</h1>
-          {hasData && (
-            <span className="text-xs text-paper-ink2 ml-auto">
-              {monthItems.length} 笔 · {ym}
-            </span>
-          )}
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={goPrevMonth}
+              className="p-1 rounded-full hover:bg-paper-surface active:scale-95 text-paper-ink2"
+              title="上一月"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={isCurrentMonth ? undefined : resetToNow}
+              className={`text-xs px-1.5 py-0.5 rounded ${
+                isCurrentMonth
+                  ? "text-paper-ink"
+                  : "text-paper-accent hover:bg-paper-accent/10"
+              }`}
+              title={isCurrentMonth ? "当前月份" : "回到本月"}
+            >
+              {ymLabel}
+            </button>
+            <button
+              onClick={goNextMonth}
+              disabled={isCurrentMonth}
+              className={`p-1 rounded-full active:scale-95 ${
+                isCurrentMonth
+                  ? "text-paper-line cursor-not-allowed"
+                  : "hover:bg-paper-surface text-paper-ink2"
+              }`}
+              title={isCurrentMonth ? "还没到下月" : "下一月"}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -146,13 +198,13 @@ export default function FinancePage({ diaries }: Props) {
             {/* 三卡片 */}
             <section className="grid grid-cols-3 gap-2">
               <div className="rounded-xl border border-red-200 bg-red-50/60 p-3">
-                <div className="text-[11px] text-red-600/80">本月支出</div>
+                <div className="text-[11px] text-red-600/80">{isCurrentMonth ? "本月" : `${selM}月`}支出</div>
                 <div className="text-base font-semibold text-red-700 mt-1">
                   {cnYuan(monthExpense)}
                 </div>
               </div>
               <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
-                <div className="text-[11px] text-emerald-600/80">本月收入</div>
+                <div className="text-[11px] text-emerald-600/80">{isCurrentMonth ? "本月" : `${selM}月`}收入</div>
                 <div className="text-base font-semibold text-emerald-700 mt-1">
                   {cnYuan(monthIncome)}
                 </div>
@@ -169,7 +221,7 @@ export default function FinancePage({ diaries }: Props) {
                     monthBalance >= 0 ? "text-blue-600/80" : "text-amber-600/80"
                   }`}
                 >
-                  本月结余
+                  {isCurrentMonth ? "本月" : `${selM}月`}结余
                 </div>
                 <div
                   className={`text-base font-semibold mt-1 ${
@@ -186,7 +238,7 @@ export default function FinancePage({ diaries }: Props) {
             {categoryBreakdown.length > 0 && (
               <section className="rounded-xl bg-paper-surface border border-paper-line p-3">
                 <h2 className="text-xs font-medium text-paper-ink mb-2">
-                  📊 {ym} 支出分类
+                  📊 {ymLabel} 支出分类
                 </h2>
                 <div className="space-y-2">
                   {categoryBreakdown.map(({ cat, val, pct }) => {

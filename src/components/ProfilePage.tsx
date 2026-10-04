@@ -368,6 +368,18 @@ export default function ProfilePage() {
                     <span className="flex-1 text-left">修改密码</span>
                     <span className="text-paper-ink3">›</span>
                   </button>
+                  <button
+                    onClick={() => {
+                      setShowSettings(false);
+                      try { localStorage.removeItem("mydiary.has_seen_tour"); } catch {}
+                      nav("/");
+                    }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink hover:bg-paper-surface transition"
+                  >
+                    <span>🧭</span>
+                    <span className="flex-1 text-left">查看新手指引</span>
+                    <span className="text-paper-ink3">›</span>
+                  </button>
 
                   {/* 分隔线 */}
                   <div className="border-t border-paper-line/60 my-1" />

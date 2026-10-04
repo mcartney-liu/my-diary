@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { User, PenLine } from "lucide-react";
 import type { Diary } from "../types";
 import { getProfile } from "../api";
 import { monthCells, moodById, fmtDate } from "../data";
@@ -12,6 +13,8 @@ import DayList from "./DayList";
 import VoiceQuickEntry from "./VoiceQuickEntry";
 import AiChatView from "./AiChatView";
 import KnowledgeBase from "./KnowledgeBase";
+import OnboardingWizard from "./OnboardingWizard";
+import FeatureTour, { hasSeenTour, markTourSeen, type TourStep } from "./FeatureTour";
 
 interface Props {
   diaries: Diary[];
@@ -29,10 +32,25 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [view, setView] = useState<"monthly" | "yearly" | "ai" | "wiki">("monthly");
   const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
   const [avatarKey, setAvatarKey] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<any>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showTour, setShowTour] = useState(false);
 
-  // 拉用户头像
+  // 拉用户信息，判断是否需要新手指引
   useEffect(() => {
-    getProfile().then((p: any) => setAvatarKey(p?.user?.avatar || null)).catch(() => {});
+    getProfile().then((p: any) => {
+      const u = p?.user;
+      if (!u) return;
+      setUserProfile(u);
+      setAvatarKey(u.avatar || null);
+      // 新用户（onboarding_done === 0）→ 弹身份兴趣问卷
+      // 老用户但没看过引导 → 直接弹 FeatureTour
+      if (u.onboarding_done === 0) {
+        setShowOnboarding(true);
+      } else if (!hasSeenTour()) {
+        setShowTour(true);
+      }
+    }).catch(() => {});
   }, []);
 
   // 监听小麦来源点击 → 切到知识库 tab + 延迟重派事件（给 KnowledgeBase 时间 mount）
@@ -202,6 +220,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             <span className="text-paper-ink font-semibold text-lg tracking-wide">MyDiary</span>
           </div>
           <div
+            id="tour-marquee"
             ref={marqueeRef}
             className={`marquee-wrapper overflow-hidden max-w-[58%] md:max-w-none select-none ${marqueePaused ? "marquee-paused" : ""}`}
             onTouchStart={handleMarqueeTouchStart}
@@ -302,16 +321,17 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
 
       <main className="max-w-3xl mx-auto px-4 pt-4 space-y-4">
         {/* 搜索栏 */}
-        <SearchBar diaries={diaries} />
+          <div id="tour-search-bar"><SearchBar diaries={diaries} /></div>
 
-        {/* 打卡徽章 */}
-        <StreakBadge diaries={diaries} />
+          {/* 打卡徽章 */}
+          <div id="tour-streak-badge"><StreakBadge diaries={diaries} /></div>
 
-        {/* 视图切换 — 手机横向可滚，PC 正常 */}
-        <div className="overflow-x-auto no-scrollbar -mx-1 px-1">
-          <div className="flex items-center gap-1 p-1 rounded-full bg-paper-surface border border-paper-line w-fit min-w-full">
-            <button
-              onClick={() => setView("monthly")}
+          {/* 视图切换 — 手机横向可滚，PC 正常 */}
+          <div className="overflow-x-auto no-scrollbar -mx-1 px-1">
+            <div id="tour-tabs" className="flex items-center gap-1 p-1 rounded-full bg-paper-surface border border-paper-line w-fit min-w-full">
+              <button
+                id="tour-tab-monthly"
+                onClick={() => setView("monthly")}
               className={`shrink-0 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition ${
                 view === "monthly"
                   ? "bg-paper-ink text-paper-bg shadow-sm"
@@ -321,6 +341,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
               📅 月历
             </button>
             <button
+              id="tour-tab-yearly"
               onClick={() => setView("yearly")}
               className={`shrink-0 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition ${
                 view === "yearly"
@@ -331,6 +352,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
               📊 年度回顾
             </button>
             <button
+              id="tour-tab-wiki"
               onClick={() => setView("wiki")}
               className={`shrink-0 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition ${
                 view === "wiki"
@@ -376,7 +398,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           </div>
 
           {/* 42 格 */}
-          <div className="grid grid-cols-7 gap-1 md:gap-2">
+           <div id="tour-month-grid" className="grid grid-cols-7 gap-1 md:gap-2">
             {cells.map((d, i) => {
               const ds = fmtDate(d);
               const inMonth = d.getMonth() === month;
@@ -497,34 +519,120 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
         ) : null;
       })()}
 
-      {/* 📱 底部固定 Tab Bar */}
-      <nav className="fixed bottom-0 inset-x-0 z-20 backdrop-blur-sm bg-[#faf6ef]/95 border-t border-paper-line">
-        <div className="max-w-3xl mx-auto px-4 py-2 flex items-center justify-around">
+      {/* 🫧 悬浮胶囊坞 Floating Pill Dock */}
+      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 rounded-full bg-paper-surface/90 backdrop-blur-md border border-paper-line/80 px-1.5 py-1.5 shadow-lg shadow-paper-ink/5 max-w-[calc(100vw-1.5rem)]">
+        <div className="flex items-center gap-1">
+          {/* 我的 */}
           <button
+            id="tour-dock-profile"
             onClick={() => nav("/profile")}
-            className="flex flex-row items-center gap-1 px-4 py-2 rounded-xl text-paper-ink2 hover:text-paper-accent transition active:scale-95"
+            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-1.5 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
           >
-            {avatarKey ? (
-              <img src={`/avatars/${avatarKey}.jpg`} alt="头像" className="w-6 h-6 rounded-full object-cover border border-paper-line/50" />
+            {avatarKey?.startsWith("emoji-") ? (
+              <span className="w-5 h-5 rounded-full border border-paper-line shrink-0 flex items-center justify-center text-sm bg-gradient-to-br from-amber-100 to-paper-surface">{avatarKey.slice(6)}</span>
+            ) : avatarKey ? (
+              <img src={`/avatars/${avatarKey}.jpg`} alt="头像" className="block w-5 h-5 rounded-full object-cover border border-paper-line shrink-0" />
             ) : (
-              <span className="text-xl leading-none">👤</span>
+              <User className="w-4 h-4 shrink-0" />
             )}
-            <span className="text-[11px] font-medium">我的</span>
+            <span>我的</span>
           </button>
 
-          <div className="flex flex-col items-center gap-0.5">
-            <VoiceQuickEntry />
-          </div>
+          {/* 🎤 语音快记（中心强调胶囊） */}
+          <span id="tour-dock-voice" className="inline-flex">
+            <VoiceQuickEntry dockVariant />
+          </span>
 
+          {/* 写日记 */}
           <button
+            id="tour-dock-write"
             onClick={() => nav("/editor")}
-            className="flex flex-row items-center gap-1 px-4 py-2 rounded-xl text-paper-ink2 hover:text-paper-accent transition active:scale-95"
+            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-1.5 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
           >
-            <span className="text-xl leading-none">✏️</span>
-            <span className="text-[11px] font-medium">写日记</span>
+            <PenLine className="w-4 h-4 shrink-0" />
+            <span>写日记</span>
           </button>
         </div>
       </nav>
+
+      {/* === 新手指引 === */}
+      {showOnboarding && (
+        <OnboardingWizard
+          nickname={userProfile?.nickname}
+          onComplete={() => {
+            setShowOnboarding(false);
+            setShowTour(true);
+          }}
+          onSkip={() => {
+            setShowOnboarding(false);
+            // 跳过问卷直接看引导
+            if (!hasSeenTour()) setShowTour(true);
+          }}
+        />
+      )}
+
+      {showTour && (
+        <FeatureTour
+          open={showTour}
+          onFinish={() => { markTourSeen(); setShowTour(false); }}
+          onSkip={() => { markTourSeen(); setShowTour(false); }}
+          steps={TOUR_STEPS}
+        />
+      )}
     </div>
   );
 }
+
+  /** 主界面引导步骤 — 覆盖整个首页从上到下 */
+const TOUR_STEPS: TourStep[] = [
+  {
+    selector: "#tour-marquee",
+    title: "🏷️ 功能跑马灯",
+    description: "顶部滚动的小胶囊是你的快捷入口：标签、纪念日、计划、记账、胶囊日记。",
+  },
+  {
+    selector: "#tour-search-bar",
+    title: "🔍 搜索日记",
+    description: "写完的日记可以按关键词快速搜回来，再也不怕找不到～",
+  },
+  {
+    selector: "#tour-streak-badge",
+    title: "🔥 连续打卡",
+    description: "每天都来写一写，连续天数会越积越高。哪怕只写一句话也算数。",
+  },
+  {
+    selector: "#tour-tabs",
+    title: "🗂️ 四种视图",
+    description: "月历看每天、年度回顾看心情热力图、知识库整理资料、小麦 AI 随时问答。",
+  },
+  {
+    selector: "#tour-month-grid",
+    title: "📅 月历视图",
+    description: "这里是你的日历。写过日记的日子会显示心情图标，点一下就能翻那天的记录。",
+  },
+  {
+    selector: "#tour-tab-yearly",
+    title: "📊 年度回顾",
+    description: "想看看一整年的心情变化？点这里切换年度回顾视图。",
+  },
+  {
+    selector: "#tour-tab-wiki",
+    title: "🌳 知识库",
+    description: "切到知识库 Tab，把读书笔记、旅行攻略、菜谱都整理成可搜索的实体。小麦帮你自动分类。",
+  },
+  {
+    selector: "#tour-dock-write",
+    title: "🖊️ 写日记",
+    description: "点击这里，选择模板开始写你的第一篇日记。文字、图片、心情标签都能记录。",
+  },
+  {
+    selector: "#tour-dock-voice",
+    title: "🎤 语音快记",
+    description: "对着麦克风说几句，小麦帮你转成文字、匹配模板，一秒生成日记。",
+  },
+  {
+    selector: "#tour-dock-profile",
+    title: "👤 我的",
+    description: "头像、昵称、主题、数据备份都在这里管理。新手指引也可以在这里重新看。",
+  },
+];

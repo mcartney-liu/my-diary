@@ -1,4 +1,4 @@
-﻿/**
+/**
  * LLM Wiki 知识库组件 v4 — 多知识库 + 分类-模板 1:1
  * sub-tabs: [⚙️ 配置] [📜 资料] [🌐 知识库]
  */
@@ -93,7 +93,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
     setAiSuggestLoading(false);
   }
 
-  // 粘贴文本后 AI 建议标题（防抖 1.2s，放在下方当提示，不直接填入）
+  // 粘贴文本后 小麦建议标题（防抖 1.2s，放在下方当提示，不直接填入）
   const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!ingestFor) return; // 弹窗没开
@@ -218,12 +218,12 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
           <span className="text-lg shrink-0">🌳</span>
           <div className="text-xs text-paper-ink2 leading-relaxed">
             <div className="font-medium text-paper-ink mb-1">知识库</div>
-            <div>把零散的资料整理成相互关联的笔记 — AI 帮你分类、建链接、生成页面。</div>
+            <div>把零散的资料整理成相互关联的笔记 — 小麦帮你分类、建链接、生成页面。</div>
           </div>
         </div>
       )}
 
-      {/* 快捷录入弹窗（从卡片📥入口）—— 直接汇当前 KB，AI 自动分类 */}
+      {/* 快捷录入弹窗（从卡片📥入口）—— 直接汇当前 KB，小麦自动分类 */}
       {ingestFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !ingestLoading && setIngestFor(null)}>
           <div className="bg-paper-bg rounded-2xl border border-paper-line p-5 max-w-xl w-full shadow-xl" onClick={e => e.stopPropagation()}>
@@ -232,23 +232,23 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
               <button onClick={() => !ingestLoading && setIngestFor(null)} className="text-paper-ink3 hover:text-paper-ink text-lg leading-none">×</button>
             </div>
             <p className="text-xs text-paper-ink3 mb-4">
-              将汇入 <b>{kbs.find(k => k.id === ingestFor)?.title || ''}</b>，AI 会自动分类、提取实体
+              将汇入 <b>{kbs.find(k => k.id === ingestFor)?.title || ''}</b>，小麦会自动分类、提取实体
             </p>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-paper-ink2 block mb-0.5">标题（留空 AI 会自动帮你生成 ✨）</label>
+                <label className="text-xs text-paper-ink2 block mb-0.5">标题（留空 小麦会自动帮你生成 ✨）</label>
                 <input value={ingestName} onChange={e => { setIngestName(e.target.value); if (e.target.value.trim()) setAiSuggestedName(""); }}
                   placeholder="可手动输入，也可等小麦 建议..."
                   className="w-full px-3 py-2 rounded-md border border-paper-line text-sm" />
                 {aiSuggestLoading && !ingestName.trim() && (
                   <div className="text-[11px] text-paper-ink3 mt-1 flex items-center gap-1">
                     <span className="inline-block w-2 h-2 border border-paper-line border-t-paper-ink3 rounded-full animate-spin" />
-                    AI 正在想标题...
+                    小麦正在想标题...
                   </div>
                 )}
                 {aiSuggestedName && !ingestName.trim() && !aiSuggestLoading && (
                   <div className="text-[11px] text-paper-ink3 mt-1">
-                    💡 AI 建议：
+                    💡 小麦建议：
                     <button onClick={() => setIngestName(aiSuggestedName)}
                       className="text-paper-accent hover:underline font-medium ml-0.5">{aiSuggestedName}</button>
                     <span className="text-paper-ink3"> — 点一下应用，或直接在上面自己输入</span>
@@ -268,7 +268,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
                 className="px-3 py-1.5 text-xs text-paper-ink2 disabled:opacity-50">取消</button>
               <button onClick={submitIngest} disabled={ingestLoading || !ingestText.trim()}
                 className="px-4 py-1.5 text-xs bg-paper-accent text-white rounded-md disabled:opacity-50 flex items-center gap-1">
-                {ingestLoading ? '⏳ AI 处理中...' : '📥 汇入'}
+                {ingestLoading ? '⏳ 小麦处理中...' : '📥 汇入'}
               </button>
             </div>
           </div>
@@ -896,7 +896,7 @@ function CategoryEditor({ templates, cat, onSave, onCancel }: {
 
       {/* ③ 页面格式（左编辑 + 右预览） */}
       <div>
-        <label className="text-xs text-paper-ink2 block mb-1">📄 页面格式（Markdown 模板，{'{{占位符}}'} AI 会自动填充）</label>
+        <label className="text-xs text-paper-ink2 block mb-1">📄 页面格式（Markdown 模板，{'{{占位符}}'} 小麦会自动填充）</label>
         <div className="grid grid-cols-2 gap-2">
           <textarea value={form.page_format} onChange={e => setForm({ ...form, page_format: e.target.value })} rows={8}
             placeholder={'# {{名称}}\n\n## 身份\n{{身份}}\n\n## 生平\n{{生平}}'}
@@ -913,10 +913,10 @@ function CategoryEditor({ templates, cat, onSave, onCancel }: {
         </div>
       </div>
 
-      {/* ④ AI 提取提示（可选，高级设置） */}
+      {/* ④ 小麦提取提示（可选，高级设置） */}
       <div>
         <label className="text-xs text-paper-ink2 block mb-1">
-          💡 AI 提取提示 <span className="text-paper-ink3">（可选，告诉 AI 汇入资料时这个分类应该提取什么）</span>
+          💡 小麦提取提示 <span className="text-paper-ink3">（可选，告诉小麦汇入资料时这个分类应该提取什么）</span>
         </label>
         <textarea value={form.extract_hints} onChange={e => setForm({ ...form, extract_hints: e.target.value })} rows={3}
           placeholder={'例如：提取姓名、字号、居所、身份等级、与宝玉关系、重要情节、判词、结局命运'}
@@ -1142,7 +1142,7 @@ function PagesTab({ kbs, mode, kbLoading = false }: { kbs: WikiKB[]; mode: "list
             <div className="bg-paper-card rounded-lg shadow-xl max-w-md w-full p-5 space-y-4">
               <div>
                 <h3 className="text-base font-bold text-paper-ink mb-1">检测到 {pendingEntities.length} 个新实体</h3>
-                <p className="text-xs text-paper-ink2">请选择每个实体的分类，AI 会按范本自动生成页面。</p>
+                <p className="text-xs text-paper-ink2">请选择每个实体的分类，小麦会按范本自动生成页面。</p>
               </div>
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {pendingEntities.map(name => (
@@ -1151,7 +1151,7 @@ function PagesTab({ kbs, mode, kbLoading = false }: { kbs: WikiKB[]; mode: "list
                     <select value={entityCats[name] || ""}
                       onChange={e => setEntityCats(prev => ({ ...prev, [name]: e.target.value }))}
                       className="text-xs border border-paper-line rounded px-2 py-1 bg-paper-card">
-                      <option value="">不选（AI 自由生成）</option>
+                      <option value="">不选（小麦自由生成）</option>
                       {kbCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
@@ -1248,7 +1248,7 @@ function PagesTab({ kbs, mode, kbLoading = false }: { kbs: WikiKB[]; mode: "list
 
       {mode === "graph" && Object.values(graphData).every(g => !g || g.nodes.length === 0) && kbData.length > 0 && (
         <div className="text-center py-8 text-paper-ink3 text-sm">
-          🕸️ 还没有页面 — 去「📜 资料」汇入门资料让 AI 自动生成页面
+          🕸️ 还没有页面 — 去「📜 资料」汇入门资料让小麦自动生成页面
         </div>
       )}
 
@@ -1280,7 +1280,7 @@ function PagesTab({ kbs, mode, kbLoading = false }: { kbs: WikiKB[]; mode: "list
               <div className="text-xs text-paper-ink2 mb-3 italic">{kb.description}</div>
             )}
             {categories.length === 0 && noCat.length === 0 && (
-              <div className="text-xs text-paper-ink3">分类为空 — 去「⚙️ 配置」建分类，或先汇入资料让 AI 自动分类</div>
+              <div className="text-xs text-paper-ink3">分类为空 — 去「⚙️ 配置」建分类，或先汇入资料让 小麦自动分类</div>
             )}
 
             {categories.map(c => {
@@ -1673,7 +1673,7 @@ function PageDetailModal({
             <div className="bg-paper-card rounded-lg shadow-xl max-w-md w-full p-5 space-y-4">
               <div>
                 <h3 className="text-base font-bold text-paper-ink mb-1">检测到 {pendingEntities.length} 个新实体</h3>
-                <p className="text-xs text-paper-ink2">请选择每个实体的分类，AI 会按范本自动生成页面。</p>
+                <p className="text-xs text-paper-ink2">请选择每个实体的分类，小麦会按范本自动生成页面。</p>
               </div>
               <div className="space-y-3 max-h-64 overflow-y-auto">
                 {pendingEntities.map(name => (
@@ -1682,7 +1682,7 @@ function PageDetailModal({
                     <select value={entityCats[name] || ""}
                       onChange={e => setEntityCats(prev => ({ ...prev, [name]: e.target.value }))}
                       className="text-xs border border-paper-line rounded px-2 py-1 bg-paper-card">
-                      <option value="">不选（AI 自由生成）</option>
+                      <option value="">不选（小麦自由生成）</option>
                       {kbCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>

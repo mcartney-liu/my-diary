@@ -44,7 +44,7 @@ export default function WikiTemplatesView() {
       {/* 温暖说明 */}
       <div className="text-[12px] text-paper-ink2 italic leading-relaxed px-1">
         📋 范本库 — 定义小麦 从资料里提取什么、怎么组织成实体页面"。
-        把范本绑到知识库里的分类后，AI 汇入资料时就会按这个格式生成实体。
+        把范本绑到知识库里的分类后，小麦汇入资料时就会按这个格式生成实体。
         范本是 <b>全局</b> 的，建一次所有知识库都能用。
       </div>
 
@@ -203,12 +203,12 @@ function TemplateEditor({ onSave, onCancel, initial }: {
               className="w-full px-2 py-1.5 rounded border border-paper-line text-sm" />
           </div>
           <div>
-            <label className="text-xs text-paper-ink2 block mb-0.5">说明（给 AI 看的）</label>
+            <label className="text-xs text-paper-ink2 block mb-0.5">说明（给小麦看的）</label>
             <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="如：三国时期的历史人物"
               className="w-full px-2 py-1.5 rounded border border-paper-line text-sm" />
           </div>
           <div>
-            <label className="text-xs text-paper-ink2 block mb-0.5">提取提示（告诉 AI 该提取什么）</label>
+            <label className="text-xs text-paper-ink2 block mb-0.5">提取提示（告诉小麦该提取什么）</label>
             <textarea value={hints} onChange={e => setHints(e.target.value)} rows={2} placeholder="如：姓名、字号、生平、主要事迹"
               className="w-full px-2 py-1.5 rounded border border-paper-line text-sm resize-none" />
           </div>
@@ -217,7 +217,7 @@ function TemplateEditor({ onSave, onCancel, initial }: {
             <textarea value={fmt} onChange={e => setFmt(e.target.value)} rows={6}
               placeholder={`# {{名称}}\n\n## 身份\n{{身份}}\n\n## 生平\n{{生平}}`}
               className="w-full px-2 py-1.5 rounded border border-paper-line text-[11px] font-mono resize-y" />
-            <div className="text-[10px] text-paper-ink3 mt-0.5">用 {'{{变量}}'} 当占位符，AI 会自动填资料里的内容</div>
+            <div className="text-[10px] text-paper-ink3 mt-0.5">用 {'{{变量}}'} 当占位符，小麦会自动填资料里的内容</div>
           </div>
         </div>
         <div className="flex gap-2 justify-end mt-4">

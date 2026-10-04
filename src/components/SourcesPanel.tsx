@@ -485,7 +485,7 @@ export default function SourcesPanel() {
                 {ingesting ? (
                   <>
                     <span className="inline-block w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                    AI整理中...
+                    小麦整理中...
                   </>
                 ) : (
                   <>📥 汇入 {selected.size || ""}</>

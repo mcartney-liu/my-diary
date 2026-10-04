@@ -14,12 +14,16 @@ interface QuickResult {
   transcript: string;
 }
 
+interface Props {
+  dockVariant?: boolean;
+}
+
 function getSpeechRecognition(): any {
   const w = window as any;
   return w.SpeechRecognition || w.webkitSpeechRecognition || null;
 }
 
-export default function VoiceQuickEntry() {
+export default function VoiceQuickEntry({ dockVariant = false }: Props) {
   const nav = useNavigate();
   const [phase, setPhase] = useState<Phase>("idle");
   const [transcript, setTranscript] = useState("");
@@ -186,6 +190,19 @@ export default function VoiceQuickEntry() {
       ? `${btnBase} bg-paper-surface border-paper-line text-paper-ink/40 cursor-not-allowed`
       : `${btnBase} bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50`;
 
+  // 🫧 悬浮胶囊坞 — 中心强调圆钮样式
+  const dockBtnClass = phase === "recording"
+    ? "p-2.5 rounded-full bg-paper-accent text-white hover:bg-paper-accent2 active:scale-95 transition-all shadow-md shadow-paper-accent/25 animate-pulse"
+    : (phase === "processing" || phase === "match")
+      ? "p-2.5 rounded-full bg-paper-accent/60 text-white cursor-not-allowed shadow-md shadow-paper-accent/20"
+      : "p-2.5 rounded-full bg-paper-accent text-white hover:bg-paper-accent2 active:scale-95 transition-all shadow-md shadow-paper-accent/25";
+
+  const dockLabel = phase === "recording" ? "停止" :
+                    phase === "input" ? "打字" :
+                    phase === "processing" ? "想想" :
+                    phase === "match" ? "结果" :
+                    "语音";
+
   const btnLabel = phase === "recording" ? `${fmtTime(elapsed)} · 停止` :
                    phase === "input" ? "语音快记" :
                    phase === "processing" ? "帮你想想..." :
@@ -195,21 +212,42 @@ export default function VoiceQuickEntry() {
   return (
     <>
       {/* 底部导航栏按钮 — 留在 nav 原位 */}
-      <button
-        onClick={() => {
-          if (phase === "processing" || phase === "match") return;
-          if (phase === "recording") stopRecording();
-          else if (phase === "menu" || phase === "input") cancel();
-          else setPhase("menu");
-        }}
-        className={btnClass}
-      >
-        {phase === "processing" ? <Loader2 size={16} className="animate-spin" /> :
-         phase === "match" ? <Bot size={16} /> :
-         phase === "recording" ? <Mic size={16} /> :
-         <Mic size={16} />}
-        <span>{btnLabel}</span>
-      </button>
+      {dockVariant ? (
+        // 🫧 悬浮胶囊坞：中心强调圆钮
+        <button
+          onClick={() => {
+            if (phase === "processing" || phase === "match") return;
+            if (phase === "recording") stopRecording();
+            else if (phase === "menu" || phase === "input") cancel();
+            else setPhase("menu");
+          }}
+          className={dockBtnClass}
+          aria-label={dockLabel}
+          title={dockLabel}
+        >
+          {phase === "processing" ? <Loader2 size={18} className="animate-spin" /> :
+           phase === "match" ? <Bot size={18} /> :
+           phase === "recording" ? <Mic size={18} /> :
+           <Mic size={18} />}
+        </button>
+      ) : (
+        // 默认：原底部导航栏按钮
+        <button
+          onClick={() => {
+            if (phase === "processing" || phase === "match") return;
+            if (phase === "recording") stopRecording();
+            else if (phase === "menu" || phase === "input") cancel();
+            else setPhase("menu");
+          }}
+          className={btnClass}
+        >
+          {phase === "processing" ? <Loader2 size={16} className="animate-spin" /> :
+           phase === "match" ? <Bot size={16} /> :
+           phase === "recording" ? <Mic size={16} /> :
+           <Mic size={16} />}
+          <span>{btnLabel}</span>
+        </button>
+      )}
 
       {/* Portal：fixed 元素渲染到 body，突破 nav stacking context */}
       {createPortal(<>
