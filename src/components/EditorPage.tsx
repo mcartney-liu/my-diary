@@ -370,7 +370,9 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     const hasContent = blocks.some(
       (b) => b.kind === "text" ? b.content.trim().length > 0 : !!b.content
     );
-    if (hasContent) {
+    // 🔴 只有"新建中"（从未保存过）才弹确认
+    // 已保存过的日记（initialDiary 有值）→ 后端会自动新建一篇，原日记不动，无需弹窗
+    if (hasContent && !initialDiary) {
       pendingTplRef.current = tplId;
       pendingCustomTplRef.current = undefined;
       setConfirmSwitchTpl(true);
@@ -397,7 +399,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     const hasContent = blocks.some(
       (b) => b.kind === "text" ? b.content.trim().length > 0 : !!b.content
     );
-    if (hasContent) {
+    if (hasContent && !initialDiary) {
       pendingCustomTplRef.current = tpl;
       pendingTplRef.current = undefined;
       setConfirmSwitchTpl(true);

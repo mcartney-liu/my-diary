@@ -32,6 +32,7 @@ import {
   handleWikiListOfficialPresets, handleWikiSeedOfficialPreset,
   handleWikiDebugLog,
   handleWikiSuggestTitle, handleWikiCheckMatch,
+  dblog,
 } from "./wiki.js";
 
 const ALLOWED_ORIGINS = [
@@ -178,6 +179,7 @@ export default {
             return await handler(request, env, JWT_SECRET, params);
           } catch (e) {
             console.error("[FATAL]", method, p, e);
+            dblog(env, 'fatal', method + ' ' + p, { msg: e.message, stack: (e.stack || '').slice(0, 500) });
             return json({ error: e.message || "internal error", stack: e.stack || null }, 500);
           }
         }
@@ -385,6 +387,7 @@ async function handleLogin(request, env, JWT_SECRET) {
     await env.DB.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").bind(Date.now(), row.id).run();
   } catch (e) {
     console.error("[login] last_login_at update failed:", e);
+    dblog(env, 'auth', 'LOGIN_TIME_FAIL', { msg: e.message });
   }
   // 记录登录活动
   try { await logActivity(env, row.id, "login", null); } catch {}
@@ -421,7 +424,7 @@ async function handleChangePassword(request, env, JWT_SECRET) {
 async function handleMe(request, env, JWT_SECRET) {
   const user = await authUser(request, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
-  const row = await env.DB.prepare("SELECT id, email, nickname, avatar FROM users WHERE id = ?").bind(user.uid).first();
+  const row = await env.DB.prepare("SELECT id, email, nickname, avatar, identity, interests, onboarding_done, created_at FROM users WHERE id = ?").bind(user.uid).first();
   return json({ user: row });
 }
 
@@ -483,7 +486,14 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
 
     // 分支 1：按 id 查（编辑已有日记）
     if (id) {
-      existing = await env.DB.prepare("SELECT id FROM diaries WHERE id = ? AND user_id = ?").bind(id, user.uid).first();
+      existing = await env.DB.prepare("SELECT id, template_id FROM diaries WHERE id = ? AND user_id = ?").bind(id, user.uid).first();
+      // 🔴 如果前端切了模板（template_id 变了）→ 不 UPDATE 原日记
+      // 而是走 INSERT（新建一条），保护原模板日记的 blocks 不被覆盖
+      if (existing && existing.template_id !== tplId) {
+        console.log("[handleSaveDiary] 🔀 template changed:", existing.template_id, "→", tplId, "→ INSERT new, keep original");
+        dblog(env, "diary", "TEMPLATE_SWITCH_SPLIT", { from: existing.template_id, to: tplId, original_id: existing.id });
+        existing = null;
+      }
     }
 
     // 分支 2：没找到 OR 没传 id → 语义唯一键合并（仅 capsule / milestone / plan / finance）
@@ -620,6 +630,7 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
     return json({ id: diaryId, ok: true });
   } catch (e) {
     console.error("[handleSaveDiary] ❌ 主流程异常:", e.message, e.stack);
+    dblog(env, 'diary', 'SAVE_FAIL', { msg: e.message, stack: (e.stack || '').slice(0, 300) });
     return json({ error: "save_failed", detail: e.message }, 500);
   }
 }
@@ -693,8 +704,8 @@ async function handlePatchProfile(request, env, JWT_SECRET) {
     await env.DB.prepare(`UPDATE profiles SET ${patches.join(", ")}, updated_at = ? WHERE user_id = ?`).bind(...values).run();
   }
 
-  // 更新 users 表（nickname/avatar）
-  const allowedUser = ["nickname", "avatar"];
+  // 更新 users 表（nickname/avatar + onboarding 字段）
+  const allowedUser = ["nickname", "avatar", "identity", "interests", "onboarding_done"];
   const uPatches = allowedUser.filter(k => body[k] !== undefined).map(k => `${k} = ?`);
   if (uPatches.length) {
     const uValues = allowedUser.filter(k => body[k] !== undefined).map(k => body[k]);
@@ -1748,6 +1759,7 @@ async function handleAsk(request, env, JWT_SECRET) {
       _debug: { rerank: rerankStatus, candidates: CANDIDATE_COUNT, finalK: FINAL_TOP_K, totalIndexed },
     });
   } catch (e) {
+    dblog(env, 'ai', 'ASK_FAIL', { msg: e.message, stack: (e.stack || '').slice(0, 300) });
     return json({ answer: '抱歉，出错了：' + (e.message || 'unknown') });
   }
 }
@@ -1906,5 +1918,5 @@ async function handleReindex(request, env, JWT_SECRET) {
       } catch (e) { console.error('[reindex] 失败:', d.id, e.message); }
     }
     return json({ ok: true, total, done });
-  } catch (e) { return json({ error: e.message }, 500); }
+  } catch (e) { dblog(env, 'ai', 'REINDEX_FAIL', { msg: e.message }); return json({ error: e.message }, 500); }
 }
