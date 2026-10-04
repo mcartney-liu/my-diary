@@ -17,7 +17,7 @@ function json(obj, status = 200) {
 }
 
 // ====== DB 日志（tail 连不上时的替代日志通路） ======
-async function dblog(env, tag, msg, data = null) {
+export async function dblog(env, tag, msg, data = null) {
   try {
     await env.DB.prepare(
       "INSERT INTO wiki_debug_log (id, ts, tag, msg, data) VALUES (?,?,?,?,?)"
@@ -30,21 +30,22 @@ async function auth(request, env, JWT_SECRET) {
   return authUser(request, JWT_SECRET);
 }
 
-// ====== AI 调用（优先 Agnes，fallback Workers AI，temperature 低保证 JSON 稳定） ======
-const WIKI_LLM_MODEL = 'agnes-3.0-flash';
+// ====== AI 调用（优先 DeepSeek，fallback Workers AI，temperature 低保证 JSON 稳定） ======
+const WIKI_LLM_MODEL = 'deepseek-v4-flash';
 const WIKI_WORKERS_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
+const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
 async function wikiCallLLM(env, messages, maxTokens = 4096) {
-  const endpoint = String(env.AGNES_ENDPOINT || '').replace(/^\uFEFF+/, '').trim();
-  const apiKey = String(env.AGNES_API_KEY || '').replace(/^\uFEFF+/, '').trim();
+  const endpoint = DEEPSEEK_ENDPOINT;
+  const apiKey = String(env.DEEPSEEK_API_KEY || '').replace(/^\uFEFF+/, '').trim();
   await dblog(env, 'ingest', 'LLM_ENV', { hasEndpoint: !!endpoint, hasKey: !!apiKey, endpointPrefix: endpoint.slice(0, 30), model: WIKI_LLM_MODEL });
   console.log('[wiki] wikiCallLLM:', { hasEndpoint: !!endpoint, hasKey: !!apiKey, model: WIKI_LLM_MODEL, maxTokens });
   if (apiKey && endpoint) {
-    //  Agnes 带 2 次重试（429 或网络问题时等 1.5s 再试）
+    //  DeepSeek 带 2 次重试（429 或网络问题时等 1.5s 再试）
     const MAX_RETRIES = 2;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       if (attempt > 0) {
-        await dblog(env, 'ingest', 'LLM_AGNES_RETRY', { attempt });
-        console.warn('[wiki] Agnes retry attempt', attempt);
+        await dblog(env, 'ingest', 'LLM_DEEPSEEK_RETRY', { attempt });
+        console.warn('[wiki] DeepSeek retry attempt', attempt);
         await new Promise(r => setTimeout(r, 1500));
       }
       const controller = new AbortController();
@@ -54,38 +55,45 @@ async function wikiCallLLM(env, messages, maxTokens = 4096) {
         res = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: WIKI_LLM_MODEL, messages, max_tokens: maxTokens, temperature: 0.1 }),
+          body: JSON.stringify({ model: WIKI_LLM_MODEL, messages, max_tokens: maxTokens, temperature: 0.1, thinking: { type: "disabled" } }),
           signal: controller.signal,
         });
       } catch (e) {
         clearTimeout(timer);
         // 网络异常也重试
         if (attempt < MAX_RETRIES) continue;
-        console.warn('[wiki] Agnes 网络异常，fallback Workers AI:', e.message);
-        await dblog(env, 'ingest', 'LLM_AGNES_EXCEPTION', { msg: e.message });
+        console.warn('[wiki] DeepSeek 网络异常，fallback Workers AI:', e.message);
+        await dblog(env, 'ingest', 'LLM_DEEPSEEK_EXCEPTION', { msg: e.message });
         break;
       }
       clearTimeout(timer);
-      console.log('[wiki] Agnes status:', res.status);
+      console.log('[wiki] DeepSeek status:', res.status);
 
       // 429 重试；其他非 2xx 也重试一次
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
-        console.warn('[wiki] Agnes HTTP', res.status, errText.slice(0, 200));
-        await dblog(env, 'ingest', 'LLM_AGNES_HTTP_ERR', { status: res.status, err: errText.slice(0, 200) });
+        console.warn('[wiki] DeepSeek HTTP', res.status, errText.slice(0, 200));
+        await dblog(env, 'ingest', 'LLM_DEEPSEEK_HTTP_ERR', { status: res.status, err: errText.slice(0, 200) });
         if (attempt < MAX_RETRIES) continue;
         break; // 最后一次也失败了，fallback
       }
 
       // 成功
       const data = await res.json();
-      const content = data?.choices?.[0]?.message?.content || '';
-      console.log('[wiki] Agnes content preview:', (content || '').slice(0, 100));
+      const msg = data?.choices?.[0]?.message || {};
+      let content = msg.content || '';
+      // DeepSeek-v4-flash 有时把正式回复塞在 reasoning_content 里，content 反而是空
+      if (!content && msg.reasoning_content) {
+        content = msg.reasoning_content;
+        console.warn('[wiki] DeepSeek content empty, using reasoning_content fallback, len:', content.length);
+        await dblog(env, 'ingest', 'LLM_DEEPSEEK_FALLBACK_REASONING', { len: content.length });
+      }
+      console.log('[wiki] DeepSeek content preview:', (content || '').slice(0, 100));
       if (content) {
-        await dblog(env, 'ingest', 'LLM_AGNES_OK', { contentLen: content.length });
+        await dblog(env, 'ingest', 'LLM_DEEPSEEK_OK', { contentLen: content.length });
         return content;
       }
-      await dblog(env, 'ingest', 'LLM_AGNES_EMPTY', { respPreview: JSON.stringify(data).slice(0, 200) });
+      await dblog(env, 'ingest', 'LLM_DEEPSEEK_EMPTY', { respPreview: JSON.stringify(data).slice(0, 200) });
       if (attempt < MAX_RETRIES) continue;
       break;
     }
@@ -695,6 +703,8 @@ function buildWikiSystemPrompt(kb, categories, existingPages) {
   // 检测是否为数学题库（分类 slug 含 zhishidian + jieti-fangfa）
   const slugs = new Set(categories.map(c => c.slug));
   const isMathKB = slugs.has('zhishidian') && slugs.has('jieti-fangfa');
+  // 检测是否为语文阅读理解（分类 slug 含 gakuo + ciju）
+  const isYueduliKB = slugs.has('gakuo') && slugs.has('ciju');
 
   let catSection = categories.map(c => {
     // 剥掉模板第一行的 `# {{xxx}}\n`——title 字段已经是页面标题，content 从 ## 开始
@@ -779,6 +789,38 @@ ${isMathKB ? `
 - **禁止 LaTeX 数学标记**：不要用任何反斜杠开头的数学公式标记，也不要用 $ 包围数学表达式。所有数学表达式用纯文本写，如 "84 / 4 = 21"、"最大公因数是 2"、"2 x 3 x 7 = 42"。
 - **模板占位符替换**：如果 page_format 里有双大括号占位符（提示文字），不要原样复制——把占位符当说明，实际内容填真实值（如 "五年级"）。
 ` : ''}
+${isYueduliKB ? `
+
+## 📖 语文阅读理解专属规则（本知识库启用）
+本知识库是语文阅读理解解题知识库，汇入资料时必须遵循以下额外规则：
+
+### 先判题型再归类
+- 每道阅读理解题先**判断属于哪种题型**，再归入对应分类：
+  - 问"主要内容/讲了什么" → 概括内容类 (gakuo)
+  - 问"XX词/句是什么意思" → 理解词句类 (ciju)
+  - 问"中心思想/主旨/表达了什么感情" → 中心思想类 (zhongxin)
+  - 问"XX是个怎样的人/人物形象" → 人物分析类 (renwu)
+  - 问"这句话/段落的作用/结构" → 结构技巧类 (jiegou)
+  - 问"用了什么修辞/表达技巧" → 修辞手法类 (xiucishe)
+  - 问"你觉得呢/联系生活实际/有什么感想" → 开放题/感想类 (kaifang)
+- 资料里如果已经标了题型或给出了分类，直接用；没标的由你根据提问关键词判断。
+
+### 页面要求
+- title 要**具体**（如"《卖火柴的小女孩》中心思想"而非"语文题1"）。
+- content 里**必须写完整的答题公式**（谁+在什么时间地点+做了什么+结果怎样），这是知识库的核心价值。
+- **标准答案不能编造**：如果资料里没有给标准答案，就在"标准答案"部分写"（资料未提供，参考答题公式组织答案）"，不要自己瞎编。
+- **易错点一定要写**：即使资料里没提常见错误，也要根据经验补充（比如容易漏了什么、容易答成什么样）。
+
+### 人物/内容互相链接
+- 一篇《草船借箭》的阅读理解题里提到 [[诸葛亮]]、[[周瑜]]、[[鲁肃]]，要在"人物分析类"下分别建这三个人物页。
+- 人物页里也要用 [[《草船借箭》]] 链接回这篇阅读理解。
+- 不同文章里出现的同一人物要 update 同一个页面，把各篇文章里对这个人物的分析整合在一起。
+
+### 开放题特别注意
+- 开放题没有唯一答案，"标准答案"部分写的是**答题思路和角度**，不是唯一正确答案。
+- 观点要明确，不能模棱两可。
+- 每个观点都要有文章依据或生活实例支撑。
+` : ''}
 
 ## 输出格式 — 严格 JSON，不要解释文字或 markdown 代码块
 {
@@ -816,40 +858,52 @@ function stripJsonFences(text) {
 // AI 输出的 JSON 常见问题：content 里有实际换行符、引号未转义、尾部被截断
 // 用正则逐字段提取 pages 数组，绕过 JSON.parse 的严格限制
 function repairAiJson(text) {
-  if (!text) return null;
-  // 先试原生 parse
-  try { return JSON.parse(stripJsonFences(text)); } catch {}
+  const steps = []; // 记录每一步结果，方便 dblog
+  if (!text) { steps.push('empty'); return null; }
 
-  const stripped = stripJsonFences(text);
+  // 1) 先试原生 parse
+  try { JSON.parse(stripJsonFences(text)); steps.push('ok_native'); return JSON.parse(stripJsonFences(text)); }
+  catch (e) { steps.push('fail_native:' + (e.message || '').slice(0, 100)); }
 
-  // 预处理：把字符串内部的裸反斜杠（JSON 不认识的）转义
-  // JSON 合法转义只有：\" \\ \/ \b \f \n \r \t \uXXXX
-  let escaped = stripped.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(?=\s*[:\[\],}])/g, (m, inner) => {
-    // 把字符串内部所有裸反斜杠（不是合法 JSON 转义的）转义成双反斜杠
-    // 先处理 LaTeX 常见标记：\( \) \[ \] \frac \times 等
+  let stripped = stripJsonFences(text);
+
+  // 2) 清理 trailing comma（JSON 不允许，但 AI 常犯）
+  //    去掉 ,] 和 ,} 这种尾部逗号
+  let cleaned = stripped.replace(/,(\s*[\]\}])/g, '$1');
+  try { JSON.parse(cleaned); steps.push('ok_trailingcomma'); return JSON.parse(cleaned); }
+  catch (e) { steps.push('fail_trailingcomma:' + (e.message || '').slice(0, 100)); }
+
+  // 3) LaTeX 裸反斜杠修复
+  let escaped = cleaned.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(?=\s*[:\[\],}])/g, (m, inner) => {
     let fixed = inner
-      // 裸反斜杠（后面不是合法 JSON 转义）→ 双反斜杠
       .replace(/\\(?!["\\/bfnrtu])/g, '\\\\')
-      // 把字符串内部的裸换行替换为 \n
       .replace(/\n/g, '\\n').replace(/\r/g, '\\r');
     return '"' + fixed + '"';
   });
-  try { return JSON.parse(escaped); } catch {}
+  try { JSON.parse(escaped); steps.push('ok_latex'); return JSON.parse(escaped); }
+  catch (e) { steps.push('fail_latex:' + (e.message || '').slice(0, 100)); }
 
-  // 最后一招：暴力截断到最后一个完整的 }
+  // 4) 暴力截断到最后一个完整的 }
   const lastBrace = stripped.lastIndexOf('}');
   if (lastBrace > 0) {
     const truncated = stripped.substring(0, lastBrace + 1);
-    // 同样的预处理
-    let tEscaped = truncated.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(?=\s*[:\[\],}])/g, (m, inner) => {
+    let tCleaned = truncated.replace(/,(\s*[\]\}])/g, '$1');
+    try { JSON.parse(tCleaned); steps.push('ok_trunc'); return JSON.parse(tCleaned); }
+    catch (e) { steps.push('fail_trunc:' + (e.message || '').slice(0, 100)); }
+
+    let tEscaped = tCleaned.replace(/"([^"\\]*(?:\\.[^"\\]*)*)"(?=\s*[:\[\],}])/g, (m, inner) => {
       let fixed = inner
         .replace(/\\(?!["\\/bfnrtu])/g, '\\\\')
         .replace(/\n/g, '\\n').replace(/\r/g, '\\r');
       return '"' + fixed + '"';
     });
-    try { return JSON.parse(tEscaped); } catch {}
-    try { return JSON.parse(truncated); } catch {}
+    try { JSON.parse(tEscaped); steps.push('ok_trunc_latex'); return JSON.parse(tEscaped); }
+    catch (e) { steps.push('fail_trunc_latex:' + (e.message || '').slice(0, 100)); }
+    try { JSON.parse(truncated); steps.push('ok_trunc_raw'); return JSON.parse(truncated); }
+    catch (e) { steps.push('fail_trunc_raw:' + (e.message || '').slice(0, 100)); }
   }
+
+  repairAiJson._lastSteps = steps; // 调试用
   return null;
 }
 
@@ -905,7 +959,7 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   const systemPrompt = buildWikiSystemPrompt(kb, categories, existingPages);
   const allPending = pending.map((s, i) => `--- 资料 ${i+1}：${s.title || (s.kind==='diary'?'日记':'文本')} (${s.kind}) ---\n${s.raw_text}`).join('\n\n');
 
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 2;
   let allPages = [], allLinks = [], allLogs = [], debugRaws = [];
   const processedSourceIds = new Set(); // 只标记实际处理成功的 source
   for (let i = 0; i < pending.length; i += BATCH_SIZE) {
@@ -916,7 +970,7 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
       rawText = await wikiCallLLM(env, [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `请将资料汇入知识库\n\n${batchMsg}` }
-      ], 8192);
+      ], 16384);
       console.log('[wiki] batch', i, 'rawText preview:', (rawText || '').slice(0, 300));
       await dblog(env, 'ingest', 'AI_RAW', { batch: i, preview: (rawText || '').slice(0, 500) });
       debugRaws.push({ batch: i, rawTextLen: rawText?.length || 0, preview: (rawText || '').slice(0, 500) });
@@ -925,9 +979,14 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
     let parsed = repairAiJson(rawText || '');
     if (!parsed) {
       console.error('[wiki] parse fail, raw tail:', (rawText || '').slice(-500));
-      // 存完整 raw 到日志（dblog 的 data 字段能撑下 ~10KB）
-      await dblog(env, 'ingest', 'PARSE_FAIL', { batch: i, rawLen: rawText?.length || 0, raw: (rawText || '').slice(0, 8000) });
-      debugRaws.push({ batch: i, parseError: true, rawLen: rawText?.length || 0 });
+      const rawLen = rawText?.length || 0;
+      await dblog(env, 'ingest', 'PARSE_FAIL', {
+        batch: i, rawLen,
+        steps: repairAiJson._lastSteps || [],
+        head: (rawText || '').slice(0, 500),
+        tail: (rawText || '').slice(-500),
+      });
+      debugRaws.push({ batch: i, parseError: true, rawLen });
       continue;
     }
 
@@ -1476,6 +1535,22 @@ const OFFICIAL_KB_PRESETS = [
       { name: '六年级', slug: 'liunianji',    sort_order: 50, template_key: 'math_problem' },
       { name: '知识点', slug: 'zhishidian',   sort_order: 90, template_key: 'math_concept' },
       { name: '解题方法', slug: 'jieti-fangfa', sort_order: 95, template_key: 'math_strategy' },
+    ],
+  },
+  {
+    active: true,
+    slug: 'yuwen-yueduli',
+    title: '📖 语文阅读理解解题知识库',
+    description: '按题型分类整理：概括、词句、中心、人物、结构、修辞、开放题 — 每道题都有答题公式、思路和易错点',
+    icon: '📖',
+    categories: [
+      { name: '概括内容类',   slug: 'gakuo',      sort_order: 0,  template_key: 'yueduli_gakuo' },
+      { name: '理解词句类',   slug: 'ciju',       sort_order: 10, template_key: 'yueduli_ciju' },
+      { name: '中心思想类',   slug: 'zhongxin',   sort_order: 20, template_key: 'yueduli_zhongxin' },
+      { name: '人物分析类',   slug: 'renwu',      sort_order: 30, template_key: 'yueduli_renwu' },
+      { name: '结构技巧类',   slug: 'jiegou',     sort_order: 40, template_key: 'yueduli_jiegou' },
+      { name: '修辞手法类',   slug: 'xiucishe',   sort_order: 50, template_key: 'yueduli_xiucishe' },
+      { name: '开放题/感想类', slug: 'kaifang',    sort_order: 60, template_key: 'yueduli_kaifang' },
     ],
   },
 ];
