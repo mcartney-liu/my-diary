@@ -1,0 +1,81 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace = "online.callmydiary.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "online.callmydiary.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "0.5.9"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+// ⚠️ 增量出包修复（2026-10-05）
+// 问题：Capacitor 每次 cap sync 会把新构建的 dist 覆盖到
+//      app/src/main/assets/public/，但 Gradle 的 :app:packageDebug
+//      不跟踪 assets 目录变化 → 判为 UP-TO-DATE → APK 里还是旧代码，
+//      表现为「改了功能装上去没变化」。
+// 解法：在 mergeDebugAssets / packageDebug 之前清掉 app 的
+//      assets 中间产物，强制重新合并打包。代价是每次多几秒，可接受。
+gradle.taskGraph.whenReady { graph ->
+    def needsAssetRefresh = graph.hasTask(':app:mergeDebugAssets') ||
+                            graph.hasTask(':app:mergeReleaseAssets')
+    if (needsAssetRefresh) {
+        def marker = file("$buildDir/tmp/assetSyncStamp")
+        def assetsDir = file('src/main/assets')
+        def newest = assetsDir.exists() ? assetsDir.listFiles()?.sort { it.lastModified() }?.last() : null
+        def assetsStamp = newest?.lastModified() ?: 0L
+        def prevStamp = marker.exists() ? marker.text.toLong() : 0L
+        if (assetsStamp > prevStamp) {
+            logger.lifecycle("[MyDiary] 检测到 web 资源更新，强制刷新 assets 中间产物")
+            delete file("$buildDir/intermediates/merged_assets")
+            delete file("$buildDir/intermediates/assets")
+            delete file("$buildDir/intermediates/merged_assets/debug")
+            delete file("$buildDir/intermediates/assets/debug")
+            marker.text = assetsStamp.toString()
+        }
+    }
+}
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

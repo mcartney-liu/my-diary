@@ -1,0 +1,28 @@
+// ⚠️ 国内网络适配（2026-10-05）
+// 公司网络下 dl.google.com 解析不稳定，Gradle 8 在这里统一解析插件依赖。
+// 腾讯云镜像放最前优先命中，官方源保留兜底。
+// 注意：pluginManagement {} 必须是本文件第一句，否则 Gradle 报语法错。
+pluginManagement {
+    repositories {
+        maven { url 'https://mirrors.cloud.tencent.com/nexus/repository/gradle-plugins/' }
+        maven { url 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/' }
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+    repositories {
+        maven { url 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/' }
+        google()
+        mavenCentral()
+    }
+}
+
+include ':app'
+include ':capacitor-cordova-android-plugins'
+project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
+
+apply from: 'capacitor.settings.gradle'

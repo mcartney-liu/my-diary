@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MyDiary</string>
+    <string name="title_activity_main">MyDiary</string>
+    <string name="package_name">online.callmydiary.app</string>
+    <string name="custom_url_scheme">online.callmydiary.app</string>
+</resources>

@@ -1,0 +1,41 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+// ⚠️ 国内网络适配（2026-10-05）
+// 公司网络下 dl.google.com 域名解析不稳定，导致 androidx 依赖拉取失败。
+// 策略：把国内镜像放在最前面（优先命中），官方源保留兜底。
+// 腾讯云镜像实测可用（阿里云未同步 androidx，会 404）。
+def domesticMirrors = { ->
+    maven { url 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/' }
+    maven { url 'https://mirrors.cloud.tencent.com/nexus/repository/gradle-plugins/' }
+}
+
+buildscript {
+
+    repositories {
+        maven { url 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/' }
+        maven { url 'https://mirrors.cloud.tencent.com/nexus/repository/gradle-plugins/' }
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.0'
+        classpath 'com.google.gms:google-services:4.4.4'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+apply from: "variables.gradle"
+
+allprojects {
+    repositories {
+        maven { url 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/' }
+        google()
+        mavenCentral()
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
