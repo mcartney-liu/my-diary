@@ -15,7 +15,7 @@ interface MemoryItem { id: number; type: string; content: string; confidence: nu
 declare const __APP_VERSION__: string;
 
 interface ProfileData {
-  user: { id: string; email: string; nickname?: string; avatar?: string };
+  user: { id: string; email: string; nickname?: string; avatar?: string; identity?: string; interests?: string; onboarding_done?: number };
   profile: { bio?: string; theme?: string; default_mood?: string; daily_goal?: number; remind_enabled?: number; remind_time?: string; font?: string } | null;
   stats: ProfileStats;
 }
@@ -72,6 +72,8 @@ export default function ProfilePage() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [showRemindModal, setShowRemindModal] = useState(false);
+  const [showIdentityModal, setShowIdentityModal] = useState(false);
+  const [showInterestsModal, setShowInterestsModal] = useState(false);
   const [themeSetting, setThemeSetting] = useState(localStorage.getItem("mydiary_theme") || "paper");
   // 修改密码表单
   const [pwOld, setPwOld] = useState("");
@@ -352,6 +354,36 @@ export default function ProfilePage() {
                     <span className="flex-1 text-left">每日提醒</span>
                     <span className="text-xs text-paper-ink2">
                       {remindEnabled ? `已开启 ${remindTime}` : "未开启"}
+                    </span>
+                    <span className="text-paper-ink3">›</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowSettings(false); setShowIdentityModal(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink hover:bg-paper-surface transition"
+                  >
+                    <span>👤</span>
+                    <span className="flex-1 text-left">我的身份</span>
+                    <span className="text-xs text-paper-ink2">
+                      {(() => {
+                        const map: Record<string, string> = { student: "学生", worker: "职场人", creative: "创作者", parent: "家长", freelancer: "自由职业", other: "其他" };
+                        return map[data?.user?.identity || ""] || "未设置";
+                      })()}
+                    </span>
+                    <span className="text-paper-ink3">›</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowSettings(false); setShowInterestsModal(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink hover:bg-paper-surface transition"
+                  >
+                    <span>💡</span>
+                    <span className="flex-1 text-left">我的兴趣</span>
+                    <span className="text-xs text-paper-ink2">
+                      {(() => {
+                        try {
+                          const arr = JSON.parse(data?.user?.interests || "[]");
+                          return arr.length ? `${arr.length} 项` : "未设置";
+                        } catch { return "未设置"; }
+                      })()}
                     </span>
                     <span className="text-paper-ink3">›</span>
                   </button>
@@ -1187,6 +1219,39 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+
+      {/* ===== 身份选择弹窗 ===== */}
+      {showIdentityModal && (
+        <IdentityPicker
+          value={data?.user?.identity || ""}
+          onSave={async (key) => {
+            await patchProfile({ identity: key });
+            setData(d => d ? { ...d, user: { ...d.user, identity: key } } : d);
+            setShowIdentityModal(false);
+          }}
+          onClose={() => setShowIdentityModal(false)}
+        />
+      )}
+
+      {/* ===== 兴趣选择弹窗 ===== */}
+      {showInterestsModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowInterestsModal(false)}>
+          <div className="w-full sm:max-w-md bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
+            <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
+              <h3 className="text-paper-ink font-semibold text-lg">💡 我的兴趣</h3>
+              <button onClick={() => setShowInterestsModal(false)} className="text-paper-ink3 hover:text-paper-ink text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-paper-surface transition">×</button>
+            </div>
+            <InterestsPicker
+              value={(() => { try { return JSON.parse(data?.user?.interests || "[]"); } catch { return []; } })()}
+              onChange={async (keys) => {
+                await patchProfile({ interests: JSON.stringify(keys) });
+                setData(d => d ? { ...d, user: { ...d.user, interests: JSON.stringify(keys) } } : d);
+                setShowInterestsModal(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1210,6 +1275,97 @@ function formatNumber(n: number): string {
 
 // rebuild trigger 07:41:03
 
+/** 身份选择卡片弹窗（与 InterestsPicker 统一交互：选了只是高亮，点保存才提交） */
+function IdentityPicker({ value, onSave, onClose }: { value: string; onSave: (key: string) => void; onClose: () => void }) {
+  const [draft, setDraft] = useState<string>(value);
+  const OPTIONS = [
+    { key: "student",    label: "👨‍🎓 学生",     desc: "记录学习日常" },
+    { key: "worker",     label: "💼 职场人",     desc: "工作复盘·心情" },
+    { key: "creative",   label: "🎨 创作者",     desc: "灵感笔记·素材" },
+    { key: "parent",     label: "👪 家长",       desc: "育儿日常·回忆" },
+    { key: "freelancer", label: "🏖️ 自由职业",   desc: "项目·工作生活" },
+    { key: "other",      label: "✨ 其他",       desc: "慢慢摸索节奏" },
+  ];
+  const changed = draft !== value;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full sm:max-w-md bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
+        <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
+          <h3 className="text-paper-ink font-semibold text-lg">👤 我的身份</h3>
+          <button onClick={onClose} className="text-paper-ink3 hover:text-paper-ink text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-paper-surface transition">×</button>
+        </div>
+        <div className="p-5">
+          <p className="text-xs text-paper-ink2 mb-3">选一个最贴近你的，小麦会更懂你</p>
+          <div className="grid grid-cols-2 gap-3">
+            {OPTIONS.map(o => {
+              const active = draft === o.key;
+              return (
+                <button
+                  key={o.key}
+                  onClick={() => setDraft(o.key)}
+                  className={`p-4 rounded-xl border-2 text-left transition active:scale-[0.98] ${
+                    active ? "border-paper-accent bg-paper-accent/5" : "border-paper-line/70 hover:border-paper-ink3 bg-white"
+                  }`}
+                >
+                  <div className="text-sm font-medium text-paper-ink">{o.label}</div>
+                  <div className="text-[11px] text-paper-ink3 mt-0.5">{o.desc}</div>
+                  {active && <span className="text-paper-accent text-sm mt-1 inline-block">✓</span>}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            disabled={!changed || !draft}
+            onClick={() => onSave(draft)}
+            className="w-full mt-5 py-2.5 rounded-lg bg-paper-accent text-paper-card font-medium hover:opacity-90 transition disabled:opacity-40"
+          >保存</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** 兴趣多选胶囊（供 ProfilePage 和 OnboardingWizard 共用） */
+function InterestsPicker({ value, onChange }: { value: string[]; onChange: (keys: string[]) => void }) {
+  const [draft, setDraft] = useState<string[]>(value);
+  const OPTIONS = [
+    { key: "food",    label: "🍜 美食" },
+    { key: "reading",  label: "📚 读书" },
+    { key: "fitness",  label: "💪 健身" },
+    { key: "travel",   label: "✈️ 旅行" },
+    { key: "tech",     label: "💻 科技" },
+    { key: "emotion",  label: "💭 情感" },
+    { key: "career",   label: "📈 职场" },
+    { key: "law",      label: "⚖️ 法律" },
+    { key: "finance",  label: "💰 理财" },
+    { key: "health",   label: "🌿 健康" },
+  ];
+  const toggle = (k: string) => setDraft(prev => prev.includes(k) ? prev.filter(x => x !== k) : [...prev, k]);
+  return (
+    <div className="p-5">
+      <p className="text-xs text-paper-ink2 mb-3">多选几项，至少选一个</p>
+      <div className="flex flex-wrap gap-2">
+        {OPTIONS.map(o => {
+          const active = draft.includes(o.key);
+          return (
+            <button
+              key={o.key}
+              onClick={() => toggle(o.key)}
+              className={`px-3.5 py-2 rounded-full text-sm border transition active:scale-95 ${
+                active ? "bg-paper-accent text-white border-paper-accent" : "bg-white text-paper-ink2 border-paper-line/70 hover:border-paper-ink3"
+              }`}
+            >{o.label}</button>
+          );
+        })}
+      </div>
+      <button
+        disabled={draft.length === 0}
+        onClick={() => onChange(draft)}
+        className="w-full mt-5 py-2.5 rounded-lg bg-paper-accent text-paper-card font-medium hover:opacity-90 transition disabled:opacity-40"
+      >保存</button>
+    </div>
+  );
+}
 
 
 

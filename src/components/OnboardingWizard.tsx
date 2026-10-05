@@ -65,6 +65,7 @@ export default function OnboardingWizard({ nickname, onComplete, onSkip }: Props
   };
 
   const recommendedKBs = INTEREST_OPTIONS.filter(i => interests.includes(i.key));
+  void recommendedKBs; // 保留：以后接真实官方预设 API 时恢复
 
   return (
     <div className="fixed inset-0 z-[100] bg-paper-bg flex flex-col">
@@ -151,37 +152,39 @@ export default function OnboardingWizard({ nickname, onComplete, onSkip }: Props
               <h2 className="text-xl font-bold text-paper-ink">
                 欢迎加入 MyDiary
               </h2>
-              <p className="text-sm text-paper-ink2 mt-2">
-                好啦，小麦已经记住你的喜好了～
+              <p className="text-sm text-paper-ink2 mt-2 leading-relaxed">
+                好啦，小麦已经记住你的身份和喜好啦～
               </p>
             </div>
 
-            <div className="mt-4">
-              <h3 className="text-xs font-medium text-paper-ink3 uppercase tracking-wider mb-3">
-                为你推荐的知识库
-              </h3>
-              <div className="space-y-2">
-                {recommendedKBs.length > 0 ? (
-                  recommendedKBs.map(({ key, label, kb }) => (
-                    <div key={key} className="flex items-center gap-3 p-3 rounded-xl bg-white border border-paper-line/70">
-                      <span className="text-2xl">{label.split(" ")[0]}</span>
-                      <div className="flex-1">
-                        <div className="text-sm font-medium text-paper-ink">{kb}</div>
-                        <div className="text-[11px] text-paper-ink3">小麦推荐</div>
-                      </div>
-                      <span className="text-[10px] text-paper-accent font-medium">✨ 推荐</span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-paper-ink3 text-center py-4">
-                    没选兴趣？没关系，小麦帮你从零开始。
-                  </p>
-                )}
+            <div className="space-y-3 mt-2">
+              <div className="flex gap-3 p-3 rounded-xl bg-white border border-paper-line/70">
+                <span className="text-xl">🎯</span>
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-paper-ink">更懂你的小麦</div>
+                  <div className="text-[12px] text-paper-ink3 mt-0.5">
+                    知道你是{identity ? IDENTITY_OPTIONS.find(o => o.key === identity)?.label.replace(/^.\s/, '') : "谁"}，
+                    以后 AI 总结、记忆提取都会更贴合你的生活
+                  </div>
+                </div>
               </div>
-              <p className="text-[11px] text-paper-ink3 text-center mt-3">
-                所有官方知识库都可以在「知识」页看到，随时可以创建自己的
-              </p>
+              {interests.length > 0 && (
+                <div className="flex gap-3 p-3 rounded-xl bg-white border border-paper-line/70">
+                  <span className="text-xl">💡</span>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-paper-ink">推荐模板和灵感</div>
+                    <div className="text-[12px] text-paper-ink3 mt-0.5">
+                      对{interests.slice(0, 3).map(k => INTEREST_OPTIONS.find(o => o.key === k)?.label.replace(/^.\s/, '')).join("、")}感兴趣，
+                      写日记时会优先给你相关的模板和建议
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
+
+            <p className="text-[11px] text-paper-ink3 text-center mt-4">
+              这些都可以在「我的」页面随时改哦
+            </p>
           </div>
         )}
       </div>
