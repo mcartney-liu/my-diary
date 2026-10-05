@@ -35,6 +35,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [userProfile, setUserProfile] = useState<any>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showTour, setShowTour] = useState(false);
+  const [bootLoading, setBootLoading] = useState(true);
 
   // 拉用户信息，判断是否需要新手指引
   useEffect(() => {
@@ -50,7 +51,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
       } else if (!hasSeenTour()) {
         setShowTour(true);
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setBootLoading(false));
   }, []);
 
   // 监听小麦来源点击 → 切到知识库 tab + 延迟重派事件（给 KnowledgeBase 时间 mount）
@@ -207,6 +208,18 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   };
 
   const todayStr = fmtDate(now);
+
+  // 启动中：等 getProfile 返回再渲染主界面（避免先闪主界面再弹问卷）
+  if (bootLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#faf6ef]">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 border-4 border-paper-line border-amber-700/50 border-t-amber-700 rounded-full animate-spin" />
+          <p className="text-paper-muted text-sm">正在加载…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen pb-24">

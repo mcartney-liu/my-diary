@@ -661,7 +661,7 @@ async function handleGetProfile(request, env, JWT_SECRET) {
   const user = await authUser(request, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
 
-  const u = await env.DB.prepare("SELECT id, email, nickname, avatar FROM users WHERE id = ?").bind(user.uid).first();
+  const u = await env.DB.prepare("SELECT id, email, nickname, avatar, identity, interests, onboarding_done FROM users WHERE id = ?").bind(user.uid).first();
   const p = await env.DB.prepare("SELECT * FROM profiles WHERE user_id = ?").bind(user.uid).first();
   const countRow = await env.DB.prepare("SELECT COUNT(*) as c FROM diaries WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')").bind(user.uid).first();
 
