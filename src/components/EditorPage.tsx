@@ -15,6 +15,7 @@ import { TEMPLATES, templateById } from "../templates";
 import { categoriesByDir, resolveCategory } from "../categories";
 import GridSnap from "./GridSnap";
 import ConfirmDialog from "./ConfirmDialog";
+import MiniAiBubble from "./MiniAiBubble";
 import {
   DndContext,
   closestCenter,
@@ -327,6 +328,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmSwitchTpl, setConfirmSwitchTpl] = useState(false);
+  const [aiBubbleOpen, setAiBubbleOpen] = useState(false);
   // 暂存切换模板时选中的目标模板
   const pendingTplRef = useRef<string | undefined>(undefined);
   const pendingCustomTplRef = useRef<UserTemplate | undefined>(undefined);
@@ -1087,6 +1089,11 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       return result;
     });
   };
+
+  /** 小麦 AI 回答 → 贴到日记末尾（作为带标记的 text block） */
+  const handleAppendAiContent = useCallback((content: string) => {
+    addBlock("text", `【小麦建议】\n${content}`, undefined, false);
+  }, []);
 
   /** 一键把附近 POI 加入日记（在末尾插入 heading + text block） */
   const insertPoiBlock = (poi: Poi) => {
@@ -2469,6 +2476,19 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                 <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500" />
               )}
             </button>
+
+            {/* 小麦助手按钮 — 最右边 */}
+            <button
+              onClick={() => setAiBubbleOpen((v) => !v)}
+              className={`relative flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm transition active:scale-95 ml-auto ${
+                aiBubbleOpen
+                  ? "bg-paper-accent text-white border-paper-accent"
+                  : "bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50"
+              }`}
+              title="小麦助手"
+            >
+              <Bot size={16} />
+            </button>
           </div>
         </footer>
 
@@ -3105,6 +3125,14 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           </div>
         )}
 
+      {/* 小麦 AI 辅助 — 面板浮在工具栏上方 */}
+      <MiniAiBubble
+        open={aiBubbleOpen}
+        onOpenChange={setAiBubbleOpen}
+        diaryBlocks={blocks}
+        moodId={moodId}
+        onAppendBlock={handleAppendAiContent}
+      />
       </div>
     );
   }

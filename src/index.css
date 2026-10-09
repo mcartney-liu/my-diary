@@ -732,3 +732,45 @@ html.fonts-loaded * {
 .marquee-paused .marquee-track {
   animation-play-state: paused;
 }
+
+/* === MiniAiBubble：写日记时的小麦对话面板 === */
+.ai-mini-panel {
+  position: fixed;
+  bottom: 5rem;
+  right: 1rem;
+  width: 320px;
+  max-width: calc(100vw - 2rem);
+  height: 400px;
+  max-height: calc(100vh - 8rem);
+  display: flex;
+  flex-direction: column;
+  background: #faf6ef;
+  border: 1px solid var(--paper-line);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+  overflow: hidden;
+  animation: ai-panel-in 0.18s ease-out;
+}
+@keyframes ai-panel-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* glass 主题适配 */
+[data-theme="glass"] .ai-mini-panel {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: rgba(10, 11, 26, 0.85);
+  border-color: rgba(255,255,255,0.12);
+}
+
+/* 小麦贴入日记的 block 样式 */
+.ai-suggestion-block {
+  background: rgba(107, 114, 128, 0.06);
+  border-left: 3px solid rgba(245, 158, 11, 0.4);
+  border-radius: 0 8px 8px 0;
+  padding: 6px 10px;
+  font-size: 0.9em;
+  color: var(--paper-ink2);
+}
