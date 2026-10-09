@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { User, PenLine } from "lucide-react";
+import { User, PenLine, LibraryBig } from "lucide-react";
 import type { Diary } from "../types";
 import { getProfile } from "../api";
 import { monthCells, moodById, fmtDate } from "../data";
@@ -535,6 +535,16 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
       {/* 🫧 悬浮胶囊坞 Floating Pill Dock */}
       <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 rounded-full bg-paper-surface/90 backdrop-blur-md border border-paper-line/80 px-1.5 py-1.5 shadow-lg shadow-paper-ink/5 max-w-[calc(100vw-1.5rem)]">
         <div className="flex items-center gap-1">
+
+          {/* 📚 书柜 */}
+          <button
+            id="tour-dock-shelf"
+            onClick={() => nav("/shelf")}
+            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-1.5 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
+          >
+            <LibraryBig className="w-4 h-4 shrink-0" />
+            <span>书柜</span>
+          </button>
           {/* 我的 */}
           <button
             id="tour-dock-profile"

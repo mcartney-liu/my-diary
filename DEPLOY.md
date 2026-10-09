@@ -747,20 +747,191 @@ wrangler d1 execute mydiary-db --remote --command="SELECT COUNT(*) FROM users WH
 - 视频 URL 全部为空字符串 `""`，点 mockup 会弹出 Modal 但无视频内容
 - 待上传 R2 后，填到官网 `index.html` 的 `videoMap` 对象里
 
-### 上传命令（待执行）
-
-```powershell
-# R2 bucket 待创建
-# 上传示例：
-npx wrangler r2 object put mydiary-assets/videos/MyDiaryIntro.mp4 --file="C:\Users\haizhi\WorkBuddy\2026-09-23-11-40-59\mydiary-fresh\output\MyDiaryIntro.mp4"
-```
-
 ### 官网源码位置
 
 - 官网项目：`mydiary-web-site/`（独立于主 app 的静态站点）
-- 官网地址：`https://callmydiary.online`
+- 官网地址：**`https://www.callmydiary.online`**（自定义域名，2026-10-05 绑定成功）
 - videoMap 定义：`index.html` 内 `<script>` 块的 `const videoMap = {...}`
 - 视频 Modal HTML：`index.html` 内 `<div id="video-modal">`
+
+---
+
+## 📦 官网 Android APK 下载（2026-10-06 更新）
+
+### 问题背景
+
+APK 最初放在 Cloudflare Pages 静态目录 `mydiary-web-site/download/`，国内下载速度**只有几百 KB/s**（Pages 走海外 CDN）。
+
+### 解决方案
+
+用 Cloudflare **R2 对象存储**托管 APK，绑定自定义域名 `download.callmydiary.online`，国内下载速度 **3-10 MB/s**。
+
+### 架构
+
+```
+官网下载按钮 → https://download.callmydiary.online/apk/MyDiary-0.5.9.apk
+                    ↓
+          Cloudflare R2 Bucket: mydiary-assets
+                    ↓
+          /apk/MyDiary-0.5.9.apk（最新版）
+          /apk/MyDiary-0.5.9-old.apk（历史版本）
+```
+
+### 现有资源速查
+
+| 项 | 值 |
+|---|---|
+| **R2 Bucket** | `mydiary-assets` |
+| **Bucket 创建时间** | 2026-09-24 |
+| **Bucket Location** | WNAM（美国西部） |
+| **Custom Domain** | `download.callmydiary.online`（已连接） |
+| **APK 最新版** | `/apk/MyDiary-0.5.9.apk` |
+| **APK 旧版** | `/apk/MyDiary-0.5.9-old.apk` |
+| **官网 Pages 项目** | `mydiary-site`（独立于主 app） |
+| **官网项目源码** | `mydiary-web-site/`（独立目录，不在 mydiary-web 里） |
+
+### 上传新 APK（v0.5.9-FIX-token 实操过）
+
+**⚠️ 不要用 `wrangler r2 object put`！** wrangler 在国内网络下上传超过 10MB 文件会 `TypeError: terminated`。**用 curl.exe + Cloudflare REST API**。
+
+```powershell
+# 1. 先让 wrangler 刷新 OAuth token（过期自动续）
+npx wrangler whoami
+
+# 2. 从 wrangler 配置里读新 token
+$token = (Get-Content "$env:APPDATA\xdg.config\.wrangler\config\default.toml" | `
+  Select-String 'oauth_token = "(.+?)"').Matches.Groups[1].Value
+
+# 3. curl 上传（覆盖最新版）
+curl.exe -X PUT `
+  -H "Authorization: Bearer $token" `
+  -H "Content-Type: application/vnd.android.package-archive" `
+  --data-binary "@C:\path\to\your.apk" `
+  "https://api.cloudflare.com/client/v4/accounts/f6ca7e151a87ec9040e8a5777dd95b87/r2/buckets/mydiary-assets/objects/apk/MyDiary-0.5.9.apk"
+```
+
+成功返回：`{"success":true,"result":{"key":"apk/MyDiary-0.5.9.apk","size":"14597879","etag":"..."}}`
+
+### R2 Custom Domain Dashboard 操作
+
+API 调用 custom_domains 总是返回 `{"code":10040,"message":"JSON not well formed"}`（Cloudflare API bug），**必须手动走 Dashboard**：
+
+1. https://dash.cloudflare.com → **R2** → **mydiary-assets**
+2. **Settings** → **自定义域** → **+ 添加**
+3. 输入完整域名（如 `download.callmydiary.online`）→ 继续
+4. Cloudflare 自动加 DNS 记录，等 1-2 分钟状态变绿
+
+### 官网下载链接更新
+
+| 文件 | 原来 | 现在 |
+|---|---|---|
+| `mydiary-web-site/index.html` Hero 区按钮 | `/download/MyDiary-0.5.9.apk` | `https://download.callmydiary.online/apk/MyDiary-0.5.9.apk` |
+| `mydiary-web-site/download/index.html` 历史版本页 | `/download/MyDiary-0.5.9-old.apk` | `https://download.callmydiary.online/apk/MyDiary-0.5.9-old.apk` |
+
+**官网部署命令**：
+```powershell
+Set-Location mydiary-web-site
+npx wrangler pages deploy . --project-name mydiary-site
+```
+
+### 以后每次更新 APK 流程（v0.6.0 示例）
+
+```powershell
+# Step 1: 备份当前最新版为旧版（curl 上传新 key）
+curl.exe -X PUT -H "Authorization: Bearer $token" -H "Content-Type: application/vnd.android.package-archive" `
+  --data-binary "@旧APK路径" `
+  "https://api.cloudflare.com/client/v4/.../objects/apk/MyDiary-0.5.9.apk"  # 以后要改成 MyDiary-0.6.0-old.apk
+
+# Step 2: 上传新版覆盖最新
+curl.exe -X PUT -H "Authorization: Bearer $token" -H "Content-Type: application/vnd.android.package-archive" `
+  --data-binary "@新APK路径" `
+  "https://api.cloudflare.com/client/v4/.../objects/apk/MyDiary-0.6.0.apk"
+
+# Step 3: 官网 index.html 和 download/index.html 里的版本号更新 + 部署
+# 不需要，因为按钮只指 apk/MyDiary-latest.apk → 用同一个 key 覆盖就行
+```
+
+### OAuth Token 注意事项
+
+- wrangler OAuth token **默认缺 R2 权限**（`k2.read`, `k2.write`）
+- `wrangler whoami` 会自动刷新 token（用 refresh_token），但刷新后还是缺这两个 scope
+- **不过 curl 用 Bearer token 调 R2 REST API 实际能用**（可能 R2 权限走 refresh_token 里的 scope）
+- Token 每 **30 天**过期一次（expiration_time 字段），过期前 `wrangler whoami` 自动续
+
+### APK 缓存问题
+
+R2 走 Cloudflare CDN，用户手机可能有旧 APK 缓存。下载不生效时：
+- PC 浏览器：Ctrl+Shift+R 强制刷新
+- Android：清除浏览器缓存，或直接访问 `https://download.callmydiary.online/apk/MyDiary-0.5.9.apk` 重新下载
+
+---
+
+## 🧠 前端 Onboarding / Profile 最近新增字段（2026-10-05）
+
+### users 表新增 3 列
+
+```sql
+ALTER TABLE users ADD COLUMN identity TEXT DEFAULT 'other';     -- 身份: student / worker / creator / parent / freelancer / other
+ALTER TABLE users ADD COLUMN interests TEXT DEFAULT '[]';          -- 兴趣: JSON 数组 ["reading", "travel"]
+ALTER TABLE users ADD COLUMN onboarding_done INTEGER DEFAULT 0;   -- 1 = 已完成新用户引导
+```
+
+### 流程
+
+```
+新用户注册
+  → getProfile() 返回 identity/interests/onboarding_done
+  → onboarding_done === 0 → 弹 OnboardingWizard（3 步：身份 / 兴趣 / 欢迎）
+  → 完成后 PATCH /api/profile { identity, interests, onboarding_done: 1 }
+  → 以后 onboarding_done === 1，不再弹
+```
+
+### 前端代码位置
+
+| 文件 | 说明 |
+|---|---|
+| `src/components/OnboardingWizard.tsx` | 全新 — 3 步问卷 |
+| `src/components/FeatureTour.tsx` | 全新 — 遮罩式主界面引导（0.72 opacity, 16px 高亮半径, 8px hole padding, SVG 箭头） |
+| `src/components/CalendarPage.tsx` | 入口 — bootLoading 转圈防主界面闪，拉 getProfile() 后决定弹 Wizard 还是 Tour |
+| `src/components/ProfilePage.tsx` | 设置区加了"👤 我的身份" + "💡 我的兴趣" 两个编辑入口 |
+
+### 后端 handleGetProfile 必须返回这三列
+
+```sql
+SELECT id, email, nickname, avatar, identity, interests, onboarding_done FROM users WHERE id = ?
+```
+
+**之前忘了加这三列，导致前端拿不到 → onboarding_done 永远是 undefined → 问卷永远不弹。**
+
+### 后端 handlePatchProfile 放行这三列
+
+```js
+const ALLOWED_PATCH = ['nickname', 'avatar', 'identity', 'interests', 'onboarding_done', 'daily_reminder', 'font_family'];
+```
+
+### 🚨 prod/dev D1 schema 必须同步！
+
+每次 users 表加列，**dev D1 跑了之后 prod D1 也要跑**：
+
+```powershell
+# dev
+npx wrangler d1 execute mydiary-db-dev --remote --command "ALTER TABLE users ADD COLUMN identity TEXT DEFAULT 'other';"
+# prod（别忘了！）
+npx wrangler d1 execute mydiary-db --remote --command "ALTER TABLE users ADD COLUMN identity TEXT DEFAULT 'other';"
+```
+
+---
+
+## 📊 用户删除命令（测试时常用）
+
+```powershell
+# 删除测试用户（级联删除关联日记、activity_logs）
+$token = (Get-Content "$env:APPDATA\xdg.config\.wrangler\config\default.toml" | Select-String 'oauth_token = "(.+?)"').Matches.Groups[1].Value
+curl.exe -X DELETE -H "Authorization: Bearer $token" `
+  "https://api.cloudflare.com/client/v4/accounts/f6ca7e151a87ec9040e8a5777dd95b87/workers/mydiary-api/requests?email=184272833@qq.com"  # 示例
+# 或直接 D1 删除
+npx wrangler d1 execute mydiary-db --remote --command "DELETE FROM users WHERE email='184272833@qq.com';"
+```
 
 ---
 
