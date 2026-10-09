@@ -2442,8 +2442,8 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           <input ref={wallpaperInputRef} type="file" accept="image/*" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleWallpaperPick(f); e.target.value = ""; }} />
 
-          <button onClick={() => imageInputRef.current?.click()} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink hover:bg-paper-line/50 active:scale-95">
-             <ImagePlus size={16} /> 图片
+          <button onClick={() => imageInputRef.current?.click()} className="flex items-center justify-center w-10 h-10 rounded-xl bg-paper-surface border border-paper-line text-paper-ink hover:bg-paper-line/50 active:scale-95" title="图片">
+             <ImagePlus size={18} />
            </button>
 
            {/* 录音按钮：点一下切换录音状态，长按也支持 */}
@@ -2456,10 +2456,10 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
             {/* 信纸/壁纸按钮 */}
             <button
               onClick={() => { setShowWallpaperMenu(true); void loadPapers(); }}
-              className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink hover:bg-paper-line/50 transition active:scale-95"
+              className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-paper-surface border border-paper-line text-paper-ink hover:bg-paper-line/50 transition active:scale-95"
               title="信纸 / 壁纸"
             >
-              <Palette size={16} />
+              <Palette size={18} />
               {(wallpaper || !showLines) && (
                 <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500" />
               )}
@@ -2468,10 +2468,10 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
             {/* 模板按钮 */}
             <button
               onClick={() => { setShowTemplateMenu(true); void loadMyTemplates(); }}
-              className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink hover:bg-paper-line/50 transition active:scale-95"
+              className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-paper-surface border border-paper-line text-paper-ink hover:bg-paper-line/50 transition active:scale-95"
               title="选择模板"
             >
-              <LayoutTemplate size={16} />
+              <LayoutTemplate size={18} />
               {templateId && templateId !== "diary" && (
                 <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-amber-500" />
               )}
@@ -2480,14 +2480,14 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
             {/* 小麦助手按钮 — 最右边 */}
             <button
               onClick={() => setAiBubbleOpen((v) => !v)}
-              className={`relative flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm transition active:scale-95 ml-auto ${
+              className={`relative flex items-center justify-center w-10 h-10 rounded-xl border transition active:scale-95 ${
                 aiBubbleOpen
                   ? "bg-paper-accent text-white border-paper-accent"
                   : "bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50"
               }`}
               title="小麦助手"
             >
-              <Bot size={16} />
+              <Bot size={18} />
             </button>
           </div>
         </footer>
@@ -3272,14 +3272,14 @@ function RecordingButton({
         longPressedRef.current = false;
       }}
       disabled={disabled}
-      className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-sm transition active:scale-95 select-none ${
+      title={recording ? "停止录音" : "点按录音"}
+      className={`flex items-center justify-center w-10 h-10 rounded-xl border transition active:scale-95 select-none ${
         recording ? "bg-red-500 text-white border-red-500 animate-pulse" :
         disabled ? "bg-paper-surface border-paper-line text-paper-ink/40 cursor-not-allowed" :
         "bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50"
       }`}
     >
-      <Mic size={16} />
-      {recording ? "停止录音" : "点按录音"}
+      <Mic size={18} />
     </button>
   );
 }

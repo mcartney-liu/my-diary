@@ -533,23 +533,14 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
       })()}
 
       {/* 🫧 悬浮胶囊坞 Floating Pill Dock */}
-      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 rounded-full bg-paper-surface/90 backdrop-blur-md border border-paper-line/80 px-1.5 py-1.5 shadow-lg shadow-paper-ink/5 max-w-[calc(100vw-1.5rem)]">
-        <div className="flex items-center gap-1">
+      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 rounded-full bg-paper-surface/90 backdrop-blur-md border border-paper-line/80 px-2 py-1.5 shadow-lg shadow-paper-ink/5 max-w-[calc(100vw-1rem)]">
+        <div className="flex items-center gap-2">
 
-          {/* 📚 书柜 */}
-          <button
-            id="tour-dock-shelf"
-            onClick={() => nav("/shelf")}
-            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-1.5 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
-          >
-            <LibraryBig className="w-4 h-4 shrink-0" />
-            <span>书柜</span>
-          </button>
           {/* 我的 */}
           <button
             id="tour-dock-profile"
             onClick={() => nav("/profile")}
-            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-1.5 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
+            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
           >
             {avatarKey?.startsWith("emoji-") ? (
               <span className="w-5 h-5 rounded-full border border-paper-line shrink-0 flex items-center justify-center text-sm bg-gradient-to-br from-amber-100 to-paper-surface">{avatarKey.slice(6)}</span>
@@ -561,6 +552,16 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             <span>我的</span>
           </button>
 
+          {/* 📚 书柜 */}
+          <button
+            id="tour-dock-shelf"
+            onClick={() => nav("/shelf")}
+            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
+          >
+            <LibraryBig className="w-4 h-4 shrink-0" />
+            <span>书柜</span>
+          </button>
+
           {/* 🎤 语音快记（中心强调胶囊） */}
           <span id="tour-dock-voice" className="inline-flex">
             <VoiceQuickEntry dockVariant />
@@ -570,7 +571,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           <button
             id="tour-dock-write"
             onClick={() => nav("/editor")}
-            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-1.5 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
+            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
           >
             <PenLine className="w-4 h-4 shrink-0" />
             <span>写日记</span>

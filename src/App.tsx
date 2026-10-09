@@ -68,28 +68,76 @@ function dedupeDiaries(list: Diary[]): Diary[] {
     if (!existing || d.updatedAt > existing.updatedAt) byId.set(d.id, d);
   }
 
-  // 第二层：按语义键去重（同标题同日期同模板 → 合并）
+  // 第二层：按语义键去重
+  // - finance/milestone/plan：一天可多篇，同标题才合并
+  // - 其它模板（diary/travel/gratitude/reading...）：同日期 → 合并（一天只该有一篇）
   const financeLikeTemplates = new Set(["finance", "milestone", "plan"]);
   const finalList = Array.from(byId.values());
-  const seenTitle = new Map<string, Diary>();
+  const seenKey = new Map<string, Diary>();
   const result: Diary[] = [];
   for (const d of finalList) {
     const tpl = d.templateId || "diary";
-    if (!financeLikeTemplates.has(tpl)) {
-      // 普通模板：直接保留
-      result.push(d);
-    } else {
+    let key: string;
+    if (financeLikeTemplates.has(tpl)) {
       // finance/milestone/plan：同日期+同模板+同标题 → 留最新
-      const key = `${d.date}:${tpl}:${(d.title || "").trim()}`;
-      const existing = seenTitle.get(key);
-      if (!existing || d.updatedAt > existing.updatedAt) {
-        seenTitle.set(key, d);
-      }
+      key = `${d.date}:${tpl}:${(d.title || "").trim()}`;
+    } else {
+      // 普通模板：同日期+同模板 → 留最新（一天只该有一篇）
+      key = `${d.date}:${tpl}`;
+    }
+    const existing = seenKey.get(key);
+    if (!existing || d.updatedAt > existing.updatedAt) {
+      seenKey.set(key, d);
     }
   }
-  result.push(...seenTitle.values());
+  result.push(...seenKey.values());
 
   return result.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+// ====== 离线重试队列 ======
+const PENDING_SYNC_KEY = "mydiary-web:pending-sync:v1";
+
+function loadPendingSync(): Diary[] {
+  try {
+    const raw = localStorage.getItem(PENDING_SYNC_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function savePendingSync(list: Diary[]) {
+  try {
+    localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(list));
+  } catch { /* quota exceeded */ }
+}
+
+function addToPendingSync(d: Diary) {
+  const list = loadPendingSync();
+  const i = list.findIndex(x => x.id === d.id);
+  if (i >= 0) list[i] = d;
+  else list.push(d);
+  savePendingSync(list);
+}
+
+function removeFromPendingSync(id: string) {
+  const list = loadPendingSync().filter(x => x.id !== id);
+  savePendingSync(list);
+}
+
+/** 重推所有待同步日记到云端 */
+async function retryPendingSync() {
+  const pending = loadPendingSync();
+  if (pending.length === 0) return;
+  console.info("[mydiary] ☁️ 重推离线日记:", pending.length, "条");
+  for (const d of pending) {
+    try {
+      await apiUpsert(d);
+      removeFromPendingSync(d.id);
+      console.info("[mydiary] ✅ 重推成功:", d.title || d.date);
+    } catch (err) {
+      console.warn("[mydiary] ⏸️ 重推失败，稍后再试:", err);
+    }
+  }
 }
 
 export default function App() {
@@ -154,11 +202,11 @@ export default function App() {
                 showLines: d.show_lines ?? 1,
               }));
               const merged = dedupeDiaries([...cleaned, ...mapped]);
-               // 已登录状态下以云端为真相源，过滤掉本地独有的孤儿数据（id 不匹配任何云端记录）
-               const cloudIds = new Set(mapped.map((d: Diary) => d.id));
-               const final = merged.filter((d: Diary) => cloudIds.has(d.id));
-               setAllDiaries(final);
-               saveLocal(final);
+               // 🔥 不再过滤"本地独有"——离线写的日记还没同步上去，不能当脏数据丢
+               setAllDiaries(merged);
+               saveLocal(merged);
+               // 🔥 初始化完成后，自动重推离线期间积压的日记
+               retryPendingSync();
             } else {
               // 🔥 补了 else：云端返回空数组也要 set（之前跳过了 → 新设备 localStorage 空 → 主页永远空）
               setAllDiaries(dedupeDiaries(cleaned));
@@ -176,6 +224,17 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [offlineBanner]);
 
+  // 🔥 网络恢复 → 自动重推离线积压的日记
+  useEffect(() => {
+    const onOnline = () => {
+      console.info("[mydiary] 📶 网络恢复，尝试重推...");
+      setOfflineBanner(false);
+      retryPendingSync();
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, []);
+
   // 保存/新建（同 id 覆盖）— return Promise 让 EditorPage 的 await onSave() 真正等云端确认
   const handleUpsert = (d: Diary): Promise<void> => {
     skipBackgroundSyncRef.current = true;
@@ -186,6 +245,8 @@ export default function App() {
     });
     // 🔑 处理后端返回的最终 id — 后端可能按 title 语义合并到了另一条
     return apiUpsert(d).then(r => {
+      // 🔥 云端成功 → 从离线重试队列里删掉
+      removeFromPendingSync(d.id);
       if (r.id && r.id !== d.id) {
         // 后端用了不同的 id（UPDATE existing 而非 INSERT 新的）
         // → 本地 state 要把旧 id 删掉，换上后端返回的新 id
@@ -198,8 +259,9 @@ export default function App() {
         });
       }
     }).catch((err) => {
-      // 🔥 原来这里静默吞掉错误——现在显示离线提示条
+      // 🔥 离线或网络不通 → 存进重试队列，网络恢复后自动重推
       console.warn("[mydiary] ☁️ 云端保存失败，暂存本地", err);
+      addToPendingSync(d);
       setOfflineBanner(true);
       throw err; // ← rethrow 让 await onSave() 知道失败了
     });
