@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus, Pencil } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
-import { MOOD_TAGS, moodById, today, PROMPTS } from "../data";
+import { MOOD_TAGS, moodById, today, PROMPTS, fmtDateLocal } from "../data";
 import { transcribeAudio, listTemplates, saveTemplate, updateTemplate, deleteTemplate, listPapers, type UserTemplate, type UserPaper } from "../api";
 import { polishTranscript, recommendBooks, kickoffBookNote, inferMilestoneInfo, quickRuleMatch, getAiProvider, type BookRecommendation } from "../ai";
 import { fetchWeather, fetchLocation, fetchLocationAuto, type LocationResult } from "../weather";
@@ -1511,7 +1511,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
             const today = new Date();
             let d = new Date(today.getFullYear(), parseInt(m2[1]) - 1, parseInt(m2[2]));
             if (d <= today) d.setFullYear(today.getFullYear() + 1);
-            target_date = d.toISOString().slice(0, 10);
+            target_date = fmtDateLocal(d);
           } else {
             // 3. 相对时间
             const relMap: Record<string, number> = { "明天": 1, "后天": 2, "大后天": 3, "下周": 7, "这周": 3, "下个月": 30 };
@@ -1519,7 +1519,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
               if (fullTextForDetect.includes(k)) {
                 const d = new Date();
                 d.setDate(d.getDate() + days);
-                target_date = d.toISOString().slice(0, 10);
+                target_date = fmtDateLocal(d);
                 break;
               }
             }

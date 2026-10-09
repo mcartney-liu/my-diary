@@ -3,47 +3,41 @@
 // 生产环境: 相对路径走 Pages Functions 同域代理 (绕开 iPhone Safari 对 workers.dev 的封锁)
 
 import type { Diary } from "./types";
+// ⭐ 平台差异统一收口到 platform.ts（见 docs/APP-SYNC-RULES.md）
+//    API 层不再自己判 hostname / 存 token key，避免与 Web 端分叉。
+import { getToken as platformGetToken, setToken as platformSetToken } from "./platform";
 
 // DEV → 绝对地址 dev Worker
 // PROD → 空字符串 → 相对路径 /api/* → Pages Functions 代理
-// 可通过 VITE_API_BASE 环境变量覆盖
+// 可通过 VITE_API_BASE 环境变量覆盖（App 副本的 .env.production 提供）
 const envBase = (import.meta as unknown as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE;
 export const API_BASE =
   envBase !== undefined ? envBase :
   (import.meta.env.DEV ? "https://mydiary-api-dev.mcartneyliu.workers.dev" : "");
 
-// 按 hostname 区分 token 存储，避免 prod/dev 共用 key 导致 token 用错 JWT_SECRET 验证
-const _host = typeof window !== 'undefined' ? window.location.hostname : '';
-const TOKEN_KEY = _host.includes('dev.pages') || _host.includes('localhost') || _host.includes('127.0.0.1')
-  ? "mydiary-web-dev:auth:token"
-  : "mydiary-web:auth:token";
-
-/** 存 token */
-export function setToken(t: string | null) {
-  if (t) localStorage.setItem(TOKEN_KEY, t);
-  else localStorage.removeItem(TOKEN_KEY);
-}
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
+// token 存取 → 委托 platform.ts（key 的 dev/prod 判定在那里统一维护）
+// 原先这里按 hostname 判 dev/prod，但 Capacitor WebView 恒为 localhost，
+// 导致 App 被误判为 dev、token 存错 key（已修，详见 platform.ts 注释）。
+export function setToken(t: string | null) { platformSetToken(t); }
+export function getToken(): string | null { return platformGetToken(); }
 
 async function request<T>(path: string, init?: RequestInit, auth = true): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(init?.headers as Record<string, string> ?? {}),
   };
-  if (auth) {
-    const t = getToken();
-    if (t) headers["Authorization"] = `Bearer ${t}`;
-  }
-  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  const token = auth ? getToken() : null;
+  if (auth && token) headers["Authorization"] = "Bearer " + token;
+  const fullUrl = API_BASE + path;
+  const res = await fetch(fullUrl, { ...init, headers });
   if (!res.ok) {
-    // 401 → token 过期，清掉
+    const text = await res.text().catch(() => res.statusText);
+    console.warn("[api] FAIL", res.status, path, text);
     if (res.status === 401) setToken(null);
-    const err = await res.text().catch(() => res.statusText);
-    throw new Error(`${res.status}: ${err}`);
+    throw new Error(res.status + ": " + text);
   }
-  return (await res.json()) as T;
+  const json = await res.json();
+  return json as T;
 }
 
 // ====== Auth ======

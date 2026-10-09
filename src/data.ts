@@ -21,6 +21,11 @@ export function pad(n: number) { return n < 10 ? `0${n}` : `${n}`; }
 export function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+// 🔧 导出给 ai.ts / EditorPage.tsx 复用（2026-10-06）
+// 原先这些文件用 `d.toISOString().slice(0,10)` 取日期，那是 **UTC**，
+// 在东八区凌晨 0-8 点会把日期算成前一天（如 10-06 07:00 → 10-05）。
+// 统一改用本地时区的 fmtDate()。
+export function fmtDateLocal(d: Date): string { return fmtDate(d); }
 export function today(): string { return fmtDate(new Date()); }
 export function parseDate(s: string): Date {
   const [y, m, d] = s.split("-").map(Number);

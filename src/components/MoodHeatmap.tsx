@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Diary, MoodId } from "../types";
-import { MOOD_TAGS, moodById } from "../data";
+import { MOOD_TAGS, moodById, fmtDateLocal } from "../data";
 import { TEMPLATES } from "../templates";
 
 interface Props {
@@ -133,7 +133,7 @@ function WritingDensity({ diaries, year }: { diaries: Diary[]; year: number }) {
 
   const cellColor = (date: Date | null): string => {
     if (!date) return "transparent";
-    const ds = date.toISOString().slice(0, 10);
+    const ds = fmtDateLocal(date);
     const stats = dayStats.get(ds);
     if (!stats) return "#efe8dc";
     const ratio = Math.sqrt(stats.words / maxWords);
@@ -175,7 +175,7 @@ function WritingDensity({ diaries, year }: { diaries: Diary[]; year: number }) {
             {weeks.map((week, wi) => (
               <div key={wi} className="flex flex-col gap-[2px]">
                 {week.map((date, di) => {
-                  const ds = date?.toISOString().slice(0, 10);
+                  const ds = date ? fmtDateLocal(date) : "";
                   const stats = ds ? dayStats.get(ds) : null;
                   return (
                     <div

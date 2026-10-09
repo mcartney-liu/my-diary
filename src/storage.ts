@@ -1,4 +1,5 @@
 // Storage layer: 纯 localStorage
+import { fmtDateLocal } from "./data";
 // 云端 sync 由 App.tsx 里的 AuthProvider 联动逻辑处理
 import type { Diary } from "./types";
 
@@ -24,7 +25,7 @@ export function seedIfEmpty(): Diary[] {
     {
       id: "seed_" + now,
       title: "第一次写日记 ✨",
-      date: new Date().toISOString().slice(0, 10),
+      date: fmtDateLocal(new Date()),
       moodId: "happy",
       blocks: [
         {

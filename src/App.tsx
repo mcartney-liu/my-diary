@@ -4,6 +4,8 @@ import type { Diary, MoodId, DiaryBlock } from "./types";
 import { seedIfEmpty } from "./storage";
 import { upsertDiary as apiUpsert, deleteDiary as apiDelete, listDiaries as apiListDiaries, getToken } from "./api";
 import { useAuth } from "./AuthContext";
+// ⭐ 平台能力（App/Web 差异统一入口，见 docs/APP-SYNC-RULES.md）
+import { platform } from "./platform";
 import LoginPage from "./components/LoginPage";
 import CalendarPage from "./components/CalendarPage";
 import EditorPage from "./components/EditorPage";
@@ -26,7 +28,6 @@ function saveLocalAsync(list: Diary[]) {
       try {
         const raw = JSON.stringify(list);
         localStorage.setItem("mydiary-web:diaries:v1", raw);
-        console.info("[mydiary] 💾 saveLocalAsync →", list.length, "条", "≈", (raw.length / 1024 / 1024).toFixed(2), "MB");
       } catch (err) {
         // QuotaExceededError 或其它存储失败 → 只 warn，不 crash
         console.warn("[mydiary] localStorage 写入失败:", err);
@@ -167,16 +168,17 @@ export default function App() {
         try {
           const parsed: Diary[] = JSON.parse(raw);
           cleaned = dedupeDiaries(parsed);
-          if (cleaned.length !== parsed.length) {
-            saveLocal(cleaned);
-          }
+          if (cleaned.length !== parsed.length) { saveLocal(cleaned); }
           setAllDiaries(cleaned);
         } catch { /* ignore */ }
       }
-      setLoading(false);
+      // ⚠️ setLoading(false) 已下移到云端拉取完成之后（2026-10-06）
+      // 原来在拉取之前就关掉 loading → 登录后先渲染空列表，等请求回来才填上，
+      // 用户看到几百毫秒的空白窗口期，以为日记丢了。
 
       // 云端拉取（已登录状态下，优先用云端数据）
       if (getToken()) {
+        setLoading(true);   // 覆盖整个拉取过程，避免登录后闪空列表
         apiListDiaries({ limit: 365 })
           .then(r => {
             if (r.diaries?.length) {
@@ -212,11 +214,28 @@ export default function App() {
               setAllDiaries(dedupeDiaries(cleaned));
             }
           })
-          .catch(() => { /* 离线或 token 过期，保留本地 */ });
+          // 🔧 原来这里完全静默吞错 → App 里日记列表一片空白却不知原因。
+          // 现在至少把原因打到 console，用户侧也能看到提示条。
+          .catch((err: any) => {
+            console.warn("[mydiary] 云端拉取失败，保留本地数据：", err?.message || err);
+            setOfflineBanner(true);
+          })
+          .finally(() => setLoading(false));   // ← 无论成败都结束 loading
+      } else {
+        setLoading(false);   // 未登录（首次启动），本地展示即可
       }
     }
     init();
-  }, []);
+    // 🔧 时序修复（2026-10-06）
+    // 原依赖是 []，init 只在首次挂载跑一次；而 init 内的 `if (getToken())`
+    // 在「启动后才登录」的新装场景下必然为假 → 云端永远拉不下来，
+    // 表现为：Web 写的日记 App 看不到、App 写的 Web 能看到（上传不依赖 init）、
+    // 重启 App 就好了。知识库两边都在，因为它是进页面实时请求、不走 init。
+    // 改为依赖 auth.loggedIn：登录成功后补跑一次拉取。
+  }, [auth.loggedIn]);
+
+  // 切回前台自动刷新由下方 `refreshFromCloud()` + visibilitychange/focus 监听负责
+  // （Web 端同事已实现通用版，比之前这里另写的一套更完整，避免两套重复发请求）
 
   useEffect(() => {
     if (!offlineBanner) return;
@@ -224,10 +243,48 @@ export default function App() {
     return () => window.clearTimeout(t);
   }, [offlineBanner]);
 
+// 多端同步：回到前台 / App 获得焦点时，从云端拉一次最新日记
+  // 解决 "Web 端删了 Android 端还留着" 这种跨端延迟问题
+  const refreshFromCloud = async () => {
+    if (!getToken()) return;
+    try {
+      const r = await apiListDiaries({ limit: 365 });
+      const mapped: Diary[] = (r.diaries || []).map((d: any) => ({
+        id: d.id,
+        date: d.date,
+        templateId: d.template_id || "diary",
+        title: d.title || "",
+        moodId: d.mood_id || "calm",
+        tags: Array.isArray(d.tags) ? d.tags : [],
+        weather: (() => {
+          if (!d.weather) return null;
+          if (typeof d.weather === "object") return d.weather;
+          try { return JSON.parse(d.weather); } catch { return null; }
+        })(),
+        blocks: Array.isArray(d.blocks) ? d.blocks : [],
+        createdAt: d.created_at,
+        updatedAt: d.updated_at,
+        deletedAt: d.deleted_at ?? undefined,
+        capsuleUnlockAt: d.capsule_unlock_at ?? undefined,
+        wallpaper: d.wallpaper ?? undefined,
+        showLines: d.show_lines ?? 1,
+      }));
+      setAllDiaries(mapped);
+      saveLocal(mapped);
+    } catch (e: any) {
+      console.warn("[mydiary] 🔄 云端刷新失败:", e?.message);
+    }
+  };
+
+  useEffect(() => {
+    // 切回前台自动刷新云端 → 统一走 platform.onAppResume（含 visibilitychange + focus）
+    // ⚠️ 平台差异必须收口到 platform.ts（见 docs/APP-SYNC-RULES.md）
+    return platform.onAppResume(refreshFromCloud);
+  }, []);
+
   // 🔥 网络恢复 → 自动重推离线积压的日记
   useEffect(() => {
     const onOnline = () => {
-      console.info("[mydiary] 📶 网络恢复，尝试重推...");
       setOfflineBanner(false);
       retryPendingSync();
     };

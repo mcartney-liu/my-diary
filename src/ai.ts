@@ -15,6 +15,8 @@ import type { DiaryBlock, MoodId } from "./types";
 import { uid } from "./types";
 import { saveSummary } from "./api";
 import { FINANCE_CATEGORIES } from "./categories";
+// 🔧 2026-10-06：日期统一用本地时区，避免东八区凌晨 0-8 点把日期算成前一天
+import { fmtDateLocal } from "./data";
 
 // ============================================================
 // Provider 层 — 抽象大模型 API 差异
@@ -815,7 +817,7 @@ function extractDateFromText(text: string, today: Date): {
     // "今天是 XXXX 年 XX 月 XX 日" — 只有当日期真的等于今天时才算
     const textIsToday = isToday && y === today.getFullYear() && m === today.getMonth() + 1 && d === today.getDate();
     if (textIsToday) {
-      result.target_date = today.toISOString().slice(0, 10);
+      result.target_date = fmtDateLocal(today);
       result.isCountdown = true;
     } else if (lower.includes("认识") || lower.includes("在一起") || lower.includes("交往") || lower.includes("开始") || lower.includes("养猫") || lower.includes("养") || lower.includes("成立")) {
       // 有具体年月日 + 有"从某天开始算"的语义 → start
@@ -848,7 +850,7 @@ function extractDateFromText(text: string, today: Date): {
     const delta = relativeMap[relativeMatch[1]];
     if (delta !== undefined) {
       const target = new Date(today.getTime() + delta * 86400000);
-      result.target_date = target.toISOString().slice(0, 10);
+      result.target_date = fmtDateLocal(target);
       result.target_mm = target.getMonth() + 1;
       result.target_dd = target.getDate();
       if (delta < 0) {
@@ -869,7 +871,7 @@ function extractDateFromText(text: string, today: Date): {
   // ⭐ 最终兜底：如果文本里有"今天"但没有任何数字日期线索 → 今天就是目标日
   // 典型场景："今天我们过结婚纪念日" → target_date = 今天, 同时 target_mm/dd = 今天的月日
   if (Object.keys(result).length === 0 && isToday) {
-    result.target_date = today.toISOString().slice(0, 10);
+    result.target_date = fmtDateLocal(today);
     result.target_mm = today.getMonth() + 1;
     result.target_dd = today.getDate();
     result.isCountdown = true;
@@ -880,14 +882,14 @@ function extractDateFromText(text: string, today: Date): {
   if (daysAgo && !result.start_date) {
     const days = parseInt(daysAgo[1]);
     const past = new Date(today.getTime() - days * 86400000);
-    result.start_date = past.toISOString().slice(0, 10);
+    result.start_date = fmtDateLocal(past);
     result.isStart = true;
   }
   // 补充：如果有 "还有 X 天" → target_date = 今天 + X 天
   if (daysCountdown && !result.target_date) {
     const days = parseInt(daysCountdown[1]);
     const future = new Date(today.getTime() + days * 86400000);
-    result.target_date = future.toISOString().slice(0, 10);
+    result.target_date = fmtDateLocal(future);
     result.isCountdown = true;
   }
 
@@ -900,7 +902,7 @@ export async function inferMilestoneInfo(
 ): Promise<MilestoneInference | null> {
   const p = provider ?? getAiProvider();
   const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  const todayStr = fmtDateLocal(today);
   const year = today.getFullYear();
 
   // 规则匹配先跑 — 稳准狠，不依赖 AI
