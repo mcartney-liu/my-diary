@@ -1,4 +1,5 @@
-﻿import { useState, useEffect, useCallback, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
+import { flushSync } from "react-dom";
 import { ChevronLeft, BookOpen, Calendar } from "lucide-react";
 import type { Diary, MoodId } from "../types";
 import { BookBlockRenderer } from "./BookBlockRenderer";
@@ -174,7 +175,10 @@ function PageContent({ diary, pageNumber, onEdit }: {
 }
 
 /** ⭐ 超时保护: transitionend 不一定会触发（tab 切换、reflow 等），
- *  用 timeout 兜底强制执行 cleanup callback，避免 animRef 永远 true 卡死 */
+ *  用 timeout 兜底强制执行 cleanup callback，避免 animRef 永远 true 卡死
+ *  ⚠️ 必须校验 e.target === el && e.propertyName === "transform"：
+ *     transitionend 会冒泡，子元素 .book-fold-shadow 有 background transition，
+ *     不校验的话它的 300ms transitionend 会劫持 520ms 的翻页动画收尾 */
 function safeTransitionEnd(
   el: HTMLElement,
   timeoutMs: number,
@@ -182,6 +186,8 @@ function safeTransitionEnd(
 ) {
   let done = false;
   const once = (e: TransitionEvent) => {
+    // ⭐ 只处理 el 自身的 transform 过渡，忽略子元素冒泡
+    if (e && (e.target !== el || e.propertyName !== "transform")) return;
     if (done) return;
     done = true;
     el.removeEventListener("transitionend", once as any);
@@ -197,10 +203,26 @@ function safeTransitionEnd(
   el.addEventListener("transitionend", once as any);
 }
 
+/** 根据索引取日记：i<0 → 封面，i>=total → 封底，否则 diaries[i] */
+function pageAt(diaries: Diary[], i: number): Diary | null {
+  if (i < 0 || i >= diaries.length) return null;
+  return diaries[i];
+}
+
+/** 返回 pageAt 的页码（1-based），用于 PageContent 的 No. 显示 */
+function pageNumFor(total: number, i: number): number {
+  if (i < 0) return 0;         // 封面
+  if (i >= total) return total + 1; // 封底
+  return i + 1;
+}
+
 export default function BookReader({
   diaries, bookTitle, bookIcon, bookTheme, onClose, onEdit,
 }: Props) {
-  const [pageIndex, setPageIndex] = useState(0);
+  const total = diaries.length;
+
+  // === 新模型：spread = 右页索引（双页时偶数），step = 翻页步长 ===
+  const [spread, setSpread] = useState(0);
   const [flipping, setFlipping] = useState<null | "next" | "prev">(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -218,20 +240,26 @@ export default function BookReader({
     return () => m.removeEventListener("change", handler);
   }, []);
 
-  // ====== 锁内容的 ref ======
-  const sheetBackRef = useRef<Diary | null>(null);
-  const sheetBackPageNumRef = useRef<number>(0);
-  const lockedPrevRef = useRef<Diary | null | undefined>(undefined);
-  const lockedPrevNumRef = useRef<number>(0);
-  const lockedNextRef = useRef<Diary | null | undefined>(undefined);
-  const lockedNextNumRef = useRef<number>(0);
-  const lockedBottomDirRef = useRef<"next" | "prev" | null>(null);
+  const step = isSinglePage ? 1 : 2;
+  const canPrev = spread - step >= 0;
+  const canNext = spread + step <= total;
 
+  // === 稳定 ref（给一次性安装的事件监听器读最新 state） ===
+  const spreadRef = useRef(spread);
+  spreadRef.current = spread;
+  const totalRef = useRef(total);
+  totalRef.current = total;
+  const singleRef = useRef(isSinglePage);
+  singleRef.current = isSinglePage;
+  const canRef = useRef({ canNext, canPrev });
+  canRef.current = { canNext, canPrev };
+
+  // === 翻页方向（prev → sheet 左侧，next → sheet 右侧） ===
+  // 翻完后 sheet 永远复位到右侧（只在翻页过程中临时移到左侧）
   const sheetSideRef = useRef<"left" | "right">("right");
   const sheetOriginRef = useRef("left center");
-  const moveRef = useRef<((e: MouseEvent) => void) | null>(null);
-  const tMoveRef = useRef<((e: TouchEvent) => void) | null>(null);
-  const upRef = useRef<(() => void) | null>(null);
+
+  // === 拖拽状态 ===
   const dragRef = useRef({
     active: false,
     dir: null as "next" | "prev" | null,
@@ -241,132 +269,89 @@ export default function BookReader({
     flipInitiated: false,
   });
 
-  const total = diaries.length;
-  const canPrev = pageIndex > 0;
-  const canNext = pageIndex < total;
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (animRef.current || dragRef.current.active) return;
-      if (e.key === "ArrowRight" && canNext) snapFlip("next");
-      if (e.key === "ArrowLeft" && canPrev) snapFlip("prev");
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [canNext, canPrev, onClose]);
-
-  const setSheetSide = (dir: "next" | "prev") => {
-    const s = sheetRef.current;
-    const side = dir === "prev" ? "left" : "right";
-    const origin = side === "right" ? "left center" : "right center";
-    sheetSideRef.current = side;
-    sheetOriginRef.current = origin;
-    if (s) {
-      s.classList.remove("book-sheet-left", "book-sheet-right");
-      s.classList.add(`book-sheet-${side}`);
-      s.style.transformOrigin = origin;
-    }
-  };
-
-  const lockAll = (dir: "next" | "prev", fromIndex: number) => {
-    const toIndex = dir === "next" ? fromIndex + 1 : fromIndex - 1;
-    // sheet backface 显示"正在翻向的那页"（动画中可见）
-    sheetBackRef.current = dir === "next"
-      ? (fromIndex + 1 < total ? diaries[fromIndex + 1] : null)
-      : (fromIndex > 0 ? diaries[fromIndex - 1] : null);
-    sheetBackPageNumRef.current = dir === "next" ? fromIndex + 2 : fromIndex;
-
-    if (isSinglePage) {
-      // 单页：底层预放翻完后要露出的那页
-      const targetDiary = dir === "next"
-        ? (toIndex < total ? diaries[toIndex] : null)
-        : (toIndex >= 0 ? diaries[toIndex] : null);
-      if (dir === "next") {
-        lockedNextRef.current = targetDiary;
-        lockedNextNumRef.current = toIndex + 1;
-        lockedPrevRef.current = undefined;
-      } else {
-        lockedPrevRef.current = targetDiary;
-        lockedPrevNumRef.current = toIndex + 1;
-        lockedNextRef.current = undefined;
-      }
-      lockedBottomDirRef.current = dir;
-    } else {
-      // ⭐ 双页：锁 toIndex 周围的内容（翻完后底层应该显示的）
-      // 这样 Phase 3 期间底层就是翻完后的样子，unlock 前后无跳变 → 零闪现！
-      lockedPrevRef.current = toIndex > 0 ? diaries[toIndex - 1] : null;
-      lockedPrevNumRef.current = toIndex;
-      lockedNextRef.current = toIndex < total - 1 ? diaries[toIndex + 1] : null;
-      lockedNextNumRef.current = toIndex + 2;
-      lockedBottomDirRef.current = null;
-    }
-  };
-
-  const unlockAll = () => {
-    sheetBackRef.current = null;
-    sheetBackPageNumRef.current = 0;
-    lockedPrevRef.current = undefined;
-    lockedNextRef.current = undefined;
-    lockedBottomDirRef.current = null;
-    // ⭐ 翻完后 sheet 回到默认右侧，transformOrigin 也回默认
-    sheetSideRef.current = "right";
-    sheetOriginRef.current = "left center";
+  // === useLayoutEffect 复位（paint 前完成，避免中间帧闪烁） ===
+  const [pendingReset, setPendingReset] = useState<null | { side: "left" | "right" }>(null);
+  useLayoutEffect(() => {
+    if (!pendingReset) return;
     const s = sheetRef.current;
     if (s) {
+      s.style.transition = "none";
+      s.style.transform = "rotateY(0deg)";
       s.classList.remove("book-sheet-left", "book-sheet-right");
       s.classList.add("book-sheet-right");
       s.style.transformOrigin = "left center";
     }
-  };
+    sheetSideRef.current = "right";
+    sheetOriginRef.current = "left center";
+    setPendingReset(null);
+  }, [pendingReset]);
 
+  // === 推导：根据 spread / flipping / isSinglePage 算出所有页面内容 ===
+  const flippingDir = flipping; // "next" | "prev" | null
+  const onLeft = flippingDir === "prev";
+
+  // 双页 next：spread=b → 左页 b-1，右页 b+2（翻完 spread=b+2）
+  // 双页 prev：spread=b → 左页 b-3，右页 b（翻完 spread=b-2）
+  // 单页 next：spread=b → 右页 b+1（翻完 spread=b+1）
+  // 单页 prev：spread=b → 右页 b-1（翻完 spread=b-1）
+  const bottomLeftIdx = isSinglePage ? -99 : (onLeft ? spread - 3 : spread - 1);
+  const bottomRightIdx = isSinglePage
+    ? (onLeft ? spread - 1 : spread + 1)
+    : (onLeft ? spread : spread + 2);
+  const sheetFrontIdx = isSinglePage ? spread : (onLeft ? spread - 1 : spread);
+  const sheetBackIdx = isSinglePage
+    ? (onLeft ? spread - 1 : spread + 1)
+    : (onLeft ? spread - 2 : spread + 1);
+
+  const bottomLeft = isSinglePage ? null : pageAt(diaries, bottomLeftIdx);
+  const bottomRight = pageAt(diaries, bottomRightIdx);
+  const sheetFront = pageAt(diaries, sheetFrontIdx);
+  const sheetBack = pageAt(diaries, sheetBackIdx);
+
+  const bottomLeftNum = pageNumFor(total, bottomLeftIdx);
+  const bottomRightNum = pageNumFor(total, bottomRightIdx);
+  const sheetFrontNum = pageNumFor(total, sheetFrontIdx);
+  const sheetBackNum = pageNumFor(total, sheetBackIdx);
+
+  // === snapFlip：单段动画 520ms，无 Phase 3 ===
   const snapFlip = useCallback((dir: "next" | "prev") => {
     const sheet = sheetRef.current;
     if (!sheet || animRef.current) return;
+    const curSpread = spreadRef.current;
+    const curStep = singleRef.current ? 1 : 2;
+    if (dir === "next" && curSpread + curStep > totalRef.current) return;
+    if (dir === "prev" && curSpread - curStep < 0) return;
+
     animRef.current = true;
     setFlipping(dir);
-    lockAll(dir, pageIndex);
+
+    const side: "left" | "right" = dir === "prev" ? "left" : "right";
+    const origin = side === "right" ? "left center" : "right center";
+    sheetSideRef.current = side;
+    sheetOriginRef.current = origin;
 
     sheet.style.transition = "none";
     sheet.style.transform = "rotateY(0deg)";
-    sheet.style.transformOrigin = dir === "next" ? "left center" : "right center";
-    setSheetSide(dir);
+    sheet.style.transformOrigin = origin;
+    sheet.classList.remove("book-sheet-left", "book-sheet-right");
+    sheet.classList.add(`book-sheet-${side}`);
     void sheet.offsetWidth;
 
     const sign = dir === "next" ? -1 : 1;
-
-    sheet.style.transition = "transform 680ms cubic-bezier(0.33, 0.1, 0.33, 1)";
+    sheet.style.transition = "transform 520ms cubic-bezier(0.33, 0.1, 0.33, 1)";
     sheet.style.transform = `rotateY(${sign * 180}deg)`;
 
-    // ⭐ Phase 1: 700ms 超时保护
-    safeTransitionEnd(sheet, 700, () => {
-      // ⭐ 更新 sheetBackRef 为不同于新正面的内容，避免正反面相同
-      if (dir === "next") {
-        sheetBackRef.current = pageIndex + 2 < total ? diaries[pageIndex + 2] : null;
-        sheetBackPageNumRef.current = pageIndex + 3;
-      } else {
-        sheetBackRef.current = diaries[pageIndex];
-        sheetBackPageNumRef.current = pageIndex + 1;
-      }
-      sheet.style.transition = "none";
-      sheet.style.transform = `rotateY(${-sign * 180}deg)`;
-      void sheet.offsetWidth;
-      setPageIndex((i) => i + (dir === "next" ? 1 : -1));
-      void sheet.offsetWidth;
-
-      sheet.style.transition = "transform 320ms cubic-bezier(0.33, 0.1, 0.33, 1)";
-      sheet.style.transform = "rotateY(0deg)";
-
-      // ⭐ Phase 3: 340ms 超时保护
-      safeTransitionEnd(sheet, 340, () => {
-        animRef.current = false;
-        setFlipping(null);
-        unlockAll();
-      });
+    // 动画结束：useLayoutEffect 同步复位 + setSpread（同帧）
+    safeTransitionEnd(sheet, 540, () => {
+      const newSpread = dir === "next" ? curSpread + curStep : curSpread - curStep;
+      flushSync(() => setSpread(newSpread));
+      setFlipping(null);
+      animRef.current = false;
+      setPendingReset({ side });
     });
-  }, [pageIndex, total, isSinglePage]);
+  }, []); // 空依赖：全部读 ref
 
-  // 跟手翻页
+  // === 拖拽事件监听器：一次性安装，空依赖 ===
   useEffect(() => {
     const handleMove = (clientX: number, clientY: number) => {
       const s = dragRef.current;
@@ -378,24 +363,32 @@ export default function BookReader({
       s.lastDeltaX = deltaX;
       if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 40) return;
 
-      if (isSinglePage) {
-        if (deltaX < -20 && s.dir !== "next" && canNext) {
+      const single = singleRef.current;
+      const can = canRef.current;
+
+      if (single) {
+        if (deltaX < -20 && s.dir !== "next" && can.canNext) {
           s.dir = "next";
-        } else if (deltaX > 20 && s.dir !== "prev" && canPrev) {
+        } else if (deltaX > 20 && s.dir !== "prev" && can.canPrev) {
           s.dir = "prev";
         }
       }
 
       if (!s.dir) return;
 
-      // ⭐ Lazy flip init: only set up flip state when drag is detected
+      // 首次检测到拖拽：设置翻页起始侧
       if (!s.flipInitiated && Math.abs(deltaX) > 5) {
         s.flipInitiated = true;
         setFlipping(s.dir);
-        setSheetSide(s.dir);
-        lockAll(s.dir, pageIndex);
+        const side: "left" | "right" = s.dir === "prev" ? "left" : "right";
+        const origin = side === "right" ? "left center" : "right center";
+        sheetSideRef.current = side;
+        sheetOriginRef.current = origin;
         sheet.style.transition = "none";
-        sheet.style.transformOrigin = s.dir === "next" ? "left center" : "right center";
+        sheet.style.transformOrigin = origin;
+        sheet.classList.remove("book-sheet-left", "book-sheet-right");
+        sheet.classList.add(`book-sheet-${side}`);
+        void sheet.offsetWidth;
       }
 
       if (!s.flipInitiated) return;
@@ -409,43 +402,49 @@ export default function BookReader({
       sheet.style.transform = `rotateY(${(s.dir === "next" ? -1 : 1) * angle}deg)`;
     };
 
-    moveRef.current = (e: MouseEvent) => handleMove(e.clientX, e.clientY);
-    tMoveRef.current = (e: TouchEvent) => {
+    // 原生事件适配层（让定制签名匹配 EventListener）
+    const onNativeMove = (e: MouseEvent) => handleMove(e.clientX, e.clientY);
+    const onNativeTouchMove = (e: TouchEvent) => {
       e.preventDefault();
       const t = e.touches[0];
       if (t) handleMove(t.clientX, t.clientY);
     };
-    upRef.current = () => {
+
+    const handleUp = () => {
       const s = dragRef.current;
       const sheet = sheetRef.current;
       if (!s.active || !sheet) return;
 
       dragRef.current.active = false;
 
-      if (moveRef.current) window.removeEventListener("mousemove", moveRef.current);
-      if (upRef.current) {
-        window.removeEventListener("mouseup", upRef.current);
-        window.removeEventListener("touchend", upRef.current);
-      }
-      if (tMoveRef.current) window.removeEventListener("touchmove", tMoveRef.current);
+      // 移除监听器
+      window.removeEventListener("mousemove", onNativeMove);
+      window.removeEventListener("mouseup", onNativeUp);
+      window.removeEventListener("touchmove", onNativeTouchMove);
+      window.removeEventListener("touchend", onNativeUp);
+
+      const single = singleRef.current;
+      const curSpread = spreadRef.current;
+      const curStep = single ? 1 : 2;
+      const can = canRef.current;
 
       // 单页 tap 边缘翻页
-      if (isSinglePage && !s.dir && Math.abs(s.lastDeltaX) < 15) {
+      if (single && !s.dir && Math.abs(s.lastDeltaX) < 15) {
         const c = containerRef.current!;
         const rect = c.getBoundingClientRect();
-        const tapX = s.startX - rect.left;
-        if (tapX < rect.width * 0.2 && canPrev) { snapFlip("prev"); return; }
-        else if (tapX > rect.width * 0.8 && canNext) { snapFlip("next"); return; }
-        else { return; }
+        const localX = s.startX - rect.left;
+        if (localX < rect.width * 0.2 && can.canPrev) { snapFlip("prev"); return; }
+        if (localX > rect.width * 0.8 && can.canNext) { snapFlip("next"); return; }
+        return;
       }
 
-      // ⭐ Pure click (no drag detected): call snapFlip directly
+      // Pure click（无拖拽）
       if (!s.flipInitiated) {
         if (s.dir) snapFlip(s.dir);
         return;
       }
 
-      // ⭐ Drag: check angle to flip or bounce back
+      // Drag：检查角度决定翻还是弹回
       const m = sheet.style.transform.match(/rotateY\(([-\d.]+)deg\)/);
       const curAng = m ? Math.abs(parseFloat(m[1])) : 0;
       const dir = s.dir!;
@@ -459,68 +458,91 @@ export default function BookReader({
         sheet.style.transform = `rotateY(${sign * 180}deg)`;
 
         safeTransitionEnd(sheet, 220, () => {
-          // ⭐ 更新 sheetBackRef 为不同于新正面的内容，避免正反面相同
-          if (dir === "next") {
-            sheetBackRef.current = pageIndex + 2 < total ? diaries[pageIndex + 2] : null;
-            sheetBackPageNumRef.current = pageIndex + 3;
-          } else {
-            sheetBackRef.current = diaries[pageIndex];
-            sheetBackPageNumRef.current = pageIndex + 1;
-          }
-          sheet.style.transition = "none";
-          sheet.style.transform = `rotateY(${-sign * 180}deg)`;
-          void sheet.offsetWidth;
-          setPageIndex((i) => i + (dir === "next" ? 1 : -1));
-          void sheet.offsetWidth;
-
-          sheet.style.transition = "transform 280ms cubic-bezier(0.33, 0.1, 0.33, 1)";
-          sheet.style.transform = "rotateY(0deg)";
-
-          safeTransitionEnd(sheet, 300, () => {
-            animRef.current = false;
-            setFlipping(null);
-            unlockAll();
-          });
+          const newSpread = dir === "next" ? curSpread + curStep : curSpread - curStep;
+          flushSync(() => setSpread(newSpread));
+          setFlipping(null);
+          animRef.current = false;
+          setPendingReset({ side: sheetSideRef.current });
         });
       } else {
+        // 弹回：spread 不变，只需清 flipping + animRef
         sheet.style.transition = "transform 200ms cubic-bezier(0.33, 0.1, 0.33, 1)";
         sheet.style.transform = "rotateY(0deg)";
         safeTransitionEnd(sheet, 220, () => {
           animRef.current = false;
           setFlipping(null);
-          unlockAll();
+          setPendingReset({ side: sheetSideRef.current });
         });
       }
     };
-  }, [pageIndex, total, isSinglePage, canNext, canPrev, snapFlip]);
 
+    const onNativeUp = () => handleUp();
+
+    // 保存原生适配层引用供 pointerdown 绑定时使用
+    nativeMoveRef.current = onNativeMove;
+    nativeTouchMoveRef.current = onNativeTouchMove;
+    nativeUpRef.current = onNativeUp;
+
+    return () => {
+      // 组件卸载时清理
+    };
+  }, [snapFlip]);
+
+  // 原生事件适配层引用（pointerdown 时绑定，handleUp 里解绑）
+  const nativeMoveRef = useRef<((e: MouseEvent) => void) | null>(null);
+  const nativeTouchMoveRef = useRef<((e: TouchEvent) => void) | null>(null);
+  const nativeUpRef = useRef<(() => void) | null>(null);
+
+  // === 键盘事件 ===
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (animRef.current || dragRef.current.active) return;
+      const can = canRef.current;
+      if (e.key === "ArrowRight" && can.canNext) snapFlip("next");
+      if (e.key === "ArrowLeft" && can.canPrev) snapFlip("prev");
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, snapFlip]);
+
+  // === pointerdown ===
   const onPointerDown = useCallback((clientX: number, clientY: number) => {
     if (animRef.current || dragRef.current.active) return;
     const c = containerRef.current;
     if (!c) return;
 
     const rect = c.getBoundingClientRect();
+    const single = singleRef.current;
+    const can = canRef.current;
 
     let dir: "next" | "prev" | null = null;
-    if (!isSinglePage) {
+    if (!single) {
       const midX = rect.left + rect.width / 2;
       dir = clientX > midX ? "next" : "prev";
-      if (dir === "next" && !canNext) return;
-      if (dir === "prev" && !canPrev) return;
+      if (dir === "next" && !can.canNext) return;
+      if (dir === "prev" && !can.canPrev) return;
     } else {
       const localX = clientX - rect.left;
-      if (localX < rect.width * 0.2 && canPrev) { dir = "prev"; }
-      else if (localX > rect.width * 0.8 && canNext) { dir = "next"; }
+      if (localX < rect.width * 0.2 && can.canPrev) { dir = "prev"; }
+      else if (localX > rect.width * 0.8 && can.canNext) { dir = "next"; }
     }
 
-    // ⭐ Lazy: only record intent, do NOT set up flip state yet
     dragRef.current = { active: true, dir, startX: clientX, startY: clientY, lastDeltaX: 0, flipInitiated: false };
 
-    if (moveRef.current) window.addEventListener("mousemove", moveRef.current);
-    if (upRef.current) window.addEventListener("mouseup", upRef.current);
-    if (tMoveRef.current) window.addEventListener("touchmove", tMoveRef.current, { passive: false });
-    if (upRef.current) window.addEventListener("touchend", upRef.current);
-  }, [canNext, canPrev, isSinglePage]);
+    // 用原生适配层绑定（和 handleUp 里解绑的是同一份引用）
+    const nativeMove = nativeMoveRef.current;
+    const nativeTouchMove = nativeTouchMoveRef.current;
+    const nativeUp = nativeUpRef.current;
+    if (nativeMove) window.addEventListener("mousemove", nativeMove);
+    if (nativeUp) {
+      window.addEventListener("mouseup", nativeUp);
+      window.addEventListener("touchend", nativeUp);
+    }
+    if (nativeTouchMove) {
+      window.addEventListener("touchmove", nativeTouchMove, { passive: false });
+    }
+  }, []);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -532,6 +554,7 @@ export default function BookReader({
     if (t) onPointerDown(t.clientX, t.clientY);
   }, [onPointerDown]);
 
+  // === 空态 ===
   if (total === 0) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-800">
@@ -547,69 +570,22 @@ export default function BookReader({
   }
 
   const perspective = "2200px";
-  const current = diaries[pageIndex];
 
-  let bottomLeft: Diary | null = null;
-  let bottomRight: Diary | null = null;
-  let bottomLeftNum = 0;
-  let bottomRightNum = 0;
+  // === 页码显示（双页："3–4 / 20"；单页："3 / 20"） ===
+  const leftIdx = isSinglePage ? spread : spread - 1;
+  const rightIdx = spread;
+  const visibleNos = [leftIdx, rightIdx].filter((n) => n >= 0 && n < total);
+  const pageLabel = visibleNos.length
+    ? (visibleNos[0] === visibleNos[visibleNos.length - 1]
+        ? `${visibleNos[0] + 1}`
+        : `${visibleNos[0] + 1}–${visibleNos[visibleNos.length - 1] + 1}`) + ` / ${total}`
+    : "封面";
 
-  if (isSinglePage) {
-    const bottomDir = lockedBottomDirRef.current;
-    if (bottomDir === "next") {
-      bottomLeft = lockedNextRef.current !== undefined
-        ? lockedNextRef.current
-        : (pageIndex + 1 < total ? diaries[pageIndex + 1] : null);
-      bottomLeftNum = lockedNextRef.current !== undefined ? lockedNextNumRef.current : pageIndex + 2;
-      bottomRight = bottomLeft;
-      bottomRightNum = bottomLeftNum;
-    } else if (bottomDir === "prev") {
-      bottomLeft = lockedPrevRef.current !== undefined
-        ? lockedPrevRef.current
-        : (pageIndex > 0 ? diaries[pageIndex - 1] : null);
-      bottomLeftNum = lockedPrevRef.current !== undefined ? lockedPrevNumRef.current : pageIndex;
-      bottomRight = bottomLeft;
-      bottomRightNum = bottomLeftNum;
-    } else {
-      // ⭐ 没在翻页：底层预放"下一页"（翻 next 时露出），sheet 盖满看不见
-      // 但如果 pageIndex 已经是最后一页，底层放"上一页"（翻 prev 时露出）
-      if (pageIndex < total - 1) {
-        bottomLeft = diaries[pageIndex + 1];
-        bottomLeftNum = pageIndex + 2;
-      } else if (pageIndex > 0) {
-        bottomLeft = diaries[pageIndex - 1];
-        bottomLeftNum = pageIndex;
-      } else {
-        bottomLeft = null;
-        bottomLeftNum = 0;
-      }
-      bottomRight = bottomLeft;
-      bottomRightNum = bottomLeftNum;
-    }
-  } else {
-    bottomLeft = lockedPrevRef.current !== undefined
-      ? lockedPrevRef.current
-      : (pageIndex > 0 ? diaries[pageIndex - 1] : null);
-    bottomLeftNum = lockedPrevRef.current !== undefined
-      ? lockedPrevNumRef.current
-      : pageIndex;
+  // === 前一篇 / 后一篇提示 ===
+  const prevDiary = spread - step >= 0 ? diaries[spread - 1] : null;
+  const nextDiary = spread + step <= total ? diaries[Math.min(total - 1, spread + step)] : null;
 
-    bottomRight = lockedNextRef.current !== undefined
-      ? lockedNextRef.current
-      : (pageIndex < total - 1 ? diaries[pageIndex + 1] : null);
-    bottomRightNum = lockedNextRef.current !== undefined
-      ? lockedNextNumRef.current
-      : pageIndex + 2;
-  }
-
-  // back face 内容: 翻页时用 lockAll 设的 sheetBackRef, 静态时用下一篇（和正面不同）
-  const defaultBackDiary = sheetSideRef.current === "right" ? bottomRight : bottomLeft;
-  const defaultBackNum = sheetSideRef.current === "right" ? bottomRightNum : bottomLeftNum;
-  const sheetBackContent = sheetBackRef.current ?? defaultBackDiary;
-  const sheetBackContentNum = sheetBackRef.current
-    ? sheetBackPageNumRef.current
-    : defaultBackNum;
-
+  // === 渲染 ===
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-stone-800 select-none">
       <header className="flex items-center justify-between px-4 py-3 bg-stone-900/90 text-stone-200 border-b border-stone-700/60 shrink-0">
@@ -620,7 +596,7 @@ export default function BookReader({
         <div className="flex items-center gap-2">
           <span className="text-xl">{bookIcon}</span>
           <span className="font-medium">{bookTitle}</span>
-          <span className="text-stone-400 text-sm">· {pageIndex + 1} / {total}</span>
+          <span className="text-stone-400 text-sm">· {pageLabel}</span>
         </div>
         <button
           onClick={() => canPrev && snapFlip("prev")}
@@ -647,17 +623,21 @@ export default function BookReader({
             }}
           />
 
-          <div className="book-page book-page-left" style={{ background: bookTheme.pageBg }}>
-            {bottomLeft ? (
-              <>
-                <PageContent diary={bottomLeft} pageNumber={bottomLeftNum} onEdit={onEdit} />
-                <PaperTexture />
-              </>
-            ) : (
-              <CoverPage title={bookTitle} icon={bookIcon} theme={bookTheme} diaries={diaries} />
-            )}
-          </div>
+          {/* 底层左页（封面 / 上一篇） */}
+          {!isSinglePage && (
+            <div className="book-page book-page-left" style={{ background: bookTheme.pageBg }}>
+              {bottomLeft ? (
+                <>
+                  <PageContent diary={bottomLeft} pageNumber={bottomLeftNum} onEdit={onEdit} />
+                  <PaperTexture />
+                </>
+              ) : (
+                <CoverPage title={bookTitle} icon={bookIcon} theme={bookTheme} diaries={diaries} />
+              )}
+            </div>
+          )}
 
+          {/* 底层右页（下一篇 / 封底） */}
           <div className="book-page book-page-right" style={{ background: bookTheme.pageBg }}>
             {bottomRight ? (
               <>
@@ -669,6 +649,7 @@ export default function BookReader({
             )}
           </div>
 
+          {/* Sheet：翻页的纸，正反面由纯推导得出 */}
           <div
             ref={sheetRef}
             className={`book-sheet ${sheetSideRef.current === "left" ? "book-sheet-left" : "book-sheet-right"}`}
@@ -679,6 +660,7 @@ export default function BookReader({
               willChange: "transform",
             }}
           >
+            {/* 正面（0° 可见） */}
             <div
               className="book-face"
               style={{
@@ -688,18 +670,19 @@ export default function BookReader({
                 background: bookTheme.pageBg,
               }}
             >
-              {current ? (
+              {sheetFront ? (
                 <>
-                  <PageContent diary={current} pageNumber={pageIndex + 1} onEdit={onEdit} />
+                  <PageContent diary={sheetFront} pageNumber={sheetFrontNum} onEdit={onEdit} />
                   <PaperTexture />
                 </>
-              ) : pageIndex === total ? (
-                <BackCoverPage theme={bookTheme} />
-              ) : pageIndex === -1 ? (
+              ) : sheetFrontIdx < 0 ? (
                 <CoverPage title={bookTitle} icon={bookIcon} theme={bookTheme} diaries={diaries} />
-              ) : null}
+              ) : (
+                <BackCoverPage theme={bookTheme} />
+              )}
             </div>
 
+            {/* 背面（180° 可见） */}
             <div
               className="book-face book-face-back"
               style={{
@@ -710,12 +693,19 @@ export default function BookReader({
                 background: bookTheme.pageBg,
               }}
             >
-              {sheetBackContent ? (
-                <PageContent diary={sheetBackContent} pageNumber={sheetBackContentNum} onEdit={onEdit} />
+              {sheetBack ? (
+                <>
+                  <PageContent diary={sheetBack} pageNumber={sheetBackNum} onEdit={onEdit} />
+                  <PaperTexture />
+                </>
+              ) : sheetBackIdx < 0 ? (
+                <CoverPage title={bookTitle} icon={bookIcon} theme={bookTheme} diaries={diaries} />
+              ) : sheetBackIdx >= total ? (
+                <BackCoverPage theme={bookTheme} />
               ) : null}
-              <PaperTexture />
             </div>
 
+            {/* 折痕阴影 */}
             <div
               className="book-fold-shadow"
               style={{
@@ -735,20 +725,20 @@ export default function BookReader({
 
       <footer className="px-4 py-3 bg-stone-900/90 border-t border-stone-700/60 shrink-0">
         <div className="max-w-md mx-auto flex items-center gap-3">
-          {canPrev && (
+          {canPrev && prevDiary && (
             <span className="text-xs text-stone-400 hover:text-stone-200 cursor-pointer shrink-0 hidden sm:inline" onClick={() => snapFlip("prev")}>
-              ← {pageIndex > 0 ? diaries[pageIndex - 1]?.title?.slice(0, 6) || "前一页" : "前一页"}
+              ← {prevDiary.title?.slice(0, 6) || "前一页"}
             </span>
           )}
           <div className="flex-1 h-1.5 bg-stone-700 rounded-full overflow-hidden">
             <div
               className="h-full transition-all duration-500"
-              style={{ width: `${((pageIndex + 1) / total) * 100}%`, background: bookTheme.accent }}
+              style={{ width: `${Math.min(((spread + step) / total) * 100, 100)}%`, background: bookTheme.accent }}
             />
           </div>
-          {canNext && (
+          {canNext && nextDiary && (
             <span className="text-xs text-stone-400 hover:text-stone-200 cursor-pointer text-right truncate max-w-[30%] hidden sm:inline" onClick={() => snapFlip("next")}>
-              {pageIndex < total - 1 ? diaries[pageIndex + 1]?.title?.slice(0, 6) || "下一页" : "下一页"} →
+              {nextDiary.title?.slice(0, 6) || "下一页"} →
             </span>
           )}
         </div>
