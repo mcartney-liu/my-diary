@@ -781,12 +781,96 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-     {/* === v0.5.4 当前版本（高亮） === */}
+     {/* === v0.5.10 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v0.5.4</span>
-                  <span className="text-paper-ink3 text-xs">2026年09月29日</span>
+                  <span className="font-bold text-paper-accent">v0.5.10</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月09日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">🎉 新功能</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>📚 <b>书架：日记变成书来读</b> — 所有日记自动按模板分组，每本日记就是一本书；3D 翻书效果，正面写完翻过来背面接，像真的在翻日记本；窄屏自动变成单页模式，左右滑动翻页</li>
+                    <li>🤖 <b>写日记时的小麦 AI 辅助</b> — 底部工具栏新增小麦按钮，写日记时点一下就能让小麦帮忙；4 个快捷建议：帮我润色、起个标题、写个结尾、来句名言；AI 给的建议一键贴到日记里，前面带"小麦建议"标识</li>
+                  </ul>
+                </div>
+              </div>
+              {/* === v0.5.9 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.9</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月08日</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>✨ <b>新手引导</b> — 第一次打开会引导你完成基本设置（身份 / 兴趣 / 欢迎）</li>
+                    <li>👤 <b>底部导航「我的」tab 用头像</b> — 不再是 emoji，显示你上传的头像</li>
+                    <li>📂 <b>资料 tab 内嵌个人资料</b> — 不用跳页面，直接在资料列表下面看到自己的资料卡片</li>
+                  </ul>
+                </div>
+              </div>
+              {/* === v0.5.8 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.8</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月07日</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>📚 <b>语文阅读理解知识库</b> — 新增语文 / 数学官方知识库预设，帮你快速开始</li>
+                    <li>💬 <b>Modal 基础组件</b> — 统一的弹窗组件，后续各种弹窗都复用</li>
+                    <li>🔍 <b>汇入前匹配度预检</b> — 汇入资料前先预检匹配度，避免重复汇入</li>
+                    <li>📝 <b>模板切换不覆盖已保存日记</b> — 切换模板时已保存的日记不会被覆盖</li>
+                  </ul>
+                </div>
+              </div>
+              {/* === v0.5.7 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.7</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月06日</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>🍚 <b>全局 "AI" 替换为 "小麦"</b> — 用户可见的所有 "AI" 字样全部改成「小麦」，更有温度</li>
+                  </ul>
+                </div>
+              </div>
+              {/* === v0.5.6 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.6</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月05日</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>🎨 <b>Onboarding 引导卡升级</b> — 新手引导第二步改成温暖卡片，更有温度</li>
+                    <li>🏷️ <b>身份 / 兴趣设置入口</b> — 「我的」页面加了身份和兴趣的快速编辑入口，统一交互</li>
+                    <li>⏳ <b>启动转圈防主界面闪</b> — bootLoading 期间不渲染主界面，加了个转圈 loading</li>
+                  </ul>
+                </div>
+              </div>
+              {/* === v0.5.5 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.5</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月04日</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>🎁 <b>官方知识库上线</b> — 预先配置好多个官方知识库（语文阅读理解、数学等），直接就能用</li>
+                    <li>🖼️ <b>3D 头像</b> — 用户头像升级成有立体感的卡片</li>
+                    <li>🗑️ <b>实体删除</b> — 知识库里的实体可以删除了</li>
+                    <li>🔧 <b>汇入前置匹配度预检</b> — 汇入资料前先检查匹配度，避免重复</li>
+                  </ul>
+                </div>
+              </div>
+              {/* === v0.5.4（变灰） === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.4</span>
+                  <span className="text-paper-ink3 text-xs">2026年09月29日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">📌 知识库排序 & 数据一致性修复</b></div>
