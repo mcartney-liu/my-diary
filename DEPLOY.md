@@ -837,19 +837,47 @@ npx wrangler pages deploy . --project-name mydiary-site
 ### 以后每次更新 APK 流程（v0.6.0 示例）
 
 ```powershell
-# Step 1: 备份当前最新版为旧版（curl 上传新 key）
-curl.exe -X PUT -H "Authorization: Bearer $token" -H "Content-Type: application/vnd.android.package-archive" `
-  --data-binary "@旧APK路径" `
-  "https://api.cloudflare.com/client/v4/.../objects/apk/MyDiary-0.5.9.apk"  # 以后要改成 MyDiary-0.6.0-old.apk
+# Step 0: APP 团队把安装包放到本地，比如：
+# C:\Users\haizhi\WorkBuddy\2026-xx-xx\outputs\MyDiary-0.6.0-debug.apk
+# （注意：目前还没有签名 release 包，都是 debug 包，先顶着用）
 
-# Step 2: 上传新版覆盖最新
-curl.exe -X PUT -H "Authorization: Bearer $token" -H "Content-Type: application/vnd.android.package-archive" `
-  --data-binary "@新APK路径" `
-  "https://api.cloudflare.com/client/v4/.../objects/apk/MyDiary-0.6.0.apk"
+# Step 1: 刷新 wrangler token + 读出来
+npx wrangler whoami
+$token = (Get-Content "$env:APPDATA\xdg.config\.wrangler\config\default.toml" | Select-String 'oauth_token = "(.+?)"').Matches.Groups[1].Value
 
-# Step 3: 官网 index.html 和 download/index.html 里的版本号更新 + 部署
-# 不需要，因为按钮只指 apk/MyDiary-latest.apk → 用同一个 key 覆盖就行
+# Step 2: 上传新 APK 到 R2（key 用完整版本号，不要用 latest）
+curl.exe -X PUT -H "Authorization: Bearer $token" -H "Content-Type: application/vnd.android.package-archive" `
+  --data-binary "@C:\Users\haizhi\WorkBuddy\2026-xx-xx\outputs\MyDiary-0.6.0-debug.apk" `
+  "https://api.cloudflare.com/client/v4/accounts/f6ca7e151a87ec9040e8a5777dd95b87/r2/buckets/mydiary-assets/objects/apk/MyDiary-0.6.0.apk"
+
+# Step 3: 改官网 index.html 两处（mydiary-web-site/index.html）
+#   - badge: v0.5.10 → v0.6.0，描述更新
+#   - Hero 下载按钮 href: .../MyDiary-0.5.10.apk → .../MyDiary-0.6.0.apk
+
+# Step 4: 改历史版本页（mydiary-web-site/download/index.html）
+#   - 顶部加新卡片：v0.6.0 最新
+#   - 原来的 v0.5.10 卡片 badge 从 "最新" 改 "旧版"
+
+# Step 5: 部署官网
+cd mydiary-web-site
+npx wrangler pages deploy . --project-name mydiary-site
+# → 自定义域名 https://callmydiary.online 自动生效
+
+# Step 6: 验证（手机访问 https://callmydiary.online 点下载按钮）
+#   或者直接测 APK URL: https://download.callmydiary.online/apk/MyDiary-0.6.0.apk
 ```
+
+### v0.5.10 实操记录（2026-10-10）
+
+| 项 | 值 |
+|---|---|
+| APK 源文件 | `C:\Users\haizhi\WorkBuddy\2026-09-23-11-40-59\outputs\MyDiary-0.5.10-debug.apk` |
+| R2 上传 key | `apk/MyDiary-0.5.10.apk` |
+| R2 返回 size | 14602403 bytes（13.93 MB） |
+| 上传耗时 | ~90s（国内网络走 Cloudflare API） |
+| 官网 index.html 改动 | badge 描述 + Hero 下载链接 |
+| download/index.html 改动 | 顶部新增 v0.5.10 卡片（最新），v0.5.9 降为旧版 |
+| 官网部署 | ✅ 成功 |
 
 ### OAuth Token 注意事项
 
