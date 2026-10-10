@@ -60,6 +60,7 @@ function upsertLocal(list: Diary[], d: Diary): Diary[] {
 // 1. 先按 id 去重（同 id 多份 → 留最新 updatedAt）
 // 2. 再按 "date + templateId + title" 去重（同内容不同 id → 留最新）
 //    只对 finance/milestone/plan 模板启用（这些模板一天可多篇，但同标题=同内容）
+//    diary / travel / gratitude / reading 等普通模板 → 一天多篇是正常的，不做语义去重
 function dedupeDiaries(list: Diary[]): Diary[] {
   // 第一层：按 id 去重
   const byId = new Map<string, Diary>();
@@ -68,23 +69,21 @@ function dedupeDiaries(list: Diary[]): Diary[] {
     if (!existing || d.updatedAt > existing.updatedAt) byId.set(d.id, d);
   }
 
-  // 第二层：按语义键去重
-  // - finance/milestone/plan：一天可多篇，同标题才合并
-  // - 其它模板（diary/travel/gratitude/reading...）：同日期 → 合并（一天只该有一篇）
+  // 第二层：按语义键去重（仅 finance/milestone/plan）
+  // diary / travel / gratitude / reading 等 → 一天多篇是正常的，只过第一层 id 去重就够了
   const financeLikeTemplates = new Set(["finance", "milestone", "plan"]);
   const finalList = Array.from(byId.values());
   const seenKey = new Map<string, Diary>();
   const result: Diary[] = [];
   for (const d of finalList) {
     const tpl = d.templateId || "diary";
-    let key: string;
-    if (financeLikeTemplates.has(tpl)) {
-      // finance/milestone/plan：同日期+同模板+同标题 → 留最新
-      key = `${d.date}:${tpl}:${(d.title || "").trim()}`;
-    } else {
-      // 普通模板：同日期+同模板 → 留最新（一天只该有一篇）
-      key = `${d.date}:${tpl}`;
+    // 普通模板直接全保留，不做语义去重
+    if (!financeLikeTemplates.has(tpl)) {
+      result.push(d);
+      continue;
     }
+    // finance/milestone/plan：同日期+同模板+同标题 → 留最新
+    const key = `${d.date}:${tpl}:${(d.title || "").trim()}`;
     const existing = seenKey.get(key);
     if (!existing || d.updatedAt > existing.updatedAt) {
       seenKey.set(key, d);
