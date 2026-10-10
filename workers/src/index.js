@@ -446,10 +446,11 @@ async function handleListDiaries(request, env, JWT_SECRET) {
   binds.push(Math.min(limit, 365));
 
   const rows = await env.DB.prepare(sql).bind(...binds).all();
+  const safeParse = (s, fallback) => { try { return JSON.parse(s || fallback); } catch { return fallback; } };
   const out = rows.results.map(r => ({
     ...r,
-    blocks: JSON.parse(r.blocks || "[]"),
-    tags: JSON.parse(r.tags || "[]"),
+    blocks: safeParse(r.blocks, []),
+    tags: safeParse(r.tags, []),
   }));
   return json({ diaries: out });
 }

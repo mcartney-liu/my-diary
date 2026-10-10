@@ -146,7 +146,7 @@ function PageContent({ diary, pageNumber, onEdit }: {
   const moodEmoji = diary.moodId ? MOOD_EMOJI[diary.moodId] : null;
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden">
       <div className="px-4 pt-3 pb-2 border-b border-stone-200/60 shrink-0">
         <div className="flex items-center gap-2 text-sm text-stone-500">
           <Calendar className="w-4 h-4" />
@@ -157,7 +157,7 @@ function PageContent({ diary, pageNumber, onEdit }: {
           <h3 className="mt-1 font-bold text-base book-heading">{diary.title}</h3>
         )}
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3 custom-scroll">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 custom-scroll" style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}>
         {diary.blocks?.map((b, i) => (
           <BookBlockRenderer key={i} index={i} block={b} />
         ))}
@@ -277,6 +277,8 @@ export default function BookReader({
     if (s) {
       s.style.transition = "none";
       s.style.transform = "rotateY(0deg)";
+      s.style.transformStyle = "flat";      // ⭐ 复位到 flat，解锁 iOS 滚动检测
+      s.style.willChange = "auto";           // ⭐ 解除 transform 合成层
       s.classList.remove("book-sheet-left", "book-sheet-right");
       s.classList.add("book-sheet-right");
       s.style.transformOrigin = "left center";
@@ -330,6 +332,9 @@ export default function BookReader({
     sheetSideRef.current = side;
     sheetOriginRef.current = origin;
 
+    // ⭐ 翻页动画开始前同步切到 preserve-3d（React setFlipping 是异步的，还没 re-render）
+    sheet.style.transformStyle = "preserve-3d";
+    sheet.style.willChange = "transform";
     sheet.style.transition = "none";
     sheet.style.transform = "rotateY(0deg)";
     sheet.style.transformOrigin = origin;
@@ -384,6 +389,9 @@ export default function BookReader({
         const origin = side === "right" ? "left center" : "right center";
         sheetSideRef.current = side;
         sheetOriginRef.current = origin;
+        // ⭐ 拖拽翻页开始前同步切到 preserve-3d
+        sheet.style.transformStyle = "preserve-3d";
+        sheet.style.willChange = "transform";
         sheet.style.transition = "none";
         sheet.style.transformOrigin = origin;
         sheet.classList.remove("book-sheet-left", "book-sheet-right");
@@ -420,8 +428,9 @@ export default function BookReader({
       // 移除监听器
       window.removeEventListener("mousemove", onNativeMove);
       window.removeEventListener("mouseup", onNativeUp);
-      window.removeEventListener("touchmove", onNativeTouchMove);
       window.removeEventListener("touchend", onNativeUp);
+      window.removeEventListener("touchcancel", onNativeUp);
+      window.removeEventListener("touchmove", onNativeTouchMove);
 
       const single = singleRef.current;
       const curSpread = spreadRef.current;
@@ -534,13 +543,28 @@ export default function BookReader({
     const nativeMove = nativeMoveRef.current;
     const nativeTouchMove = nativeTouchMoveRef.current;
     const nativeUp = nativeUpRef.current;
-    if (nativeMove) window.addEventListener("mousemove", nativeMove);
-    if (nativeUp) {
-      window.addEventListener("mouseup", nativeUp);
-      window.addEventListener("touchend", nativeUp);
-    }
-    if (nativeTouchMove) {
-      window.addEventListener("touchmove", nativeTouchMove, { passive: false });
+
+    // ⭐ 按位置分区域：边缘区域锁滚动翻页，中间区域完全放行
+    // 左 15% / 右 15% = 翻页区（立刻挂所有监听器）
+    // 中间 70% = 阅读区（什么都不挂 → 浏览器原生滚）
+    const localX = clientX - rect.left;
+    const edgeThreshold = rect.width * 0.15;
+
+    if (dir && (localX < edgeThreshold || localX > rect.width - edgeThreshold)) {
+      // 边缘翻页区 → 挂所有监听器 + 锁滚动
+      if (nativeMove) window.addEventListener("mousemove", nativeMove);
+      if (nativeUp) {
+        window.addEventListener("mouseup", nativeUp);
+        window.addEventListener("touchend", nativeUp);
+        window.addEventListener("touchcancel", nativeUp);
+      }
+      if (nativeTouchMove) {
+        window.addEventListener("touchmove", nativeTouchMove, { passive: false });
+      }
+    } else {
+      // 中间阅读区 → 什么都不挂，让浏览器原生处理滚动
+      dragRef.current.active = false;
+      dragRef.current.dir = null;
     }
   }, []);
 
@@ -655,9 +679,11 @@ export default function BookReader({
             className={`book-sheet ${sheetSideRef.current === "left" ? "book-sheet-left" : "book-sheet-right"}`}
             style={{
               background: bookTheme.pageBg,
-              transformStyle: "preserve-3d",
+              // ⭐ 闲置时用 flat（不创建 3D 合成层），翻页时才 preserve-3d
+              // preserve-3d + will-change 会屏蔽 iOS Safari 对深层 overflow:auto 滚动容器的检测
+              transformStyle: flipping ? "preserve-3d" : "flat",
               transformOrigin: sheetOriginRef.current,
-              willChange: "transform",
+              willChange: flipping ? "transform" : "auto",
             }}
           >
             {/* 正面（0° 可见） */}

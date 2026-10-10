@@ -190,10 +190,6 @@ export default function LoginPage() {
             {loading ? "..." : mode === "login" ? "登录" : "注册并登录"}
           </button>
         </div>
-
-        <div className="mt-5 text-center text-[11px] text-paper-ink3">
-          或继续以<strong className="text-paper-ink">访客</strong>身份使用（数据仅存本机）
-        </div>
       </div>
     </div>
   );
