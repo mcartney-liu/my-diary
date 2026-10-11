@@ -32,6 +32,7 @@ import {
   handleWikiListOfficialPresets, handleWikiSeedOfficialPreset,
   handleWikiDebugLog,
   handleWikiSuggestTitle, handleWikiCheckMatch,
+  handleWikiAIDesignCategories, handleWikiOptimizeDescription,
   dblog,
 } from "./wiki.js";
 
@@ -156,6 +157,8 @@ export default {
       ["GET",    "/api/wiki/debug-log",                          handleWikiDebugLog],
       ["POST",   "/api/wiki/suggest-title",                      handleWikiSuggestTitle],
       ["POST",   "/api/wiki/:kbId/check-match",                  handleWikiCheckMatch],
+      ["POST",   "/api/wiki/ai-design-categories",               handleWikiAIDesignCategories],
+      ["POST",   "/api/wiki/optimize-description",              handleWikiOptimizeDescription],
     ];
 
     // 路由器：支持 :id 参数

@@ -210,15 +210,29 @@ export async function handleWikiAddCategory(request, env, JWT_SECRET, params) {
   const kb = await ensureKb(env, user.uid, params.kb_id);
   if (!kb) return json({ error: "kb not found" }, 404);
   const body = await readBody(request);
-  const { name, page_format = '' } = body;
+  const { name, page_format: pfParam = '', template_key, sort_order = 0 } = body;
   if (!name) return json({ error: "name required" }, 400);
+
+  // 如果给了 template_key，从内置模板表拉 page_format + extract_hints
+  let page_format = pfParam;
+  let extract_hints = body.extract_hints || '';
+  if (template_key) {
+    const tpl = await env.DB.prepare(
+      "SELECT extract_hints, page_format FROM wiki_templates WHERE builtin_key=? AND user_id='system' LIMIT 1"
+    ).bind(template_key).first();
+    if (tpl) {
+      page_format = tpl.page_format || page_format;
+      extract_hints = tpl.extract_hints || extract_hints;
+    }
+  }
+  if (!extract_hints) extract_hints = autoExtractHints(page_format);
+
   const now = Date.now();
   const id = uuid();
   const slug = body.slug || autoSlug(name);
-  const extract_hints = body.extract_hints || autoExtractHints(page_format);
   await env.DB.prepare(
     "INSERT INTO wiki_categories (id, kb_id, user_id, name, slug, sort_order, extract_hints, page_format, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
-  ).bind(id, params.kb_id, user.uid, name, slug, 0, extract_hints, page_format, now, now).run();
+  ).bind(id, params.kb_id, user.uid, name, slug, sort_order, extract_hints, page_format, now, now).run();
 
   // 自动创建模板页面，让知识库里立刻有东西看
   if (page_format) {
@@ -1553,6 +1567,20 @@ const OFFICIAL_KB_PRESETS = [
       { name: '开放题/感想类', slug: 'kaifang',    sort_order: 60, template_key: 'yueduli_kaifang' },
     ],
   },
+  {
+    active: true,
+    slug: 'it-yunwei',
+    title: '💻 IT 运维工作支撑',
+    description: '待办任务跟踪、故障处理SOP、常用脚本、答疑记录、开发任务 — 运维人的个人工作库',
+    icon: '💻',
+    categories: [
+      { name: '运维任务', slug: 'yunwei-renwu', sort_order: 0, template_key: 'ops_task' },
+      { name: '故障处理SOP', slug: 'guzhang-chuli', sort_order: 1, template_key: 'ops_incident' },
+      { name: '导数脚本/SQL', slug: 'daoshu-jiaoben', sort_order: 2, template_key: 'ops_script' },
+      { name: '答疑记录', slug: 'dayi-jilu', sort_order: 3, template_key: 'ops_qa' },
+      { name: '开发任务', slug: 'kaifa-renwu', sort_order: 4, template_key: 'ops_dev' },
+    ],
+  },
 ];
 
 // GET /api/wiki/official/presets — 列出所有官方预设
@@ -1680,4 +1708,160 @@ export async function handleWikiCheckMatch(request, env, JWT_SECRET, params) {
     await dblog(env, 'check_match', 'FATAL', { msg: e?.message, stack: e?.stack?.slice(0, 500) });
     throw e; // 让 index.js 的 catch 打 500
   }
+}
+
+// ====== AI 帮你设计分类（新建 KB 时按描述生成分类结构） ======
+export async function handleWikiAIDesignCategories(request, env, JWT_SECRET, params) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const { kb_title = '', kb_description = '' } = await readBody(request);
+  if (!kb_title || !kb_description) {
+    return json({ error: "kb_title and kb_description are required" }, 400);
+  }
+
+  // 1. 拉所有内置模板供 AI 参考
+  const { results: templates } = await env.DB.prepare(
+    "SELECT builtin_key, name, description, page_format FROM wiki_templates WHERE user_id='system' AND kb_id IS NULL ORDER BY category, name"
+  ).all();
+
+  const tplList = templates.map(t => ({
+    builtin_key: t.builtin_key,
+    name: t.name,
+    description: t.description?.slice(0, 80) || '',
+  }));
+
+  await dblog(env, 'ai_design', 'START', { kb_title, kb_desc: kb_description.slice(0, 100), templateCount: tplList.length });
+
+  // 2. 拼 prompt — 让 AI 返回 JSON
+  const sys = `你是一个知识库设计助手。根据用户给的知识库名称和说明，设计 3-8 个分类，每个分类匹配最合适的内置模板。
+
+严格规则：
+1. 只能从下面的内置模板列表里选 builtin_key，不能自己编
+2. 如果没有合适的模板，用 null（表示该分类暂不绑模板）
+3. 分类名字要简洁，2-6 个字，可带 emoji
+4. sort_order 从 0 开始，间隔 10
+5. 返回严格的 JSON，不要任何解释文字
+
+返回格式：
+{"categories":[{"name":"📋 分类名","template_key":"builtin_key或null","sort_order":0},...]}`;
+
+  const userMsg = `知识库名称：${kb_title}
+知识库说明：${kb_description}
+
+可选内置模板（builtin_key → 名称 → 说明）：
+${tplList.map(t => `- ${t.builtin_key} → ${t.name} → ${t.description}`).join('\n')}
+
+请设计分类。`;
+
+  // 3. 调 wikiCallLLM
+  let raw;
+  try {
+    raw = await wikiCallLLM(env, [
+      { role: 'system', content: sys },
+      { role: 'user', content: userMsg },
+    ], 1024);
+  } catch (e) {
+    await dblog(env, 'ai_design', 'LLM_ERR', { msg: e?.message });
+    return json({ error: "AI 暂时打盹了，请稍后再试" }, 500);
+  }
+
+  // 4. 解析 JSON（兼容 AI 包 ```json``` 的情况）
+  let parsed;
+  try {
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    parsed = JSON.parse(cleaned);
+  } catch (e) {
+    await dblog(env, 'ai_design', 'PARSE_ERR', { raw: raw?.slice(0, 300) });
+    return json({ error: "AI 返回格式异常，请重试" }, 500);
+  }
+
+  // 5. 校验 + 兜底
+  let cats = Array.isArray(parsed?.categories) ? parsed.categories : [];
+  if (cats.length === 0) {
+    // AI 返回空，用兜底：按模板列表的前 5 个 + null 模板
+    cats = tplList.slice(0, 5).map((t, i) => ({
+      name: t.name,
+      template_key: t.builtin_key,
+      sort_order: i * 10,
+    }));
+  }
+
+  // 校验每个字段
+  cats = cats
+    .filter(c => c?.name && String(c.name).trim())
+    .map((c, i) => ({
+      name: String(c.name).trim(),
+      template_key: c.template_key && tplList.find(t => t.builtin_key === c.template_key)
+        ? c.template_key
+        : null,
+      sort_order: Number(c.sort_order) || i * 10,
+    }))
+    .slice(0, 12); // 最多 12 个
+
+  await dblog(env, 'ai_design', 'DONE', { count: cats.length, names: cats.map(c => c.name) });
+
+  return json({
+    kb_title: kb_title,
+    categories: cats,
+  });
+}
+
+// ====== 优化知识库描述（口语化 → 结构化，和内置模板对齐） ======
+export async function handleWikiOptimizeDescription(request, env, JWT_SECRET, params) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  const { description = '', kb_title = '' } = await readBody(request);
+  if (!description?.trim()) {
+    return json({ error: "description is required" }, 400);
+  }
+
+  // 拉内置模板（和 AI 设计分类时用同一份）
+  const { results: templates } = await env.DB.prepare(
+    "SELECT builtin_key, name, description, page_format FROM wiki_templates WHERE user_id='system' AND kb_id IS NULL ORDER BY category, name"
+  ).all();
+
+  const tplList = templates.map(t =>
+    `${t.builtin_key} → ${t.name}（${(t.description || '').slice(0, 60)}）`
+  ).join('\n');
+
+  await dblog(env, 'optimize_desc', 'START', { title: kb_title?.slice(0, 50), descLen: description.length });
+
+  const sys = `你是一个知识库设计助手。用户给你一段口语化的描述，你要把它优化成"结构化的知识库设计说明"。
+
+核心规则：
+1. 保持用户原意，不要瞎加内容
+2. 用简洁的结构列出知识库要覆盖的核心场景，每个场景暗示它最可能用到的内置模板
+3. 输出 3-8 个场景，每个场景一句话
+4. 语言自然、清晰、好读
+
+内置模板参考（用于暗示场景可能用到的模板）：
+${tplList}
+
+输出格式（直接给纯文本，不要 Markdown 标题、不要 JSON）：
+知识库一句话定位。
+1. 场景一描述 → 暗示模板名
+2. 场景二描述 → 暗示模板名
+...`;
+
+  const userMsg = kb_title
+    ? `知识库名称：${kb_title}\n用户的原始描述：${description}`
+    : `用户的原始描述：${description}`;
+
+  let raw;
+  try {
+    raw = await wikiCallLLM(env, [
+      { role: 'system', content: sys },
+      { role: 'user', content: userMsg },
+    ], 1024);
+  } catch (e) {
+    await dblog(env, 'optimize_desc', 'LLM_ERR', { msg: e?.message });
+    return json({ error: "AI 暂时打盹了" }, 500);
+  }
+
+  const optimized = String(raw || '').trim();
+  await dblog(env, 'optimize_desc', 'DONE', { len: optimized.length });
+
+  return json({ description: optimized });
 }
