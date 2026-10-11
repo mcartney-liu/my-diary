@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+
 interface Props {
   open: boolean;
   title: string;
@@ -26,13 +28,14 @@ export default function ConfirmDialog({
       ? "bg-red-500 text-white hover:bg-red-600"
       : "bg-paper-accent text-white hover:opacity-90";
 
-  return (
+  // ⚠️ createPortal 渲染到 document.body，脱离祖先 transform 定位上下文
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center px-6 animate-[fade-in_0.15s]">
       {/* 遮罩 */}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
 
-      {/* 弹窗主体 */}
-      <div className="relative w-full max-w-sm bg-paper-card rounded-2xl shadow-2xl overflow-hidden animate-[drawer-up_0.22s_ease-out]">
+      {/* 弹窗主体 — 用 modal-pop 动画（保留 translate 避免和 transform 冲突） */}
+      <div className="relative w-full max-w-sm bg-paper-card rounded-2xl shadow-2xl overflow-hidden animate-[modal-pop_0.2s_ease-out_both]">
         {/* 标题 */}
         <div className="px-5 pt-5 pb-2">
           <h3 className="text-lg font-semibold text-paper-ink text-center">{title}</h3>
@@ -62,6 +65,7 @@ export default function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

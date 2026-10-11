@@ -3,6 +3,7 @@
  * sub-tabs: [⚙️ 配置] [📜 资料] [🌐 知识库]
  */
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import ConfirmDialog from "./ConfirmDialog";
@@ -15,8 +16,9 @@ import {
   wikiUpdatePage, wikiDeletePage, wikiGenerateEntity,
   wikiListOfficialPresets, wikiSeedOfficialPreset,
   wikiGlobalAddSource, wikiIngestAll, wikiSuggestTitle, wikiCheckMatch,
+  wikiAIDesignCategories, wikiOptimizeDescription,
 } from "../api";
-import type { WikiKB, WikiCategory, WikiPage, WikiLink, WikiTemplate, WikiGraphNode, WikiGraphEdge, WikiOfficialPreset } from "../api";
+import type { WikiKB, WikiCategory, WikiPage, WikiLink, WikiTemplate, WikiGraphNode, WikiGraphEdge, WikiOfficialPreset, AIDesignedCategory } from "../api";
 
 type MainTab = "card" | "list";
 
@@ -49,12 +51,38 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
   const [seeding, setSeeding] = useState(false);
   const [newKbName, setNewKbName] = useState("");
   const [newKbDesc, setNewKbDesc] = useState("");
+  const [speechRecording, setSpeechRecording] = useState(false);
+  const speechRecRef = useRef<any>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{
     open: boolean; title: string; message: string;
     confirmText?: string; cancelText?: string;
     confirmTone?: "default" | "danger";
     onConfirm: () => void;
   }>({ open: false, title: "", message: "", onConfirm: () => {} });
+
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2000);
+  }
+
+  function startSpeech() {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { showToast("⚠️ 当前浏览器不支持语音录入"); return; }
+    const rec = new SR();
+    rec.lang = 'zh-CN'; rec.interimResults = true; rec.continuous = true;
+    let parts = newKbDesc;
+    rec.onresult = (e: any) => {
+      let text = '';
+      for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+      setNewKbDesc((parts + text).trim());
+    };
+    rec.onerror = () => { setSpeechRecording(false); showToast("⚠️ 语音识别出错了"); };
+    rec.onend = () => { setSpeechRecording(false); };
+    try { rec.start(); speechRecRef.current = rec; setSpeechRecording(true); }
+    catch { showToast("⚠️ 无法启动录音"); }
+  }
+  function stopSpeech() { speechRecRef.current?.stop(); setSpeechRecording(false); }
 
   async function loadKbs() {
     setKbLoading(true);
@@ -183,12 +211,39 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
 
   async function createKb(title: string, description?: string) {
     if (!title.trim()) return;
-    const r = await wikiAddKb(title.trim(), description);
-    await loadKbs();
-    setCurKbId(r.id);
-    setShowNewKbDialog(false);
-    setNewKbName(""); setNewKbDesc("");
-    
+    try {
+      const kb = await wikiAddKb(title.trim(), description);
+      setShowNewKbDialog(false);
+      setNewKbName(""); setNewKbDesc("");
+      await loadKbs();
+      setCurKbId(kb.id);
+      setConfigFor(kb.id);  // ← 直接打开配置弹窗，用户可以点🤖或手动建分类
+      showToast("✅ 已创建，去配置分类吧");
+      return kb;
+    } catch {
+      showToast("⚠️ 创建失败，稍后再试");
+      return null;
+    }
+  }
+
+  // 🤖 小麦创建一条龙：优化说明 → 建KB → AI设计分类 → 自动创建
+  async function handleWheatCreateMain() {
+    if (!newKbName.trim() || !newKbDesc.trim()) { showToast("💡 名称和说明都要填哦"); return; }
+    showToast("🤖 小麦正在帮你搞定一切...");
+    try {
+      let desc = newKbDesc.trim();
+      try { const opt = await wikiOptimizeDescription(desc, newKbName.trim()); if (opt.description) desc = opt.description; } catch {}
+      const kb = await createKb(newKbName.trim(), desc);
+      if (!kb) return;
+      const r = await wikiAIDesignCategories(kb.title, kb.description || desc);
+      let created = 0;
+      for (const c of r.categories) {
+        try { await wikiAddCategory(kb.id, { name: c.name, template_key: c.template_key || null, sort_order: c.sort_order }); created++; } catch {}
+      }
+      showToast(`🎉 搞定！已创建 ${created} 个分类`);
+    } catch (e: any) {
+      showToast("⚠️ 小麦打盹了：" + (e?.message || "稍后再试"));
+    }
   }
 
   function deleteKb(id: string, title?: string) {
@@ -224,7 +279,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
       )}
 
       {/* 快捷录入弹窗（从卡片📥入口）—— 直接汇当前 KB，小麦自动分类 */}
-      {ingestFor && (
+      {ingestFor && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !ingestLoading && setIngestFor(null)}>
           <div className="bg-paper-bg rounded-2xl border border-paper-line p-5 max-w-xl w-full shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-1">
@@ -272,7 +327,8 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* 实体详情弹窗（卡片模式弹 —— 复用完整详情组件） */}
@@ -477,24 +533,44 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
         title="📝 新建知识库"
         size="sm"
       >
-        <div className="p-5">
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
-              <input value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="如：我的美食菜谱"
-                className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" autoFocus />
-            </div>
-            <div>
-              <label className="text-xs text-paper-ink2 block mb-0.5">说明（可选）</label>
-              <input value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="一句话描述"
-                className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" />
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
+            <input value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="如：我的美食菜谱"
+              className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" autoFocus />
+          </div>
+          <div>
+            <label className="text-xs text-paper-ink2 block mb-0.5">说明 * — 小麦会根据它帮你设计分类</label>
+            <div className="relative">
+              <textarea value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="描述一下这个知识库是做什么的？比如：记录日常运维任务、故障处理、导数脚本、同事答疑" rows={3}
+                className="w-full px-3 py-2 pr-10 rounded-lg border border-paper-line text-sm resize-none focus:outline-none focus:border-paper-accent/60" />
+              <button
+                type="button"
+                onClick={speechRecording ? stopSpeech : startSpeech}
+                className={"absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center rounded-full transition " +
+                  (speechRecording ? "bg-red-500 text-white animate-pulse" : "bg-paper-line/60 text-paper-ink2 hover:bg-paper-line")}
+                aria-label="语音录入"
+                title={speechRecording ? "停止录音" : "语音录入"}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" transform="rotate(-15 12 12)"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" transform="rotate(-15 12 12)"/>
+                  <line x1="12" y1="19" x2="12" y2="22" transform="rotate(-15 12 12)"/>
+                </svg>
+              </button>
             </div>
           </div>
-          <div className="flex gap-2 justify-end mt-5">
+          <div className="flex gap-2 pt-1">
             <button onClick={() => { setShowNewKbDialog(false); setNewKbName(''); setNewKbDesc(''); }}
-              className="px-4 py-2 text-sm text-paper-ink2 hover:bg-paper-surface rounded-lg transition">取消</button>
-            <button onClick={() => createKb(newKbName, newKbDesc)} disabled={!newKbName.trim()}
-              className="px-4 py-2 text-sm bg-paper-accent text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition">确定</button>
+              className="flex-1 px-3 py-2 text-sm text-paper-ink2 hover:bg-paper-surface rounded-lg transition">取消</button>
+            <button onClick={handleWheatCreateMain} disabled={!newKbName.trim() || !newKbDesc.trim()}
+              className="flex-1 px-3 py-2 text-sm bg-gradient-to-r from-paper-accent to-paper-accent/80 text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition">
+              🤖 小麦创建
+            </button>
+            <button onClick={() => createKb(newKbName, newKbDesc)} disabled={!newKbName.trim() || !newKbDesc.trim()}
+              className="flex-1 px-3 py-2 text-sm border border-paper-line text-paper-ink hover:bg-paper-surface rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition">
+              ✋ 手工创建
+            </button>
           </div>
         </div>
       </Modal>
@@ -549,6 +625,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
       onConfirm={confirm.onConfirm}
       onCancel={() => setConfirm(c => ({ ...c, open: false }))}
     />
+    {toast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-paper-ink text-white text-xs px-4 py-2 rounded-lg shadow-lg z-[60]">{toast}</div>}
     </>
   );
 }
@@ -580,11 +657,36 @@ function SettingsTab(props: {
     onConfirm: () => void;
   }>({ open: false, title: "", message: "", onConfirm: () => {} });
   const [toast, setToast] = useState<string | null>(null);
+  const [showAIDesignDialog, setShowAIDesignDialog] = useState(false);
+  const [aiDesignLoading, setAiDesignLoading] = useState(false);
+  const [aiDesignedCats, setAiDesignedCats] = useState<AIDesignedCategory[]>([]);
+  const [aiDesignError, setAiDesignError] = useState("");
+  const [speechRecording, setSpeechRecording] = useState(false);
+  const speechRecRef = useRef<any>(null);
 
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 2000);
   }
+
+  // 语音录入 — 复用 Web Speech API
+  function startSpeech() {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { showToast("⚠️ 当前浏览器不支持语音录入"); return; }
+    const rec = new SR();
+    rec.lang = 'zh-CN'; rec.interimResults = true; rec.continuous = true;
+    let parts = newKbDesc;
+    rec.onresult = (e: any) => {
+      let text = '';
+      for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+      setNewKbDesc((parts + text).trim());
+    };
+    rec.onerror = () => { setSpeechRecording(false); showToast("⚠️ 语音识别出错了"); };
+    rec.onend = () => { setSpeechRecording(false); };
+    try { rec.start(); speechRecRef.current = rec; setSpeechRecording(true); }
+    catch { showToast("⚠️ 无法启动录音"); }
+  }
+  function stopSpeech() { speechRecRef.current?.stop(); setSpeechRecording(false); }
 
   async function loadCats() { if (!curKb) return; const r = await wikiListCategories(curKb?.id); setCats(r.categories); }
   async function loadTemplates() { if (!curKb) return; const r = await wikiListTemplates(curKb?.id); setTemplates(r); }
@@ -609,6 +711,7 @@ function SettingsTab(props: {
     setShowNew(false); loadCats();
     showToast("✅ 分类已保存");
   }
+
   async function updateCat(cat: { id?: string; name: string; page_format: string; extract_hints?: string }) {
     if (!cat.id || !curKb) return;
     const patch: { id: string; name?: string; page_format?: string; extract_hints?: string } = { id: cat.id };
@@ -638,10 +741,87 @@ function SettingsTab(props: {
   }
 
   function handleCreateKb() {
-    if (!newKbName.trim()) return;
+    if (!newKbName.trim() || !newKbDesc.trim()) return;
     onCreateKb(newKbName.trim(), newKbDesc.trim());
+    resetNewKb();
+    showToast("✅ 已手工创建，去配置页建分类吧");
+  }
+
+  function resetNewKb() {
     setNewKbName(""); setNewKbDesc(""); setShowNewKbDialog(false);
-    showToast("✅ 知识库已创建");
+  }
+
+  // 🤖 小麦创建一条龙：优化说明 → 建KB → AI设计分类 → 自动创建
+  async function handleWheatCreate() {
+    if (!newKbName.trim() || !newKbDesc.trim()) {
+      showToast("💡 名称和说明都要填哦");
+      return;
+    }
+    showToast("🤖 小麦正在帮你搞定一切...");
+    try {
+      let desc = newKbDesc.trim();
+      try {
+        const opt = await wikiOptimizeDescription(desc, newKbName.trim());
+        if (opt.description) desc = opt.description;
+      } catch {}
+      onCreateKb(newKbName.trim(), desc);
+      resetNewKb();
+      await new Promise(r => setTimeout(r, 400));
+      const kbs = await wikiListKbs();
+      const newKb = kbs.kbs.find(k => k.title === newKbName.trim()) || kbs.kbs[0];
+      if (!newKb) { showToast("✅ KB 已创建，但找不到它来建分类"); return; }
+      onSelect(newKb.id);
+      const r = await wikiAIDesignCategories(newKb.title, newKb.description || desc);
+      let created = 0;
+      for (const c of r.categories) {
+        try { await wikiAddCategory(newKb.id, { name: c.name, template_key: c.template_key || null, sort_order: c.sort_order }); created++; } catch {}
+      }
+      showToast(`🎉 搞定！已创建 ${created} 个分类`);
+      onKbsChanged();
+    } catch (e: any) {
+      showToast("⚠️ 小麦打盹了：" + (e?.message || "稍后再试"));
+    }
+  }
+
+  async function handleAIDesignCategories() {
+    if (!curKb || !curKb.description?.trim()) {
+      showToast("💡 先添加知识库说明");
+      return;
+    }
+    setAiDesignLoading(true);
+    setAiDesignError("");
+    setShowAIDesignDialog(true);
+    try {
+      const r = await wikiAIDesignCategories(curKb.title, curKb.description);
+      setAiDesignedCats(r.categories);
+    } catch (e: any) {
+      setAiDesignError(e?.message || "AI 暂时打盹了");
+    } finally {
+      setAiDesignLoading(false);
+    }
+  }
+
+  async function handleConfirmAIDesign() {
+    if (!curKb || aiDesignedCats.length === 0) return;
+    let ok = 0;
+    for (const c of aiDesignedCats) {
+      try {
+        await wikiAddCategory(curKb.id, {
+          name: c.name,
+          template_key: c.template_key,
+          sort_order: c.sort_order,
+        });
+        ok++;
+      } catch {}
+    }
+    setShowAIDesignDialog(false);
+    setAiDesignedCats([]);
+    loadCats();
+    showToast(`✅ 已创建 ${ok} 个分类`);
+  }
+
+  function handleRemoveAICat(idx: number) {
+    setAiDesignedCats(prev => prev.filter((_, i) => i !== idx));
   }
 
   // =========== UI ===========
@@ -669,7 +849,7 @@ function SettingsTab(props: {
         {toast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-4 py-2 rounded shadow-lg z-50">{toast}</div>}
         <Modal
           open={showNewKbDialog}
-          onClose={() => { setShowNewKbDialog(false); setNewKbName(""); setNewKbDesc(""); }}
+          onClose={() => { resetNewKb(); }}
           title="📝 新建知识库"
           size="sm"
         >
@@ -677,17 +857,40 @@ function SettingsTab(props: {
             <div>
               <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
               <input autoFocus value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="输入知识库名称"
-                onKeyDown={e => e.key === 'Enter' && handleCreateKb()}
                 className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" />
             </div>
             <div>
-              <label className="text-xs text-paper-ink2 block mb-0.5">说明（可选）</label>
-              <textarea value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="这个知识库是做什么的？" rows={3}
-                className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm resize-none focus:outline-none focus:border-paper-accent/60" />
+              <label className="text-xs text-paper-ink2 block mb-0.5">说明 * — 小麦会根据它帮你设计分类</label>
+              <div className="relative">
+                <textarea value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="描述一下这个知识库是做什么的？比如：记录日常运维任务、故障处理、导数脚本、同事答疑" rows={3}
+                  className="w-full px-3 py-2 pr-10 rounded-lg border border-paper-line text-sm resize-none focus:outline-none focus:border-paper-accent/60" />
+                <button
+                  type="button"
+                  onClick={speechRecording ? stopSpeech : startSpeech}
+                  className={"absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center rounded-full transition " +
+                    (speechRecording ? "bg-red-500 text-white animate-pulse" : "bg-paper-line/60 text-paper-ink2 hover:bg-paper-line")}
+                  aria-label="语音录入"
+                  title={speechRecording ? "停止录音" : "语音录入"}
+                >
+                  {/* 手绘斜话筒 SVG */}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" transform="rotate(-15 12 12)"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" transform="rotate(-15 12 12)"/>
+                    <line x1="12" y1="19" x2="12" y2="22" transform="rotate(-15 12 12)"/>
+                  </svg>
+                </button>
+              </div>
             </div>
-            <div className="flex gap-2 justify-end pt-1">
-              <button onClick={() => { setShowNewKbDialog(false); setNewKbName(""); setNewKbDesc(""); }} className="px-4 py-2 text-sm text-paper-ink2 hover:bg-paper-surface rounded-lg transition">取消</button>
-              <button onClick={handleCreateKb} disabled={!newKbName.trim()} className="px-4 py-2 text-sm bg-paper-accent text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition">确定</button>
+            <div className="flex gap-2 pt-1">
+              <button onClick={() => resetNewKb()} className="flex-1 px-3 py-2 text-sm text-paper-ink2 hover:bg-paper-surface rounded-lg transition">取消</button>
+              <button onClick={handleWheatCreate} disabled={!newKbName.trim() || !newKbDesc.trim()}
+                className="flex-1 px-3 py-2 text-sm bg-gradient-to-r from-paper-accent to-paper-accent/80 text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition">
+                🤖 小麦创建
+              </button>
+              <button onClick={handleCreateKb} disabled={!newKbName.trim() || !newKbDesc.trim()}
+                className="flex-1 px-3 py-2 text-sm border border-paper-line text-paper-ink hover:bg-paper-surface rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition">
+                ✋ 手工创建
+              </button>
             </div>
           </div>
         </Modal>
@@ -757,9 +960,18 @@ function SettingsTab(props: {
       {/* 分类列表 */}
       <div className="flex justify-between items-center">
         <h4 className="text-paper-ink2 text-xs font-medium uppercase tracking-wider">📁 分类（选范本自动带模板）</h4>
-        <button onClick={() => setShowNew(true)} disabled={showNew}
-          className="px-3 py-1 bg-paper-ink text-white rounded text-xs disabled:opacity-50">+ 新增分类</button>
+        <div className="flex gap-2">
+          <button onClick={handleAIDesignCategories} disabled={aiDesignLoading || !curKb?.description?.trim()}
+            className="px-3 py-1 bg-paper-accent text-white rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed">
+            {aiDesignLoading ? '设计中...' : '🤖 小麦帮你分类'}
+          </button>
+          <button onClick={() => setShowNew(true)} disabled={showNew}
+            className="px-3 py-1 bg-paper-ink text-white rounded text-xs disabled:opacity-50">+ 新增分类</button>
+        </div>
       </div>
+      {!curKb?.description?.trim() && (
+        <div className="text-paper-ink3 text-xs mt-1">💡 先在上方添加知识库说明，小麦才能帮你设计分类</div>
+      )}
 
       {showNew && <CategoryEditor templates={templates} onSave={addCat} onCancel={() => setShowNew(false)} />}
 
@@ -791,7 +1003,7 @@ function SettingsTab(props: {
 
       <Modal
         open={showNewKbDialog}
-        onClose={() => { setShowNewKbDialog(false); setNewKbName(""); setNewKbDesc(""); }}
+        onClose={() => { resetNewKb(); }}
         title="📝 新建知识库"
         size="sm"
       >
@@ -799,18 +1011,92 @@ function SettingsTab(props: {
           <div>
             <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
             <input autoFocus value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="输入知识库名称"
-              onKeyDown={e => e.key === 'Enter' && handleCreateKb()}
               className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" />
           </div>
           <div>
-            <label className="text-xs text-paper-ink2 block mb-0.5">说明（可选）</label>
-            <textarea value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="这个知识库是做什么的？" rows={3}
-              className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm resize-none focus:outline-none focus:border-paper-accent/60" />
+            <label className="text-xs text-paper-ink2 block mb-0.5">说明 * — 小麦会根据它帮你设计分类</label>
+            <div className="relative">
+              <textarea value={newKbDesc} onChange={e => setNewKbDesc(e.target.value)} placeholder="描述一下这个知识库是做什么的？比如：记录日常运维任务、故障处理、导数脚本、同事答疑" rows={3}
+                className="w-full px-3 py-2 pr-10 rounded-lg border border-paper-line text-sm resize-none focus:outline-none focus:border-paper-accent/60" />
+              <button
+                type="button"
+                onClick={speechRecording ? stopSpeech : startSpeech}
+                className={"absolute bottom-2 right-2 w-8 h-8 flex items-center justify-center rounded-full transition " +
+                  (speechRecording ? "bg-red-500 text-white animate-pulse" : "bg-paper-line/60 text-paper-ink2 hover:bg-paper-line")}
+                aria-label="语音录入"
+                title={speechRecording ? "停止录音" : "语音录入"}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" transform="rotate(-15 12 12)"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" transform="rotate(-15 12 12)"/>
+                  <line x1="12" y1="19" x2="12" y2="22" transform="rotate(-15 12 12)"/>
+                </svg>
+              </button>
+            </div>
           </div>
-          <div className="flex gap-2 justify-end pt-1">
-            <button onClick={() => { setShowNewKbDialog(false); setNewKbName(""); setNewKbDesc(""); }} className="px-4 py-2 text-sm text-paper-ink2 hover:bg-paper-surface rounded-lg transition">取消</button>
-            <button onClick={handleCreateKb} disabled={!newKbName.trim()} className="px-4 py-2 text-sm bg-paper-accent text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition">确定</button>
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => resetNewKb()} className="flex-1 px-3 py-2 text-sm text-paper-ink2 hover:bg-paper-surface rounded-lg transition">取消</button>
+            <button onClick={handleWheatCreate} disabled={!newKbName.trim() || !newKbDesc.trim()}
+              className="flex-1 px-3 py-2 text-sm bg-gradient-to-r from-paper-accent to-paper-accent/80 text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition">
+              🤖 小麦创建
+            </button>
+            <button onClick={handleCreateKb} disabled={!newKbName.trim() || !newKbDesc.trim()}
+              className="flex-1 px-3 py-2 text-sm border border-paper-line text-paper-ink hover:bg-paper-surface rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition">
+              ✋ 手工创建
+            </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* 🤖 小麦帮你设计分类 — 弹窗 */}
+      <Modal
+        open={showAIDesignDialog}
+        onClose={() => { setShowAIDesignDialog(false); setAiDesignedCats([]); setAiDesignError(""); }}
+        title="🤖 小麦帮你设计分类"
+        size="sm"
+        scrollable
+        footer={
+          <div className="flex gap-2 justify-end px-5 py-3">
+            <button onClick={() => { setShowAIDesignDialog(false); setAiDesignedCats([]); }} className="px-4 py-2 text-sm text-paper-ink2 hover:bg-paper-surface rounded-lg transition">取消</button>
+            <button onClick={handleConfirmAIDesign} disabled={aiDesignedCats.length === 0} className="px-4 py-2 text-sm bg-paper-accent text-white rounded-lg hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition">
+              ✅ 创建 {aiDesignedCats.length} 个分类
+            </button>
+          </div>
+        }
+      >
+        <div className="p-5 space-y-3">
+          {aiDesignLoading && (
+            <div className="text-center py-6 text-paper-ink2 text-sm">
+              <div className="animate-spin inline-block w-5 h-5 border-2 border-paper-accent border-t-transparent rounded-full mb-2"></div>
+              <div>小麦正在根据你的知识库说明设计分类...</div>
+            </div>
+          )}
+
+          {!aiDesignLoading && aiDesignError && (
+            <div className="text-center py-4 text-red-500 text-sm">{aiDesignError}</div>
+          )}
+
+          {!aiDesignLoading && !aiDesignError && aiDesignedCats.length > 0 && (
+            <>
+              <div className="text-xs text-paper-ink3">
+                ✨ 小麦为「{curKb?.title}」设计了 {aiDesignedCats.length} 个分类，不满意可以删掉：
+              </div>
+              <div className="space-y-2">
+                {aiDesignedCats.map((c, idx) => (
+                  <div key={idx} className="flex items-center gap-2 px-3 py-2 rounded-md border border-paper-line bg-paper-card">
+                    <span className="text-xs text-paper-ink3 w-6 shrink-0">{idx + 1}</span>
+                    <span className="text-sm text-paper-ink flex-1 truncate">{c.name}</span>
+                    {c.template_key ? (
+                      <span className="text-xs text-paper-accent bg-paper-accent/10 px-2 py-0.5 rounded">{c.template_key}</span>
+                    ) : (
+                      <span className="text-xs text-paper-ink3 bg-paper-line/50 px-2 py-0.5 rounded">无模板</span>
+                    )}
+                    <button onClick={() => handleRemoveAICat(idx)} className="text-xs text-paper-ink2 hover:text-red-500 ml-1">✕</button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </Modal>
     </div>
@@ -1624,28 +1910,21 @@ function PageDetailModal({
   }, [onClose]);
 
   if (loading) {
-    return (
+    return createPortal(
       <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
         <div className="bg-paper-card rounded-lg shadow-xl max-w-3xl w-full max-h-[85vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
           <div className="text-center py-8 text-paper-ink3 text-sm">加载中...</div>
         </div>
-      </div>
+      </div>,
+      document.body
     );
   }
   if (!detail) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-paper-card rounded-lg shadow-xl max-w-3xl w-full max-h-[85vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            {detail.page.is_system !== 1 && !editing && (
-              <button onClick={() => { setEditing(true); setEditContent(detail.page.content); }}
-                className="text-xs text-paper-accent hover:underline">✏️ 编辑</button>
-            )}
-          </div>
-          <button onClick={onClose} className="text-paper-ink3 hover:text-paper-ink text-lg leading-none">✕</button>
-        </div>
+      <div className="bg-paper-card rounded-lg shadow-xl max-w-3xl w-full max-h-[85vh] overflow-y-auto p-5 relative" onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} className="absolute top-2 right-2 text-paper-ink3 hover:text-paper-ink text-2xl leading-none z-10">✕</button>
         <div className="bg-paper-card rounded-md border border-paper-line p-4">
           <div className="mb-3">
             {detail.page.is_system === 1 && <span className="text-xs text-paper-ink2 mr-2">[系统模板]</span>}
@@ -1743,7 +2022,8 @@ function PageDetailModal({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
