@@ -781,12 +781,29 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-     {/* === v0.5.10 当前版本（高亮） === */}
+     {/* === v0.5.11 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v0.5.10</span>
-                  <span className="text-paper-ink3 text-xs">2026年10月09日</span>
+                  <span className="font-bold text-paper-accent">v0.5.11</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月11日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">🎉 新功能</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>✨ <b>一键创建知识库</b> — 不用再填繁琐表单了，跟小麦说一句话就能建好知识库；两个入口任选：①「我的 → 知识库」页面 → 点新建 → 填名字和用途 → 点「✨ 小麦创建」按钮；②首页小麦问答 → 切到🌳知识 tab → 下拉选「🆕 + 创建知识库」；比如跟小麦说「路亚笔记，记录钓鱼经验和装备评测」，小麦自动帮你优化说明 → 建知识库 → 设计分类 → 每个分类配好模板，一条龙搞定</li>
+                  </ul>
+                  <div><b className="text-paper-ink">🐛 Bug 修复</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>🔧 <b>所有弹窗不居中</b> — 弹窗没挂到页面顶层被父级裁剪，统一用 createPortal 挂到 body</li>
+                  </ul>
+                </div>
+              </div>
+     {/* === v0.5.10 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.10</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月09日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>

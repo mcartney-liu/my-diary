@@ -1,19 +1,26 @@
 // Cloud API client — talks to Cloudflare Workers
-// 开发环境: 直连 dev Worker 绝对地址 (绕开 Vite proxy —— Node.js 在本 Windows 上连不了海外 HTTPS)
-// 生产环境: 相对路径走 Pages Functions 同域代理 (绕开 iPhone Safari 对 workers.dev 的封锁)
+//
+// 核心原则：
+//   - Web Pages 部署 → 空字符串（相对路径 /api/*）→ Pages Function 代理
+//     Pages Function 会按 hostname 自动转发到 dev Worker 或 prod Worker
+//     （同域请求，完全无 CORS 问题 ✅）
+//   - Vite dev server → dev Worker 绝对地址
+//   - Capacitor App 副本 → 显式 VITE_API_BASE（在 .env.production 里设置）
+//
+// 判断优先级：
+//   1. Vite dev server (import.meta.env.DEV)  → dev Worker 绝对地址
+//   2. VITE_API_BASE 显式注入（App 副本）     → 直接用
+//   3. 其他（Web Pages 部署）                  → "" → Pages Function 代理
 
 import type { Diary } from "./types";
-// ⭐ 平台差异统一收口到 platform.ts（见 docs/APP-SYNC-RULES.md）
-//    API 层不再自己判 hostname / 存 token key，避免与 Web 端分叉。
 import { getToken as platformGetToken, setToken as platformSetToken } from "./platform";
 
-// DEV → 绝对地址 dev Worker
-// PROD → 空字符串 → 相对路径 /api/* → Pages Functions 代理
-// 可通过 VITE_API_BASE 环境变量覆盖（App 副本的 .env.production 提供）
 const envBase = (import.meta as unknown as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE;
+
 export const API_BASE =
-  envBase !== undefined ? envBase :
-  (import.meta.env.DEV ? "https://mydiary-api-dev.mcartneyliu.workers.dev" : "");
+  import.meta.env.DEV
+    ? "https://mydiary-api-dev.mcartneyliu.workers.dev"
+    : (envBase ?? "");
 
 // token 存取 → 委托 platform.ts（key 的 dev/prod 判定在那里统一维护）
 // 原先这里按 hostname 判 dev/prod，但 Capacitor WebView 恒为 localhost，
@@ -399,7 +406,7 @@ export function wikiUpdateKb(kbId: string, patch: { title?: string; description?
 export function wikiDeleteKb(kbId: string) { return request<{ ok: boolean }>('/api/wiki/kbs/' + kbId, { method: 'DELETE' }); }
 
 export function wikiListCategories(kbId: string) { return request<{ categories: WikiCategory[]; kb: WikiKB }>('/api/wiki/kbs/' + kbId + '/categories'); }
-export function wikiAddCategory(kbId: string, cat: { name: string; page_format?: string }) {
+export function wikiAddCategory(kbId: string, cat: { name: string; page_format?: string; template_key?: string | null; sort_order?: number }) {
   return request<{ id: string; name: string; slug: string; ok: boolean }>('/api/wiki/kbs/' + kbId + '/categories', { method: 'POST', body: JSON.stringify(cat) });
 }
 export function wikiUpdateCategory(kbId: string, patch: { id: string; name?: string; page_format?: string; extract_hints?: string }) {
@@ -530,5 +537,25 @@ export function wikiCheckMatch(kbId: string, text: string) {
   return request<{ match: 'high' | 'medium' | 'low' }>(`/api/wiki/${kbId}/check-match`, {
     method: 'POST',
     body: JSON.stringify({ text }),
+  });
+}
+
+export interface AIDesignedCategory {
+  name: string;
+  template_key: string | null;
+  sort_order: number;
+}
+
+export function wikiAIDesignCategories(kb_title: string, kb_description: string) {
+  return request<{ kb_title: string; categories: AIDesignedCategory[] }>('/api/wiki/ai-design-categories', {
+    method: 'POST',
+    body: JSON.stringify({ kb_title, kb_description }),
+  });
+}
+
+export function wikiOptimizeDescription(description: string, kb_title?: string) {
+  return request<{ description: string }>('/api/wiki/optimize-description', {
+    method: 'POST',
+    body: JSON.stringify({ description, kb_title: kb_title || '' }),
   });
 }

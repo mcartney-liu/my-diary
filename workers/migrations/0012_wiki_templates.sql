@@ -1,4 +1,4 @@
-﻿-- v4.1: 新增范本库（独立于分类，可复用）
+﻿﻿﻿﻿﻿﻿-- v4.1: 新增范本库（独立于分类，可复用）
 
 CREATE TABLE IF NOT EXISTS wiki_templates (
   id            TEXT PRIMARY KEY,

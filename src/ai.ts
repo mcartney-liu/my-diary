@@ -34,15 +34,15 @@ export interface AiMessage {
   content: string;
 }
 
-async function callChatCompletion(
+export async function callChatCompletion(
   provider: AiProvider,
   messages: AiMessage[],
   temperature = 0.7,
   responseFormat: "json_object" | "text" = "json_object"
 ): Promise<string> {
-  // 🔑 8 秒超时 — 手机网络差时不能无限等
+  // 🔑 30 秒超时 — 手机网络差时给足缓冲；超时后调用方会降级到规则匹配
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+  const timer = setTimeout(() => controller.abort(), 30000);
 
   try {
     const body: any = {
@@ -738,8 +738,10 @@ export async function detectTemplate(
 
   const allValidIds = ALL_TEMPLATES.map(t => t.id).concat(userTemplates?.map(t => t.id) || []);
 
-  const raw = await callChatCompletion(p, [
-    { role: "system", content: `你是一个日记模板分类器。根据用户说的话，判断最适合的日记模板。
+  let raw: string;
+  try {
+    raw = await callChatCompletion(p, [
+      { role: "system", content: `你是一个日记模板分类器。根据用户说的话，判断最适合的日记模板。
 可选模板:
 ═ 系统模板 ═
 ${systemTplList}
@@ -748,8 +750,16 @@ ${userTplList}
 严格返回 JSON: {"templateId": "xxx", "confidence": 0.0-1.0, "reason": "一句话解释"}
 
 用户模板的 id 是类似 "tpl_abc123" 的字符串。如果没有合适的就返回 "diary"。` },
-    { role: "user", content: rawText },
-  ], 0.3);
+      { role: "user", content: rawText },
+    ], 0.3);
+  } catch (aiErr: any) {
+    // 🔑 AI 超时/网络差时降级返回规则匹配结果，不让整个流程炸掉
+    console.warn("[ai] detectTemplate AI 调用失败，降级规则匹配:", aiErr?.message);
+    if (ruleResult) {
+      return { ...ruleResult, reason: `${ruleResult.reason || ""}（AI 不可用，规则匹配）`.trim() };
+    }
+    return { templateId: "diary", confidence: 0.3, reason: "AI 暂时不可用，默认日记" };
+  }
 
   try {
     const json = extractJson(raw);

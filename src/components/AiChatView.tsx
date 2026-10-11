@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { askDiary, askWiki, extractMemory, wikiListKbs, type WikiKB } from "../api";
+import { askDiary, askWiki, extractMemory, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, type WikiKB } from "../api";
+import { callChatCompletion, getAiProvider } from "../ai";
 import { useAuth } from "../AuthContext";
 
 interface DiarySource { diary_id: string; date?: string; score: number; content?: string; }
@@ -67,6 +68,36 @@ function RememberButton({ content }: { content: string }) {
   );
 }
 
+function SessionRow({ s, activeId, onSwitch, onDelete }: { s: Session; activeId: string; onSwitch: (id: string) => void; onDelete: (id: string) => void }) {
+  return (
+    <div
+      onClick={() => onSwitch(s.id)}
+      className={`group flex items-center justify-between px-4 py-2.5 cursor-pointer transition ${
+        s.id === activeId ? "bg-paper-line/60" : "hover:bg-paper-surface"
+      }`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="text-sm text-paper-ink truncate flex items-center gap-1.5">
+          <span className="text-[11px] opacity-70 shrink-0">
+            {(s.source_type || "diary") === "wiki" ? "🌳" : "📖"}
+          </span>
+          {s.title || "新对话"}
+        </div>
+        <div className="text-[11px] text-paper-ink2 mt-0.5 truncate">
+          {s.msgs.length} 条 · {new Date(s.createdAt).toLocaleString()}
+        </div>
+      </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete(s.id); }}
+        className="opacity-0 group-hover:opacity-100 text-paper-ink2 hover:text-red-500 text-xs ml-2 px-1 shrink-0"
+        title="删除"
+      >
+        🗑
+      </button>
+    </div>
+  );
+}
+
 function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
@@ -114,6 +145,10 @@ export default function AiChatView() {
     wikiListKbs().then((r) => setKbs(r?.kbs || [])).catch(() => {});
   }, [userId]);
 
+  // 小麦引导创建 KB 模式：用户选"+ 创建知识库"后进入
+  // 创建知识库专用流程状态机：null=不在流程 | "collecting"=收集中 | "creating"=一条龙跑中 | "done"=完成
+  const [creatingKb, setCreatingKb] = useState<null | "collecting" | "creating" | "done">(null);
+
   const active = sessions.find((s) => s.id === activeId) || sessions[0];
 
   // 切换账号时重新加载
@@ -126,7 +161,9 @@ export default function AiChatView() {
   // 持久化（按账号隔离）
   useEffect(() => {
     try {
-      localStorage.setItem(keys.sessions, JSON.stringify(sessions));
+      // 只保存有消息的会话（空会话不持久化）
+      const nonEmpty = sessions.filter((s) => s.msgs.length > 0);
+      localStorage.setItem(keys.sessions, JSON.stringify(nonEmpty));
       localStorage.setItem(keys.active, activeId);
     } catch {}
   }, [sessions, activeId, keys.sessions, keys.active]);
@@ -168,6 +205,173 @@ export default function AiChatView() {
       let resKbTitle: string | undefined;
 
       if (srcType === "wiki") {
+        // ═══════════════════════════════════════════════
+        // 创建知识库聊天框（正常聊天 + 有边界）
+        // ═══════════════════════════════════════════════
+        if (creatingKb !== null) {
+
+          // 已完成：用户再说任何事 → 引导去详情页
+          if (creatingKb === "done") {
+            updateActive((s) => ({
+              ...s,
+              msgs: [...s.msgs, {
+                role: "ai", source_type: "wiki",
+                content: "我这边只帮你创建知识库，已经帮你建好啦 ✅\n\n去「我的 → 知识库」看详情、汇入资料，或者选一个知识库开始提问～",
+              }],
+            }));
+            setLoading(false);
+            return;
+          }
+
+          // 跑一条龙中 → 忽略用户输入
+          if (creatingKb === "creating") {
+            updateActive((s) => ({
+              ...s,
+              msgs: [...s.msgs, {
+                role: "ai", source_type: "wiki",
+                content: "正在为你创建，请稍等... ⏳",
+              }],
+            }));
+            setLoading(false);
+            return;
+          }
+
+          // collecting：调 AI 正常对话
+          // 构建历史消息（只传 user + ai，不传 source）
+          const chatHistory = active.msgs.map((m) => ({
+            role: m.role === "ai" ? "assistant" as const : "user" as const,
+            content: m.content,
+          }));
+          chatHistory.push({ role: "user", content: question });
+
+          const SYSTEM_PROMPT = `你是"小麦"，专门帮用户创建知识库的助手。
+
+你的职责：
+1. 和用户自然聊天，理解用户想创建什么样的知识库
+2. 最终目标：拿到「知识库名称」和「知识库说明（用来干嘛的）」
+3. **重要：拿到这两个信息后，先不要创建！先用自然语言跟用户确认，比如："我整理一下：名字叫 XXX，用途是 YYY，对吗？"**
+4. **只有当用户明确说"好的"/"确认"/"就这个"/"可以"/"创建吧"等确认语之后，才返回 action=create**
+5. 如果用户要求修改名字或说明，更新后再次用自然语言跟用户确认，不要直接 create
+6. 如果用户没给全信息（只给了名字或只给了说明），引导用户补全
+7. 如果用户问流程/规则/自我介绍，自然回答，用中文，口语化
+8. 如果用户聊别的/无关内容，委婉引导回创建知识库的话题
+
+返回格式（严格 JSON）：
+- 所有聊天/引导/确认环节 → {"action":"chat","text":"你的自然回复"}
+- 只有用户明确确认后才返回 → {"action":"create","name":"xxx","desc":"xxx","replyText":"收到！开始创建"}
+
+知识库说明(desc)要简洁明了，描述清楚这个知识库用来做什么、包含哪些内容。`;
+
+          try {
+            const provider = getAiProvider();
+            const aiRaw = await callChatCompletion(
+              provider,
+              [
+                { role: "system", content: SYSTEM_PROMPT },
+                ...chatHistory,
+              ],
+              0.7,
+              "json_object"
+            );
+
+            let aiJson: any;
+            try { aiJson = JSON.parse(aiRaw); } catch { aiJson = null; }
+
+            if (aiJson?.action === "create" && aiJson.name && aiJson.desc) {
+              // AI 判断信息够了 → 跑一条龙
+              const kbName = aiJson.name.trim();
+              let kbDesc = aiJson.desc.trim();
+
+              setCreatingKb("creating");
+              updateActive((s) => ({
+                ...s,
+                msgs: [...s.msgs, {
+                  role: "ai", source_type: "wiki",
+                  content: (aiJson.replyText || `收到！正在为你创建「**${kbName}**」...`).replace(/\n/g, "\n") +
+                    `\n\n📝 说明：${kbDesc}`,
+                }],
+              }));
+
+              try {
+                try {
+                  const opt = await wikiOptimizeDescription(kbDesc, kbName).catch(() => null);
+                  if (opt?.description) kbDesc = opt.description;
+                } catch {}
+                const newKb = await wikiAddKb(kbName, kbDesc);
+
+                let createdCats: { name: string; template_key?: string }[] = [];
+                try {
+                  const r = await wikiAIDesignCategories(newKb.title, newKb.description || kbDesc);
+                  console.log('[创建KB] AI设计分类返回:', r);
+                  for (const c of r.categories) {
+                    try {
+                      const result = await wikiAddCategory(newKb.id, { name: c.name, template_key: c.template_key || null, sort_order: c.sort_order });
+                      console.log('[创建KB] 分类创建结果:', c.name, result);
+                      createdCats.push({ name: c.name, template_key: c.template_key || undefined });
+                    } catch (e) {
+                      console.error('[创建KB] 单个分类创建失败:', c.name, e);
+                    }
+                  }
+                } catch (e) {
+                  console.error('[创建KB] AI设计分类整体失败:', e);
+                }
+
+                const fresh = await wikiListKbs().catch(() => null);
+                if (fresh?.kbs) setKbs(fresh.kbs);
+
+                setCreatingKb(null);
+                updateActive((s) => ({
+                  ...s,
+                  kb_id: newKb.id,  // 绑定到新创建的 KB
+                  source_type: "wiki",
+                  msgs: [...s.msgs, {
+                    role: "ai", source_type: "wiki", kb_title: newKb.title,
+                    content:
+                      `🎉 搞定！已为你创建「**${newKb.title}**」知识库\n\n` +
+                      (createdCats.length > 0
+                        ? `📂 分类 ${createdCats.length} 个：\n` +
+                          createdCats.map((c) => `  • ${c.name}${c.template_key ? "（" + c.template_key + "）" : ""}`).join("\n") +
+                          "\n\n📋 每个分类都配好了模板，可以直接往里面汇入资料！"
+                        : "\n\n✅ 知识库已就绪，可以汇入资料了！") +
+                      `\n\n💡 去「我的 → 知识库」看详情，或者直接在这里开始提问～`,
+                  }],
+                }));
+              } catch (e: any) {
+                updateActive((s) => ({
+                  ...s,
+                  msgs: [...s.msgs, {
+                    role: "ai", source_type: "wiki",
+                    content: `❌ 创建失败：${e?.message || "未知错误"}\n\n可以再试一次，或者去「我的 → 知识库」手动创建。`,
+                  }],
+                }));
+                setCreatingKb(null);
+              }
+              setLoading(false);
+              return;
+            } else {
+              // AI 正常聊天回复
+              const reply = aiJson?.text || aiJson?.reply || aiRaw || "好的，请告诉我知识库名字和用途～";
+              updateActive((s) => ({
+                ...s,
+                msgs: [...s.msgs, { role: "ai", source_type: "wiki", content: reply }],
+              }));
+              setLoading(false);
+              return;
+            }
+          } catch (e) {
+            // AI 挂了 → 降级到简单引导
+            updateActive((s) => ({
+              ...s,
+              msgs: [...s.msgs, {
+                role: "ai", source_type: "wiki",
+                content: "好的！请直接告诉我：**知识库名字**和**它是干嘛的**，比如「路亚笔记，记录钓鱼经验和装备评测」",
+              }],
+            }));
+            setLoading(false);
+            return;
+          }
+        }  // 闭合 if (creatingKb !== null)
+
         // 知识库问答
         if (!active.kb_id) {
           updateActive((s) => ({
@@ -264,15 +468,14 @@ export default function AiChatView() {
   }
 
   function newChat() {
-    const id = uid();
-    // 新对话继承当前会话的 source_type 和 kb_id（方便连续操作）
+    setCreatingKb(null);
     const s: Session = {
-      id, title: "新对话", msgs: [], createdAt: Date.now(),
+      id: uid(), title: "新对话", msgs: [], createdAt: Date.now(),
       source_type: active?.source_type || "diary",
-      kb_id: active?.source_type === "wiki" ? active.kb_id : undefined,
+      kb_id: undefined,  // 新建对话不绑定 KB，每次都是干净的
     };
     setSessions((list) => [s, ...list]);
-    setActiveId(id);
+    setActiveId(s.id);
     setShowHistory(false);
   }
 
@@ -296,36 +499,60 @@ export default function AiChatView() {
     });
   }
 
-  // 切换 source_type → 自动新建/跳转到该类型的空会话（两种类型隔离）
+  // 切换 source_type → 总是新建空会话
   function setSourceTypeForActive(type: "diary" | "wiki") {
-    // 如果当前已经是这个类型，什么都不做
-    if ((active?.source_type || "diary") === type) return;
-
-    // 看看 sessions 里有没有这个类型的空会话 → 有就直接切过去
-    const existingEmpty = sessions.find((s) =>
-      (s.source_type || "diary") === type && s.msgs.length === 0
-    );
-    if (existingEmpty) {
-      setActiveId(existingEmpty.id);
-      return;
-    }
-
-    // 没有 → 新建空会话
-    const defaultKb = type === "wiki" ? (kbs[0]?.id || undefined) : undefined;
+    setCreatingKb(null);
     const s: Session = {
       id: uid(),
       title: "新对话",
       msgs: [],
       createdAt: Date.now(),
       source_type: type,
-      kb_id: defaultKb,
+      kb_id: undefined,
     };
     setSessions((list) => [s, ...list]);
     setActiveId(s.id);
   }
-  // 切换当前会话的 kb_id
+
+  // 切换知识库 → 总是新建空会话
   function setKbForActive(kbId: string) {
-    updateActive((s) => ({ ...s, kb_id: kbId }));
+    setCreatingKb(null);
+    const s: Session = {
+      id: uid(),
+      title: "新对话",
+      msgs: [],
+      createdAt: Date.now(),
+      source_type: "wiki",
+      kb_id: kbId,
+    };
+    setSessions((list) => [s, ...list]);
+    setActiveId(s.id);
+  }
+
+  // 进入引导创建 KB 模式 → 新开空会话 + collecting 状态
+  function startCreateKb() {
+    setCreatingKb("collecting");
+    const s: Session = {
+      id: uid(),
+      title: "新对话",
+      msgs: [],
+      createdAt: Date.now(),
+      source_type: "wiki",
+      kb_id: undefined,
+    };
+    setSessions((list) => [s, ...list]);
+    setActiveId(s.id);
+  }
+
+  // 用户在空状态点了虚线"创建新知识库"按钮 → 追加引导气泡
+  function appendCreatePrompt() {
+    updateActive((s) => ({
+      ...s,
+      msgs: [...s.msgs, {
+        role: "ai", source_type: "wiki",
+        content: "好呀！📚\n\n告诉我你想建个什么样的知识库：\n• **名字**叫什么？（比如：我的路亚笔记）\n• 主要**用来记录什么**？（比如：钓法技巧、装备评测、钓点分享）\n\n直接一句话说就行，比如：「路亚笔记，记录钓鱼经验和装备评测」",
+      }],
+    }));
   }
 
   const activeType = active?.source_type || "diary";
@@ -362,15 +589,20 @@ export default function AiChatView() {
               🌳 知识
             </button>
           </div>
-          {/* 知识库模式：KB 下拉 */}
+          {/* 知识库模式：KB 下拉 —— 永远不空 */}
           {activeType === "wiki" && (
             <select
-              value={active?.kb_id || ""}
-              onChange={(e) => setKbForActive(e.target.value)}
-              className="text-[11px] border border-paper-line bg-paper-card rounded-full px-2 py-0.5 text-paper-ink2 min-w-0 max-w-[120px] focus:outline-none focus:border-paper-ink"
+              value={creatingKb !== null && creatingKb !== "done" ? "__create__" : (active?.kb_id || "__none__")}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "__create__") { startCreateKb(); }
+                else if (v && v !== "__none__") { setKbForActive(v); }
+              }}
+              className="text-[11px] border border-paper-line bg-paper-card rounded-full px-2 py-0.5 text-paper-ink2 min-w-0 max-w-[160px] focus:outline-none focus:border-paper-ink"
               title="选择知识库"
             >
-              <option value="">选知识库…</option>
+              <option value="__none__" disabled>选知识库…</option>
+              <option value="__create__">🆕 + 创建知识库</option>
               {kbs.map((kb) => (
                 <option key={kb.id} value={kb.id}>{kb.title}</option>
               ))}
@@ -386,80 +618,146 @@ export default function AiChatView() {
         </button>
       </div>
 
-      {/* 历史会话抽屉 */}
+      {/* 历史会话抽屉 —— 按当前模式过滤 */}
       {showHistory && (
         <div className="absolute top-[48px] left-0 right-0 bottom-0 z-10 bg-paper-bg/95 backdrop-blur-sm flex flex-col border-r border-paper-line">
           <div className="px-4 py-3 border-b border-paper-line text-xs text-paper-ink2 flex items-center justify-between">
-            <span>历史对话（{sessions.length}）</span>
+            <span>
+              {activeType === "diary" ? "📖 日记对话" : "🌳 知识对话"}
+              （{sessions.filter((s) => (s.source_type || "diary") === activeType).length}）
+            </span>
             <button onClick={() => setShowHistory(false)} className="hover:text-paper-ink">✕</button>
           </div>
           <div className="flex-1 overflow-y-auto py-2">
-            {sessions.map((s) => {
-              const sType = s.source_type || "diary";
-              const sKb = s.kb_id ? kbs.find((k) => k.id === s.kb_id) : null;
-              return (
-                <div
-                  key={s.id}
-                  onClick={() => switchSession(s.id)}
-                  className={`group flex items-center justify-between px-4 py-2.5 cursor-pointer transition ${
-                    s.id === activeId ? "bg-paper-line/60" : "hover:bg-paper-surface"
-                  }`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-paper-ink truncate flex items-center gap-1.5">
-                      <span className="text-[11px] opacity-70 shrink-0">
-                        {sType === "wiki" ? "🌳" : "📖"}
-                      </span>
-                      {s.title || "新对话"}
-                    </div>
-                    <div className="text-[11px] text-paper-ink2 mt-0.5 truncate">
-                      {s.msgs.length} 条 · {new Date(s.createdAt).toLocaleString()}
-                      {sType === "wiki" && sKb ? ` · ${sKb.title}` : ""}
-                    </div>
-                  </div>
-                  {sessions.length > 1 && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteSession(s.id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 text-paper-ink2 hover:text-red-500 text-xs ml-2 px-1 shrink-0"
-                      title="删除"
-                    >
-                      🗑
-                    </button>
-                  )}
-                </div>
-              );
-            })}
+            {(() => {
+              // 按当前模式过滤
+              const filtered = sessions.filter((s) => (s.source_type || "diary") === activeType);
+
+              // wiki 模式 → 按 kb_id 分组
+              if (activeType === "wiki") {
+                const groups: Record<string, typeof sessions> = {};
+                for (const s of filtered) {
+                  const key = s.kb_id || "__none__";
+                  (groups[key] = groups[key] || []).push(s);
+                }
+                const sortedKeys = Object.keys(groups).sort((a, b) => {
+                  const ka = a === "__none__" ? "zzz" : (kbs.find((k) => k.id === a)?.title || "");
+                  const kb = b === "__none__" ? "zzz" : (kbs.find((k) => k.id === b)?.title || "");
+                  return ka.localeCompare(kb);
+                });
+                return sortedKeys.flatMap((key) => {
+                  const kb = key === "__none__" ? null : kbs.find((k) => k.id === key);
+                  const list = groups[key];
+                  return [
+                    <div key={"g-" + key} className="px-4 py-1.5 text-[11px] text-paper-ink2 uppercase tracking-wider bg-paper-line/30 sticky top-0 z-10">
+                      {kb ? `📚 ${kb.title}` : "⚠️ 未绑定知识库"}
+                    </div>,
+                    ...list.map((s) => (
+                      <SessionRow key={s.id} s={s} activeId={activeId} onSwitch={switchSession} onDelete={deleteSession} />
+                    )),
+                  ];
+                });
+              }
+
+              // diary 模式 → 平铺
+              return filtered.map((s) => <SessionRow key={s.id} s={s} activeId={activeId} onSwitch={switchSession} onDelete={deleteSession} />);
+            })()}
           </div>
         </div>
       )}
 
       {/* 对话区 */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
-        {active?.msgs.length === 0 && (
+        {active?.msgs.length === 0 && activeType === "diary" && (
           <>
             <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line">
-              {activeType === "wiki"
-                ? activeKb
-                  ? `🌳 我在「${activeKb.title}」知识库里，问我点什么吧～`
-                  : "🌳 先从顶部选一个知识库，我就能帮你提问啦～"
-                : "💬 这是小麦，你的智能助手。写下的每一篇日记都可以被我找到。试试问点什么吧～"}
+              💬 这是小麦，你的智能助手。写下的每一篇日记都可以被我找到。试试问点什么吧～
             </div>
-            {activeType === "diary" && (
-              <div className="flex flex-wrap gap-2">
-                {SUGGESTIONS.map((s) => (
+            <div className="flex flex-wrap gap-2">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => send(s)}
+                  className="text-xs px-3 py-1.5 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* 创建知识库专属空状态 */}
+        {active?.msgs.length === 0 && activeType === "wiki" && creatingKb === "collecting" && (
+          <div className="space-y-3">
+            <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line whitespace-pre-wrap">
+              📚 **创建新知识库**
+
+告诉我这几个信息，我全程帮你定：
+1. **你是什么职业/职位？**（比如：产品经理、钓鱼爱好者、健身教练）
+2. **知识库叫什么名字？**（比如：我的路亚笔记）
+3. **里面包含什么？想解决什么问题？**（比如：记录钓鱼经验、装备评测，解决选装备纠结）
+
+直接一句话说就行～
+            </div>
+            <button
+              onClick={appendCreatePrompt}
+              className="w-full rounded-xl border border-paper-accent/30 bg-paper-accent/5 hover:bg-paper-accent/10 px-4 py-3 text-sm text-paper-accent font-medium transition cursor-pointer"
+            >
+              💬 开始对话引导
+            </button>
+          </div>
+        )}
+
+        {/* 没选 KB 的空状态 —— KB 卡片列表 */}
+        {active?.msgs.length === 0 && activeType === "wiki" && !activeKb && creatingKb === null && (
+          <div className="space-y-3">
+            <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line">
+              🌳 我是小麦，你的知识小助手 📚
+              {kbs.length > 0
+                ? `\n\n已接入 **${kbs.length}** 个知识库，选一个开始提问，或者创建新知识库（通过上方下拉框选择「🆕 + 创建知识库」）吧～`
+                : "\n\n还没有知识库呢，通过上方下拉框选择「🆕 + 创建知识库」来创建第一个吧！"}
+            </div>
+
+            {kbs.length > 0 && (
+              <div className="grid grid-cols-1 gap-2">
+                {kbs.map((kb) => (
                   <button
-                    key={s}
-                    onClick={() => send(s)}
-                    className="text-xs px-3 py-1.5 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition"
+                    key={kb.id}
+                    onClick={() => setKbForActive(kb.id)}
+                    className="text-left rounded-xl border border-paper-line bg-paper-card hover:border-paper-accent/40 hover:bg-paper-surface px-4 py-3 transition cursor-pointer"
                   >
-                    {s}
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">📁</span>
+                      <span className="font-medium text-paper-ink truncate">{kb.title}</span>
+                    </div>
+                    {kb.description && (
+                      <div className="text-[11px] text-paper-ink2 mt-1 line-clamp-2 pl-7">{kb.description}</div>
+                    )}
                   </button>
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {active?.msgs.length === 0 && activeType === "wiki" && activeKb && (
+          <>
+            <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line">
+              🌳 我在「**{activeKb.title}**」知识库里，问我点什么吧～
+              {activeKb.description && `\n\n${activeKb.description}`}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {["这个知识库有哪些内容？", "帮我总结一下", "有什么分类？"].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => send(s)}
+                  className="text-xs px-3 py-1.5 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           </>
         )}
 

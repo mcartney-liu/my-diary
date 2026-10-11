@@ -73,9 +73,26 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
     };
 
     rec.onerror = (e: any) => {
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        setError("浏览器不允许录音，改为手动输入");
+      const err = e.error || "unknown";
+      let msg = "";
+      switch (err) {
+        case "not-allowed":
+        case "service-not-allowed":
+          msg = "浏览器不允许录音，检查麦克风权限后重试，或改用打字"; break;
+        case "no-speech":
+          msg = "没听清你说的话，靠近手机麦克风再说一次"; break;
+        case "network":
+          msg = "网络差，连不上语音识别服务，检查网络后再试"; break;
+        case "aborted":
+          msg = "录音被中断"; break;
+        case "audio-capture":
+          msg = "找不到麦克风设备"; break;
+        default:
+          msg = `语音识别出错：${err}，改用打字吧`;
       }
+      setError(msg);
+      // 自动降级到打字界面，用户不用手动切
+      setPhase("input");
     };
 
     recRef.current = rec;
@@ -89,7 +106,10 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
       setElapsed(Math.floor((Date.now() - startTs) / 1000));
     }, 250);
 
-    try { rec.start(); } catch {}
+    try { rec.start(); } catch (startErr: any) {
+      setError(`无法启动录音：${startErr?.message || "浏览器可能不支持语音识别"}`);
+      setPhase("input");
+    }
   };
 
   const runDetect = async (text: string) => {
