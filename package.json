@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:app": "tsc -b && vite build --mode app",
     "lint": "oxlint",
     "preview": "vite preview",
-    "cap:sync": "npm run build && cap sync android",
+    "cap:sync": "npm run build:app && cap sync android",
     "cap:open": "cap open android",
     "cap:apk": "npm run cap:sync && cd android && gradlew.bat assembleDebug"
   },

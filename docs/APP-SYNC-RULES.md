@@ -179,11 +179,9 @@ npx cap open ios   # Xcode 出包
 | 文件 | 作用 |
 |---|---|
 | `capacitor.config.ts` | appId `online.callmydiary.app`、背景色 `#faf6ef` |
-| `.env.production` | `VITE_API_BASE=https://app.callmydiary.online`（**必须有，否则 App 全 404**） |
 | `android/` | Capacitor 原生工程（源码入库，构建产物 gitignore） |
 
-> ⚠️ **`.env.production` 不在 Git 里**（被 `.gitignore` 排除）。
-> 若副本被删，重建时必须补上这个文件，否则 App 所有请求 404。详见 `docs/android-capsule-snapshot.md` 第四节。
+> ⚠️ 环境变量文件见 **附录 A** —— `.env.production` 和 `.env.app` 分工明确，别搞混。
 
 ---
 
@@ -209,3 +207,49 @@ npx cap open ios   # Xcode 出包
 4. **出包前跑** `npx tsc -b --noEmit` + 确认 `grep -c "app.callmydiary.online" dist/assets/index-*.js` ≥ 1
 5. **Web 生产副本零改动**（除非翔哥明确要求）
 6. **push / commit / tag 需翔哥拍板**，不得自主执行
+
+---
+
+## 附录 A · 环境变量分工规矩
+
+> 所有 env 文件**都在 Git 里**（`.gitignore` 只排除 `.env` / `.env.local` / `.env.*.local`），
+> Web 副本和 App 副本 pull 下来自动就有。
+
+### 两个文件的分工
+
+| 文件 | Vite 怎么读 | 给谁用 | `VITE_API_BASE` |
+|---|---|---|---|
+| `.env.production` | 默认（`npm run build`） | **Cloudflare Pages** 线上构建 | **注释掉**（Web Pages 走同源 `/api/*` → Worker 代理） |
+| `.env.app` | `vite build --mode app`（`npm run build:app`） | **Capacitor App** 出包 | `https://app.callmydiary.online`（App 是纯 WebView，没 Pages Functions，必须写死） |
+
+### 为什么分开
+
+- **Web Pages** 有 Pages Functions 代理，请求 `/api/xxx` 会被 Cloudflare 自动转到 Worker，所以前端代码里**不能写死** API 地址（写死了本地 dev 环境也会被覆盖）
+- **App WebView** 没有 Pages Functions，所有请求必须显式指定完整地址，否则就是相对路径 `/api/xxx` → WebView 找不到 → 全 404
+
+### App 出包流程
+
+```bash
+# ❌ 旧方式（会读 .env.production，VITE_API_BASE 是空的）
+npm run build
+
+# ✅ 正确方式（读 .env.app，带生产地址）
+npm run build:app          # 只打包
+npm run cap:sync           # 打包 + cap sync（已改成用 build:app）
+npm run cap:apk            # 打包 + sync + 编译 APK
+```
+
+### Web 出包流程（不变）
+
+```bash
+npm run build              # 读 .env.production（VITE_API_BASE 注释状态，正确）
+# → Cloudflare Pages 自动部署
+```
+
+### 防呆：出包前检查
+
+App 出包前跑这条，确保生产地址真的注入了：
+```bash
+grep -c "app.callmydiary.online" dist/assets/index-*.js
+# ≥ 1 才对，0 就是读错 env 文件了
+```
