@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { askDiary, askWiki, extractMemory, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, type WikiKB } from "../api";
+import { askDiary, askWiki, extractMemory, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, chatListSessions, chatUpsertSessions, chatDeleteSession, type WikiKB } from "../api";
 import { callChatCompletion, getAiProvider } from "../ai";
 import { useAuth } from "../AuthContext";
 
@@ -151,20 +151,54 @@ export default function AiChatView() {
 
   const active = sessions.find((s) => s.id === activeId) || sessions[0];
 
-  // 切换账号时重新加载
+  // 切换账号时重新加载（本地 + 云端）
   useEffect(() => {
     const d = loadDataFor(userId);
     setSessions(d.sessions);
     setActiveId(d.activeId);
+
+    // 从云端拉取（云端优先覆盖本地）
+    chatListSessions().then((res) => {
+      if (res?.sessions && res.sessions.length > 0) {
+        const cloud = res.sessions.map((cs: any) => ({
+          id: cs.id, title: cs.title, source_type: cs.source_type,
+          kb_id: cs.kb_id, msgs: cs.msgs, createdAt: cs.createdAt,
+        } as Session));
+        // 合并：云端有就用云端（新），没有就保留本地
+        const localIds = new Set(d.sessions.map(s => s.id));
+        const merged = [...cloud];
+        for (const ls of d.sessions) {
+          if (!localIds.has(ls.id)) merged.push(ls);
+        }
+        // 过滤空会话
+        const nonEmpty = merged.filter(s => s.msgs.length > 0);
+        setSessions(nonEmpty.length > 0 ? nonEmpty : merged);
+        // activeId 云端有就用云端的
+        if (cloud.find(s => s.id === d.activeId)) {
+          setActiveId(d.activeId);
+        } else if (cloud.length > 0) {
+          setActiveId(cloud[0].id);
+        }
+      }
+    }).catch(() => {});  // 云端挂了就用本地
   }, [userId]);
 
-  // 持久化（按账号隔离）
+  // 持久化（本地 + debounce 同步云端）
+  const syncTimerRef = useRef<number | null>(null);
   useEffect(() => {
     try {
-      // 只保存有消息的会话（空会话不持久化）
       const nonEmpty = sessions.filter((s) => s.msgs.length > 0);
       localStorage.setItem(keys.sessions, JSON.stringify(nonEmpty));
       localStorage.setItem(keys.active, activeId);
+
+      // debounce 500ms 同步云端
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = window.setTimeout(() => {
+        chatUpsertSessions(nonEmpty.map(s => ({
+          id: s.id, title: s.title, source_type: s.source_type || "diary",
+          kb_id: s.kb_id, msgs: s.msgs, createdAt: s.createdAt, updatedAt: Date.now(),
+        }))).catch(() => {});
+      }, 500);
     } catch {}
   }, [sessions, activeId, keys.sessions, keys.active]);
 
@@ -485,6 +519,7 @@ export default function AiChatView() {
   }
 
   function deleteSession(id: string) {
+    chatDeleteSession(id).catch(() => {});  // 云端删，失败静默
     setSessions((list) => {
       const next = list.filter((s) => s.id !== id);
       if (id === activeId) {
@@ -499,34 +534,50 @@ export default function AiChatView() {
     });
   }
 
-  // 切换 source_type → 总是新建空会话
+  // 切换 source_type → 用已有的同类型空会话，没有才新建
   function setSourceTypeForActive(type: "diary" | "wiki") {
     setCreatingKb(null);
-    const s: Session = {
-      id: uid(),
-      title: "新对话",
-      msgs: [],
-      createdAt: Date.now(),
-      source_type: type,
-      kb_id: undefined,
-    };
-    setSessions((list) => [s, ...list]);
-    setActiveId(s.id);
+    setSessions((list) => {
+      // 找一个空的、同类型的会话复用
+      const existingEmpty = list.find(s => s.msgs.length === 0 && s.source_type === type);
+      if (existingEmpty) {
+        setActiveId(existingEmpty.id);
+        return list;
+      }
+      // 新建
+      const s: Session = {
+        id: uid(),
+        title: "新对话",
+        msgs: [],
+        createdAt: Date.now(),
+        source_type: type,
+        kb_id: undefined,
+      };
+      setActiveId(s.id);
+      return [s, ...list];
+    });
   }
 
-  // 切换知识库 → 总是新建空会话
+  // 切换知识库 → 用已有的同 KB 空会话，没有才新建
   function setKbForActive(kbId: string) {
     setCreatingKb(null);
-    const s: Session = {
-      id: uid(),
-      title: "新对话",
-      msgs: [],
-      createdAt: Date.now(),
-      source_type: "wiki",
-      kb_id: kbId,
-    };
-    setSessions((list) => [s, ...list]);
-    setActiveId(s.id);
+    setSessions((list) => {
+      const existingEmpty = list.find(s => s.msgs.length === 0 && s.source_type === "wiki" && s.kb_id === kbId);
+      if (existingEmpty) {
+        setActiveId(existingEmpty.id);
+        return list;
+      }
+      const s: Session = {
+        id: uid(),
+        title: "新对话",
+        msgs: [],
+        createdAt: Date.now(),
+        source_type: "wiki",
+        kb_id: kbId,
+      };
+      setActiveId(s.id);
+      return [s, ...list];
+    });
   }
 
   // 进入引导创建 KB 模式 → 新开空会话 + collecting 状态
@@ -624,14 +675,14 @@ export default function AiChatView() {
           <div className="px-4 py-3 border-b border-paper-line text-xs text-paper-ink2 flex items-center justify-between">
             <span>
               {activeType === "diary" ? "📖 日记对话" : "🌳 知识对话"}
-              （{sessions.filter((s) => (s.source_type || "diary") === activeType).length}）
+              （{sessions.filter((s) => (s.source_type || "diary") === activeType && s.msgs.length > 0).length}）
             </span>
             <button onClick={() => setShowHistory(false)} className="hover:text-paper-ink">✕</button>
           </div>
           <div className="flex-1 overflow-y-auto py-2">
             {(() => {
-              // 按当前模式过滤
-              const filtered = sessions.filter((s) => (s.source_type || "diary") === activeType);
+              // 按当前模式过滤 + 过滤空会话
+              const filtered = sessions.filter((s) => (s.source_type || "diary") === activeType && s.msgs.length > 0);
 
               // wiki 模式 → 按 kb_id 分组
               if (activeType === "wiki") {
@@ -640,7 +691,11 @@ export default function AiChatView() {
                   const key = s.kb_id || "__none__";
                   (groups[key] = groups[key] || []).push(s);
                 }
+                // 当前 KB 分组置顶，其余按标题字母序
+                const currentKbId = active?.kb_id;
                 const sortedKeys = Object.keys(groups).sort((a, b) => {
+                  if (a === currentKbId) return -1;
+                  if (b === currentKbId) return 1;
                   const ka = a === "__none__" ? "zzz" : (kbs.find((k) => k.id === a)?.title || "");
                   const kb = b === "__none__" ? "zzz" : (kbs.find((k) => k.id === b)?.title || "");
                   return ka.localeCompare(kb);

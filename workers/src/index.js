@@ -115,6 +115,11 @@ export default {
       ["POST",   "/api/memory",          handleAddMemory],
       ["DELETE", "/api/memory",          handleDeleteMemory],
 
+      // ====== Chat Sessions 云端持久化 ======
+      ["GET",    "/api/chat/sessions",       handleChatListSessions],
+      ["POST",   "/api/chat/sessions",       handleChatUpsertSessions],
+      ["DELETE", "/api/chat/sessions/:id",   handleChatDeleteSession],
+
       // ====== Wiki 知识库 v4 ======
       ["GET",    "/api/wiki/kbs",                              handleWikiListKbs],
       ["POST",   "/api/wiki/kbs",                              handleWikiAddKb],
@@ -1448,6 +1453,57 @@ async function handleDeleteMemory(request, env, JWT_SECRET) {
   const id = url.searchParams.get('id');
   if (!id) return json({ error: 'missing id' }, 400);
   await env.DB.prepare("DELETE FROM user_memory WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+  return json({ ok: true });
+}
+
+// ====== Chat Sessions 云端持久化 ======
+async function handleChatListSessions(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const rows = await env.DB.prepare(
+    "SELECT id, title, source_type, kb_id, msgs, created_at, updated_at FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC"
+  ).bind(user.uid).all();
+  const list = rows.results.map(r => ({
+    id: r.id, title: r.title, source_type: r.source_type,
+    kb_id: r.kb_id || undefined, msgs: JSON.parse(r.msgs || "[]"),
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  }));
+  return json({ sessions: list });
+}
+
+async function handleChatUpsertSessions(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const { sessions } = await readBody(request);
+  if (!Array.isArray(sessions)) return json({ error: "sessions must be array" }, 400);
+
+  const now = Date.now();
+  const stmt = env.DB.prepare(`
+    INSERT INTO chat_sessions (id, user_id, title, source_type, kb_id, msgs, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      title=excluded.title, source_type=excluded.source_type, kb_id=excluded.kb_id,
+      msgs=excluded.msgs, updated_at=excluded.updated_at
+  `);
+
+  let count = 0;
+  await Promise.all(sessions.map(async (s) => {
+    if (!s.id || !s.source_type) return;
+    await stmt.bind(
+      s.id, user.uid, s.title || "新对话", s.source_type,
+      s.kb_id || null, JSON.stringify(s.msgs || []),
+      s.createdAt || now, now
+    ).run();
+    count++;
+  }));
+  return json({ ok: true, count });
+}
+
+async function handleChatDeleteSession(request, env, JWT_SECRET, params) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const id = params.id;
+  await env.DB.prepare("DELETE FROM chat_sessions WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
   return json({ ok: true });
 }
 

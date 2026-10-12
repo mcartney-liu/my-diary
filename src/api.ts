@@ -559,3 +559,23 @@ export function wikiOptimizeDescription(description: string, kb_title?: string) 
     body: JSON.stringify({ description, kb_title: kb_title || '' }),
   });
 }
+
+// ====== Chat Sessions 云端持久化 ======
+export interface CloudSession {
+  id: string; title: string; source_type: "diary" | "wiki";
+  kb_id?: string; msgs: any[]; createdAt: number; updatedAt: number;
+}
+
+export function chatListSessions() {
+  return request<{ sessions: CloudSession[] }>('/api/chat/sessions');
+}
+
+export function chatUpsertSessions(sessions: CloudSession[]) {
+  return request<{ ok: boolean; count: number }>('/api/chat/sessions', {
+    method: 'POST', body: JSON.stringify({ sessions }),
+  });
+}
+
+export function chatDeleteSession(id: string) {
+  return request<{ ok: boolean }>('/api/chat/sessions/' + id, { method: 'DELETE' });
+}

@@ -792,6 +792,11 @@ export default function ProfilePage() {
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
                   <ul className="list-disc pl-5 space-y-1">
                     <li>✨ <b>一键创建知识库</b> — 不用再填繁琐表单了，跟小麦说一句话就能建好知识库；两个入口任选：①「我的 → 知识库」页面 → 点新建 → 填名字和用途 → 点「✨ 小麦创建」按钮；②首页小麦问答 → 切到🌳知识 tab → 下拉选「🆕 + 创建知识库」；比如跟小麦说「路亚笔记，记录钓鱼经验和装备评测」，小麦自动帮你优化说明 → 建知识库 → 设计分类 → 每个分类配好模板，一条龙搞定</li>
+                    <li>☁️ <b>小麦会话云端同步</b> — 之前会话历史只存在本地浏览器，清缓存 / 换设备就没了；现在所有小麦对话自动同步到云端，换设备后历史自动恢复，完全自动不用手动备份</li>
+                  </ul>
+                  <div><b className="text-paper-ink">🎨 优化</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>📋 <b>历史对话体验优化</b> — 切 tab / 切知识库反复切换不会再堆一堆空会话；历史抽屉标题上的数字和实际数量一致；选了某个知识库后，历史里这个知识库的分组自动置顶</li>
                   </ul>
                   <div><b className="text-paper-ink">🐛 Bug 修复</b></div>
                   <ul className="list-disc pl-5 space-y-1">
