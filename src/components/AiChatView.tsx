@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { askDiary, askWiki, extractMemory, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, chatListSessions, chatUpsertSessions, chatDeleteSession, type WikiKB } from "../api";
+import { askDiary, askWiki, extractMemory, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, chatListSessions, chatUpsertSessions, chatDeleteSession, wikiAddSourceText, wikiIngestAll, wikiGetPage, type WikiKB, type WikiPage } from "../api";
+import Modal from "./Modal";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { callChatCompletion, getAiProvider } from "../ai";
 import { useAuth } from "../AuthContext";
 
@@ -13,6 +16,14 @@ interface Msg {
   source_type?: "diary" | "wiki";
   kb_title?: string;
   web_search?: boolean;  // 这条 AI 回答用的联网开关（知识库模式）
+  // import_mode 相关
+  can_save?: boolean;         // 这条 AI 回答可以汇入知识库
+  category_hint?: string;     // 推荐汇入的分类
+  import_mode?: boolean;      // 这条回答是否来自 import_mode 流程
+  need_confirm?: boolean;     // check-match low，需要用户确认
+  match_reason?: string;
+  importing?: boolean;        // 汇入中
+  imported?: boolean;         // 已汇入
 }
 
 interface Session {
@@ -137,6 +148,18 @@ export default function AiChatView() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  // AI 气泡操作菜单：点哪个 AI 气泡就浮出菜单（汇入/删除）
+  const [activeMsgIdx, setActiveMsgIdx] = useState<number | null>(null);
+  // 收集模式：用户手动开启的收集并汇入模式（知识 tab 才显示）
+  const [collectionMode, setCollectionMode] = useState(false);
+  // 收集气泡弹层开关
+  const [collectPopOpen, setCollectPopOpen] = useState(false);
+  // AI 推荐的 3 个后续问题
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  // 知识页面弹窗：点击引用链接或 [[xxx]] 时打开
+  const [pageModal, setPageModal] = useState<{ kbId: string; page: WikiPage } | null>(null);
+  // 会话级联网开关：控制后续所有知识 tab 提问
+  const [webSearchMode, setWebSearchMode] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // KB 列表（用于知识库模式下拉选）
@@ -216,7 +239,7 @@ export default function AiChatView() {
     setSessions((list) => list.map((s) => (s.id === activeId ? updater(s) : s)));
   }
 
-  async function send(q?: string) {
+  async function send(q?: string, forceImportMode?: boolean) {
     const question = (q ?? input).trim();
     if (!question || loading) return;
     setInput("");
@@ -415,15 +438,66 @@ export default function AiChatView() {
           setLoading(false);
           return;
         }
-        const useWebSearch = !!active.default_web_search;
-        const res = await askWiki(question, active.kb_id, recent, useWebSearch);
-        resAnswer = res.answer;
+        const forceCollect = !!forceImportMode || collectionMode;
+        // forceImportMode(收集气泡点击) OR webSearchMode(用户开关) OR active.default_web_search(默认)
+        const useWebSearch = forceCollect || webSearchMode || !!active.default_web_search;
+        const kbTitle = activeKb?.title || '这个知识库';
+
+        // ===== import_mode 判断：优先用参数，其次看 collectionMode state =====
+        // forceImportMode 解决 React state 异步更新时序问题（气泡点击后立即 send）
+        const importMode = forceCollect;
+        // 收集模式是一次性的——用了就关
+        if (collectionMode) setCollectionMode(false);
+
+        const res = await askWiki(question, active.kb_id, recent, useWebSearch, importMode);
+        let rawAnswer = res.answer;
         resSources = res.sources || [];
         resKbTitle = res.kb_title;
-        // AI 回答里记住这次用的联网开关
+
+        // 解析 <<<SUGGEST>>> 标记：正文和推荐问题分开
+        let parsedSugg: string[] = [];
+        if (rawAnswer.includes('<<<SUGGEST>>>')) {
+          const [body, suggPart] = rawAnswer.split('<<<SUGGEST>>>');
+          rawAnswer = body.trim();
+          parsedSugg = (suggPart || '')
+            .trim()
+            .split('\n')
+            .map(s => s.trim())
+            .filter(Boolean)
+            .slice(0, 3);
+        }
+        // 清理 AI 可能瞎编的 *** / --- / ___ 装饰线、— 汇总完成 — 标记
+        rawAnswer = rawAnswer
+          .replace(/^\s*\*+\s*$/gm, '')   // 整行都是 ***
+          .replace(/^\s*-{3,}\s*$/gm, '') // 整行都是 ---
+          .replace(/^\s*_{3,}\s*$/gm, '') // 整行都是 ___
+          .replace(/^—\s*汇总完成\s*—\s*$/gm, '')
+          .replace(/\n{3,}/g, '\n\n')     // 多余空行合并
+          .trim();
+        // 如果没有 SUGGEST 标记（老模型/兜底），用默认气泡
+        if (parsedSugg.length === 0) {
+          parsedSugg = ["这个知识库有哪些内容？", "帮我总结一下", "有什么分类？"];
+        }
+        setSuggestions(parsedSugg);
+        resAnswer = rawAnswer;
+
+        // check-match low → 弹 ConfirmDialog（简化：直接在 AI 回答里告诉用户）
+        if (res.need_confirm) {
+          resAnswer = `⚠️ ${res.match_reason || '这个问题和当前知识库主题不太相关'}\n\n你要不要让我继续按「${kbTitle}」的分类和范本整理成可以汇入的内容？`;
+        }
+
+        // AI 回答里记住这次用的联网开关 + import_mode 相关字段
         updateActive((s) => ({
           ...s,
-          msgs: [...s.msgs, { role: 'ai', content: resAnswer, sources: resSources, source_type: srcType, kb_title: resKbTitle, web_search: useWebSearch }],
+          msgs: [...s.msgs, {
+            role: 'ai', content: resAnswer, sources: resSources, source_type: srcType,
+            kb_title: resKbTitle, web_search: useWebSearch,
+            can_save: res.can_save && !res.need_confirm,
+            category_hint: res.category_hint,
+            import_mode: importMode,
+            need_confirm: res.need_confirm,
+            match_reason: res.match_reason,
+          }],
         }));
         return;
       } else {
@@ -498,6 +572,60 @@ export default function AiChatView() {
       });
     } finally {
       setLoading(false);
+    }
+  }
+
+  // ===== saveAiAnswerToWiki：把 AI 回答汇入知识库 =====
+  async function saveAiAnswerToWiki(aiIdx: number) {
+    if (loading) return;
+    const cur = active;
+    if (!cur || !cur.kb_id) return;
+    const targetAi = cur.msgs[aiIdx];
+    if (!targetAi || targetAi.role !== "ai") return;
+
+    // 标记 importing
+    updateActive((s) => {
+      const newMsgs = [...s.msgs];
+      newMsgs[aiIdx] = { ...newMsgs[aiIdx], importing: true };
+      return { ...s, msgs: newMsgs };
+    });
+
+    try {
+      // 两步：先插 wiki_sources，再调 ingest
+      await wikiAddSourceText(cur.kb_id, targetAi.content, `小麦AI回答：${targetAi.content.slice(0, 20)}...`);
+      await wikiIngestAll(cur.kb_id);
+
+      updateActive((s) => {
+        const newMsgs = [...s.msgs];
+        newMsgs[aiIdx] = { ...newMsgs[aiIdx], importing: false, imported: true, can_save: false };
+        return { ...s, msgs: newMsgs };
+      });
+    } catch {
+      updateActive((s) => {
+        const newMsgs = [...s.msgs];
+        newMsgs[aiIdx] = { ...newMsgs[aiIdx], importing: false };
+        return { ...s, msgs: newMsgs };
+      });
+    }
+  }
+
+  // ===== deleteAiMessage：删除单条 AI 消息（前端 UI 层） =====
+  function deleteAiMessage(idx: number) {
+    updateActive((s) => {
+      const newMsgs = [...s.msgs];
+      newMsgs.splice(idx, 1);
+      return { ...s, msgs: newMsgs };
+    });
+    setActiveMsgIdx(null);
+  }
+
+  // ===== openWikiPage：在弹窗中打开知识页面（不再跳转知识库 tab） =====
+  async function openWikiPage(kbId: string, pageId: string) {
+    try {
+      const r = await wikiGetPage(kbId, pageId);
+      setPageModal({ kbId, page: r.page });
+    } catch (e) {
+      console.error('openWikiPage failed', e);
     }
   }
 
@@ -796,34 +924,28 @@ export default function AiChatView() {
           </div>
         )}
 
+        {/* 首次对话：欢迎语 + 气泡 */}
         {active?.msgs.length === 0 && activeType === "wiki" && activeKb && (
-          <>
-            <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line">
-              🌳 我在「**{activeKb.title}**」知识库里，问我点什么吧～
-              {activeKb.description && `\n\n${activeKb.description}`}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {["这个知识库有哪些内容？", "帮我总结一下", "有什么分类？"].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => send(s)}
-                  className="text-xs px-3 py-1.5 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition"
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </>
+          <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line">
+            🌳 我在「**{activeKb.title}**」知识库里，问我点什么吧～
+            {activeKb.description && `\n\n${activeKb.description}`}
+          </div>
         )}
 
         {active?.msgs.map((m, i) => (
           <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
             <div
+              onClick={() => {
+                // 知识 tab 的 AI 回答：点一下浮出操作菜单；日记 tab 的 AI 回答不动
+                if (m.role === "ai" && m.source_type === "wiki") {
+                  setActiveMsgIdx((prev) => prev === i ? null : i);
+                }
+              }}
               className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
                 m.role === "user"
                   ? "bg-paper-ink text-paper-bg rounded-br-sm"
                   : "bg-paper-card border border-paper-line text-paper-ink rounded-bl-sm"
-              }`}
+              } ${m.role === "ai" && m.source_type === "wiki" ? "cursor-pointer hover:border-paper-accent/40 transition" : ""}`}
             >
               {m.content}
               {m.sources?.length ? (
@@ -839,10 +961,7 @@ export default function AiChatView() {
                           onClick={() => {
                             const kbId = active?.kb_id;
                             if (!kbId || !s.page_id) return;
-                            // 通知父页面切到 wiki tab + KnowledgeBase 打开这个页面
-                            window.dispatchEvent(new CustomEvent('kb-open-page', {
-                              detail: { kbId, pageId: s.page_id, title: s.title }
-                            }));
+                            openWikiPage(kbId, s.page_id);
                           }}
                           className="w-full text-left rounded-lg border border-paper-line/60 bg-paper-surface/40 px-2.5 py-1.5 text-[11px] text-paper-ink2 hover:bg-paper-surface hover:border-paper-accent/40 transition cursor-pointer"
                         >
@@ -872,37 +991,52 @@ export default function AiChatView() {
               {m.role === "user" && (
                 <RememberButton content={m.content} />
               )}
-              {/* wiki 模式的 AI 回答底部：联网开关重试 */}
-              {m.role === "ai" && m.source_type === "wiki" && (
-                <div className="mt-2 pt-2 border-t border-paper-line/60 flex items-center gap-1.5">
+              {/* wiki 模式的 AI 回答底部：纯状态展示 */}
+              {m.role === "ai" && m.source_type === "wiki" && !m.importing && !m.imported && (
+                <div className="mt-2 pt-2 border-t border-paper-line/60">
                   {m.web_search ? (
-                    <>
-                      <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">🔎 联网回答</span>
-                      <button
-                        onClick={() => retryWikiAnswer(i, false)}
-                        disabled={loading}
-                        className="text-[10px] px-1.5 py-0.5 rounded border border-paper-line text-paper-ink2 hover:bg-paper-surface disabled:opacity-50 transition"
-                        title="仅查知识库，重试"
-                      >
-                        🔒 仅本地重试
-                      </button>
-                    </>
+                    <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">🔎 联网搜索 + 知识库</span>
                   ) : (
-                    <>
-                      <span className="text-[10px] text-paper-ink2 bg-paper-surface/60 px-1.5 py-0.5 rounded">🔒 仅本地</span>
-                      <button
-                        onClick={() => retryWikiAnswer(i, true)}
-                        disabled={loading}
-                        className="text-[10px] px-1.5 py-0.5 rounded border border-blue-300 text-blue-600 bg-blue-50/40 hover:bg-blue-50 disabled:opacity-50 transition"
-                        title="小麦 用自己的知识补充，重试"
-                      >
-                        🔎 联网重试
-                      </button>
-                    </>
+                    <span className="text-[10px] text-paper-ink2 bg-paper-surface/60 px-1.5 py-0.5 rounded">� 仅知识库</span>
                   )}
                 </div>
               )}
             </div>
+            {/* AI 气泡操作菜单：点击浮出 */}
+            {activeMsgIdx === i && m.role === "ai" && m.source_type === "wiki" && !m.importing && !m.imported && (
+              <div className="mt-1 flex items-center gap-1.5 px-1 flex-wrap">
+                <button
+                  onClick={(e) => { e.stopPropagation(); retryWikiAnswer(i, m.web_search || false); setActiveMsgIdx(null); }}
+                  disabled={loading}
+                  className="text-[11px] px-2.5 py-1 rounded-full border border-paper-line text-paper-ink2 bg-paper-card hover:bg-paper-surface disabled:opacity-50 transition"
+                >
+                  🔄 重新回答
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); saveAiAnswerToWiki(i); setActiveMsgIdx(null); }}
+                  disabled={loading || !active?.kb_id}
+                  className="text-[11px] px-2.5 py-1 rounded-full border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 transition"
+                >
+                  📥 汇入知识库
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); deleteAiMessage(i); }}
+                  className="text-[11px] px-2.5 py-1 rounded-full border border-red-300 text-red-600 bg-red-50 hover:bg-red-100 transition"
+                >
+                  🗑️ 删除
+                </button>
+              </div>
+            )}
+            {activeMsgIdx === i && m.role === "ai" && (m.importing || m.imported) && (
+              <div className="mt-1 px-1">
+                {m.importing && (
+                  <span className="text-[11px] text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">📥 汇入中…</span>
+                )}
+                {m.imported && (
+                  <span className="text-[11px] text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">✅ 已汇入</span>
+                )}
+              </div>
+            )}
           </div>
         ))}
 
@@ -910,6 +1044,52 @@ export default function AiChatView() {
           <div className="flex justify-start">
             <div className="bg-paper-card border border-paper-line rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-paper-ink2">
               <span className="inline-block animate-pulse">思考中…</span>
+            </div>
+          </div>
+        )}
+
+        {/* 知识 tab 下气泡常驻：每次 AI 回答完都显示 */}
+        {!loading && activeType === "wiki" && activeKb && (
+          <div className="flex flex-wrap gap-2 py-3 px-1">
+            {(suggestions.length > 0 ? suggestions : ["这个知识库有哪些内容？", "帮我总结一下", "有什么分类？"]).slice(0, 3).map((s) => (
+              <button
+                key={s}
+                onClick={() => send(s)}
+                className="text-xs px-3 py-1.5 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition"
+              >
+                {s}
+              </button>
+            ))}
+            {/* 收集气泡 —— 永远在最后 */}
+            <div className="relative">
+              <button
+                onClick={() => setCollectPopOpen((v) => !v)}
+                className="text-xs px-3 py-1.5 rounded-full border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition"
+              >
+                🧠 帮我收集新知识
+              </button>
+              {collectPopOpen && (
+                <div className="absolute bottom-full left-0 mb-1 bg-paper-card border border-paper-line rounded-xl shadow-lg py-1.5 z-50 min-w-[180px]">
+                  <button
+                    onClick={() => {
+                      setCollectPopOpen(false);
+                      send('帮我收集一些适合这个知识库的内容', true);
+                    }}
+                    className="w-full text-left text-xs px-3 py-2 hover:bg-paper-line/40 transition flex items-center gap-2"
+                  >
+                    <span className="text-emerald-500">⚡</span> 直接收集
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCollectPopOpen(false);
+                      setInput('帮我收集 ____ 的信息');
+                    }}
+                    className="w-full text-left text-xs px-3 py-2 hover:bg-paper-line/40 transition flex items-center gap-2"
+                  >
+                    <span className="text-blue-500">✏️</span> 插入对话（可修改）
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -922,14 +1102,29 @@ export default function AiChatView() {
             e.preventDefault();
             send();
           }}
-          className="flex gap-2"
+          className="flex gap-2 items-center"
         >
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="问点什么…"
+            placeholder={activeType === "wiki" ? (webSearchMode ? "联网 + 知识库回答…" : "仅知识库回答…") : "问点什么…"}
             className="flex-1 px-4 py-2.5 rounded-full border border-paper-line bg-paper-card text-sm focus:outline-none focus:border-paper-ink/50"
           />
+          {/* 知识 tab：联网图标按钮 */}
+          {activeType === "wiki" && (
+            <button
+              type="button"
+              onClick={() => setWebSearchMode((v) => !v)}
+              className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center border transition text-lg ${
+                webSearchMode
+                  ? "border-blue-300 bg-blue-50 text-blue-500 hover:bg-blue-100"
+                  : "border-paper-line bg-paper-card text-paper-ink3 hover:text-paper-ink2 hover:bg-paper-surface"
+              }`}
+              title={webSearchMode ? "联网搜索已开启（点一下关闭）" : "仅用知识库（点一下开启联网）"}
+            >
+              🌐
+            </button>
+          )}
           <button
             type="submit"
             disabled={loading || !input.trim()}
@@ -939,6 +1134,37 @@ export default function AiChatView() {
           </button>
         </form>
       </div>
+
+      {/* 知识页面弹窗 —— 替代跳转知识库 tab */}
+      <Modal
+        open={!!pageModal}
+        onClose={() => setPageModal(null)}
+        title={pageModal?.page.title}
+        size="lg"
+        scrollable
+      >
+        {pageModal && (
+          <div className="wiki-md text-sm text-paper-ink px-5 py-4">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                h1: ({ children }) => <h1 className="text-xl font-bold mt-4 mb-2 text-paper-ink">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-lg font-bold mt-3 mb-2 text-paper-ink">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-base font-semibold mt-2 mb-1 text-paper-ink">{children}</h3>,
+                p: ({ children }) => <p className="my-1 leading-relaxed">{children}</p>,
+                ul: ({ children }) => <ul className="list-disc pl-5 my-1">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal pl-5 my-1">{children}</ol>,
+                li: ({ children }) => <li className="my-0.5">{children}</li>,
+                strong: ({ children }) => <strong className="font-semibold text-paper-ink">{children}</strong>,
+                blockquote: ({ children }) => <blockquote className="border-l-2 border-paper-line pl-3 my-1 text-paper-ink2 italic">{children}</blockquote>,
+                code: ({ children }) => <code className="bg-paper-line/50 px-1 rounded text-xs font-mono">{children}</code>,
+              }}
+            >
+              {pageModal.page.content.replace(/^\s*#\s+.+\n+/, '')}
+            </ReactMarkdown>
+          </div>
+        )}
+      </Modal>
     </section>
   );
 }

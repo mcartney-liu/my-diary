@@ -345,16 +345,28 @@ export function askDiary(question: string, history?: { role: "user" | "assistant
 }
 
 // AI 知识库问答（小麦内部切换 source_type 使用）
-export function askWiki(question: string, kbId: string, history?: { role: "user" | "assistant"; content: string }[], web_search = false) {
+export function askWiki(question: string, kbId: string, history?: { role: "user" | "assistant"; content: string }[], web_search = false, import_mode = false) {
   return request<{
     answer: string;
     kb_title?: string;
     sources: { page_id: string; title: string; summary: string; score: number }[];
+    can_save?: boolean;        // import_mode=true 时：可以汇入
+    category_hint?: string;    // import_mode=true 时：推荐汇入的分类
+    need_confirm?: boolean;    // check-match low 时：需要用户确认
+    match_level?: string;      // high / medium / low
+    match_reason?: string;
   }>('/api/ai/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, history, source_type: 'wiki', kb_id: kbId, web_search }),
+    body: JSON.stringify({ question, history, source_type: 'wiki', kb_id: kbId, web_search, import_mode }),
   });
+}
+
+// 气泡用：推荐知识库实体
+export function wikiSuggestEntities(kbId: string, count = 2) {
+  return request<{ suggestions: { category: string; entity: string }[]; kb_title: string }>(
+    '/api/wiki/kbs/' + kbId + '/suggest?count=' + count
+  );
 }
 
 // 长期记忆

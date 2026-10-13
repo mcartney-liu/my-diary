@@ -162,6 +162,7 @@ export default {
       ["GET",    "/api/wiki/debug-log",                          handleWikiDebugLog],
       ["POST",   "/api/wiki/suggest-title",                      handleWikiSuggestTitle],
       ["POST",   "/api/wiki/:kbId/check-match",                  handleWikiCheckMatch],
+      ["GET",    "/api/wiki/kbs/:kb_id/suggest",                 handleWikiSuggestEntities],
       ["POST",   "/api/wiki/ai-design-categories",               handleWikiAIDesignCategories],
       ["POST",   "/api/wiki/optimize-description",              handleWikiOptimizeDescription],
     ];
@@ -1526,7 +1527,11 @@ async function callLLM(env, messages, maxTokens = 512) {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: LLM_MODEL_NAME, messages, max_tokens: maxTokens, temperature: 0.7 }),
+        body: JSON.stringify({
+          model: LLM_MODEL_NAME, messages, max_tokens: maxTokens,
+          temperature: 0.3,
+          stop: ['以上就是关于', '— 结束 —', '以上就是整理内容', '***'],
+        }),
         signal: controller.signal,
       });
       clearTimeout(timer);
@@ -1665,7 +1670,7 @@ async function handleAsk(request, env, JWT_SECRET) {
 
   // 知识库问答路由（新链路）
   if (source_type === "wiki") {
-    return handleWikiAsk(env, user, question, history || [], kb_id, !!web_search);
+    return handleWikiAsk(env, user, question, history || [], kb_id, !!web_search, !!body.import_mode);
   }
 
   // === 以下是原日记链路（完全不动）===
@@ -1824,8 +1829,182 @@ async function handleAsk(request, env, JWT_SECRET) {
   }
 }
 
+// ===== buildWikiContractPrompt：输出契约 prompt =====
+function buildWikiContractPrompt(kb, categories, preset, question) {
+  // 把分类改成「内部参考」——给 AI 自己检查覆盖度用的，不是给用户看的结构模板
+  const catSection = (categories && categories.results && categories.results.length > 0)
+    ? categories.results.map(c => {
+        // 从 page_format 里抽小标题（## 后面的），作为该分类的关键维度提示
+        const dims = (c.page_format || '')
+          .split('##')
+          .slice(1)
+          .map(s => s.split('\n')[0].trim())
+          .filter(Boolean)
+          .slice(0, 8);
+        return `- ${c.name}${dims.length ? '：' + dims.join('、') : ''}`;
+      }).join('\n')
+    : '（暂无分类）';
+
+  const specialRules = preset?.extra_rules
+    ? `\n## 专属规范\n${preset.extra_rules}\n`
+    : '';
+
+  return `你就是小麦，我的 AI 助手。我在让你帮我收集资料，整理之后会汇入「${kb.title}」知识库。
+
+## 用户让你收集
+${question}
+
+## 内部参考（这是我的知识库的分类维度，**只给你自己检查内容覆盖度用的——千万不要在回答里提这些分类名**）
+${catSection}
+${specialRules}
+## 回答要求（核心！）
+1. **开头要接用户的话——比如用户说"帮我收集雅典娜"，你就直接说"好的，关于雅典娜……"然后往下说**
+2. 内容要自然地覆盖上面的分类维度，但**绝对不要显式提分类名、不要分标题、不要贴模板**——就像你在跟我聊天，把知道的东西一口气说出来
+3. 可以用你自己的知识补充（联网模式），内容尽可能详尽完整
+4. **绝对不要写 \`***\`、\`---\`、\`___\` 之类的装饰线**——只用纯文本、换行、加粗
+5. 回答完内容后，另起一行写 <<<SUGGEST>>>，下面写3个用户可能接着收集或询问的后续问题（每行一个，不要编号）。`;
+}
+
+// ===== handleWikiAskImport：import_mode 特殊流程 =====
+async function handleWikiAskImport(env, user, question, kb, web_search) {
+  try {
+    // 1. check-match 预检（主题 low → 降级回正常 RAG，不中断）
+    //    用户在收集模式下问了不相关的话 → 让 AI 正常回答，不要硬走 import_mode 流程
+    let matchResult = { level: 'high', reason: '', suggested_category: null };
+    try {
+      const matchResp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [{
+          role: 'user',
+          content: `判断这个问题和知识库「${kb.title}」的主题相关性：
+问题：${question}
+
+只回答 HIGH / MEDIUM / LOW，然后一行理由。格式：HIGH
+理由：xxx`
+        }]
+      });
+      const text = matchResp?.response?.trim?.() || '';
+      if (text.startsWith('LOW')) matchResult.level = 'low';
+      else if (text.startsWith('MEDIUM')) matchResult.level = 'medium';
+    } catch {}
+
+    if (matchResult.level === 'low') {
+      // 降级：不强制 import_mode，让正常 RAG 流程接手
+      return null;
+    }
+
+    // 2. 强制 web_search=true
+    const forceWeb = true;
+
+    // 3. 拉 categories + 模板
+    const cats = await env.DB.prepare(
+      "SELECT name, page_format FROM wiki_categories WHERE kb_id=? ORDER BY sort_order"
+    ).bind(kb.id).all();
+
+    // 4. 拉 preset（如果是官方预设）
+    let preset = null;
+    try {
+      const kbInfo = await env.DB.prepare(
+        "SELECT slug FROM wiki_knowledge_bases WHERE id=?"
+      ).bind(kb.id).first();
+      // OFFICIAL_KB_PRESETS 在 wiki.js 里，这里可以动态 import 或硬编码查
+      // 简化：直接从 wiki_categories 拿 page_format 就够了
+      if (kbInfo?.slug) {
+        // preset 查不到就算了，extra_rules 不重要
+      }
+    } catch {}
+
+    // 5. buildWikiContractPrompt（输出契约 prompt）
+    const contractPrompt = buildWikiContractPrompt(kb, cats, preset, question);
+
+    // 6. callLLM（自然语言回答，不是 JSON）
+    // import_mode 场景下 max_tokens 给 1500——AI 回答要更详尽，因为之后要当资料源汇入知识库
+    let answer;
+    try { answer = await callLLM(env, [{ role: 'system', content: contractPrompt }, { role: 'user', content: question }], 1500); }
+    catch (e) { answer = '抱歉，我暂时答不上来：' + (e.message || ''); }
+
+    // 7. 从 categories 里选第一个非空的给前端做 category_hint
+    const categoryHint = cats.results?.[0]?.name || null;
+
+    return json({
+      answer,
+      sources: [],
+      kb_title: kb.title,
+      can_save: true,
+      category_hint: categoryHint,
+    });
+  } catch (e) {
+    return json({ answer: '生成出错了：' + (e.message || 'unknown'), sources: [] });
+  }
+}
+
+// ===== handleWikiSuggestEntities：气泡用的实体推荐 =====
+async function handleWikiSuggestEntities(request, env, JWT_SECRET, params) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const kb_id = params?.kb_id;
+  const count = parseInt(new URL(request.url).searchParams.get('count') || '2', 10);
+  if (!kb_id) return json({ error: 'kb_id required' }, 400);
+
+  try {
+    // 1. 校验 KB
+    const kb = await env.DB.prepare(
+      "SELECT id, title FROM wiki_knowledge_bases WHERE id=? AND user_id=?"
+    ).bind(kb_id, user.uid).first();
+    if (!kb) return json({ error: 'kb not found' }, 404);
+
+    // 2. 拉已有页面标题（用来避免推荐重复）
+    const existing = await env.DB.prepare(
+      "SELECT title FROM wiki_pages WHERE kb_id=? AND user_id=? AND is_system=0"
+    ).bind(kb_id, user.uid).all();
+    const existingTitles = existing.results.map(p => p.title).filter(Boolean);
+
+    // 3. 拉分类
+    const cats = await env.DB.prepare(
+      "SELECT name FROM wiki_categories WHERE kb_id=? ORDER BY sort_order"
+    ).bind(kb_id).all();
+    const catNames = cats.results.map(c => c.name);
+
+    // 4. 调小模型推荐实体（和已有页面不重复）
+    let suggestions = [];
+    try {
+      const prompt = `知识库名称：${kb.title}
+已有页面（不要推荐和这些重复的）：${existingTitles.length > 0 ? existingTitles.join('、') : '（暂无）'}
+分类：${catNames.length > 0 ? catNames.join('、') : '（暂无）'}
+
+请给我 ${Math.max(2, count)} 个适合收集进这个知识库的实体名。
+每个分类给 1 个。
+不要和已有页面重复。
+每行一个，格式：分类名|实体名`;
+
+      const resp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 200,
+      });
+      const text = resp?.response || '';
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('-') && !l.startsWith('*'));
+      for (const line of lines) {
+        const parts = line.split('|');
+        if (parts.length >= 2) {
+          suggestions.push({ category: parts[0].trim(), entity: parts[1].trim() });
+        } else if (parts.length === 1) {
+          suggestions.push({ category: catNames[0] || '默认', entity: parts[0].trim() });
+        }
+        if (suggestions.length >= count) break;
+      }
+    } catch {
+      // AI 挂了就用 KB 名兜底推荐
+      const fallback = catNames[0] || '相关';
+      suggestions = [{ category: fallback, entity: '重要概念' }];
+    }
+
+    return json({ suggestions, kb_title: kb.title });
+  } catch (e) {
+    return json({ error: e.message }, 500);
+  }
+}
+
 // ===== 知识库问答（新链路）=====
-async function handleWikiAsk(env, user, question, history, kb_id, web_search = false) {
+async function handleWikiAsk(env, user, question, history, kb_id, web_search = false, import_mode = false) {
   try {
     // 1. 校验 KB 属于用户
     if (!kb_id) return json({ answer: '请先选择一个知识库', sources: [] });
@@ -1841,9 +2020,19 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
        ORDER BY updated_at DESC LIMIT 200`
     ).bind(kb_id, user.uid).all();
 
-    if (!pages.results.length) {
-      return json({ answer: `「${kb.title}」还是空的～先去添加资料并汇入吧！`, sources: [] });
+    const hasAnyPage = pages.results.length > 0;
+
+    // ===== 情况 1：import_mode=true → 尝试收集流程 =====
+    // import_mode 不再要求 KB 必须空——用户可能想给已有 KB 收集更多内容
+    // handleWikiAskImport 内部会做 check-match 预检，low 就返回 null 降级
+    if (import_mode) {
+      const importResult = await handleWikiAskImport(env, user, question, kb, web_search);
+      if (importResult) return importResult;
+      // importResult 是 null → check-match low → 降级走正常 RAG
     }
+
+    // ===== 情况 2：知识库能答 → 正常 RAG（完全不变）=====
+    if (hasAnyPage) {
 
     // 3. embed question + 关键词提取
     const qVec = await embedText(env, question);
@@ -1890,17 +2079,22 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
     }
 
     // 6. 拼知识上下文 — 砍到每页 250 chars（prompt 砍一半 → callLLM 快一倍）
+    // 重要：只要 DB 里有页面（hasAnyPage=true），就喂给 LLM，让它自己判断相关性
+    // 不要用 bestScore 阈值过滤——后端替 LLM 过滤会导致"明明有页面但 LLM 看不到"
     const contextParts = finalTop.map((s, i) => {
       const t = (s.title && s.title.trim()) || `页面${i+1}`;
       const c = (s.content || '').slice(0, 250);
       return `[${i+1}] [[${t}]]\n${c}`;
     });
-    const bestScore = finalTop[0]?.score ?? 0;
-    const hasContext = bestScore >= 0.02 && contextParts.length > 0;
-    const context = hasContext ? contextParts.join('\n\n') : '';
+    const hasPagesInDb = hasAnyPage;
+    const context = contextParts.length > 0 ? contextParts.join('\n\n') : '';
 
     // 7. 根据联网开关生成 System Prompt
     let sys;
+    const contextBlock = hasPagesInDb && context
+      ? context
+      : '（知识库是空的，还没有任何实体或页面）';
+
     if (web_search) {
       // 联网开：允许 AI 用自身知识补充，但要区分来源
       sys = `你就是小麦，我的 AI 助手。我正在查我自己建设的「${kb.title}」知识库。
@@ -1913,7 +2107,9 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
 5. 简洁清晰，结构分明
 
 知识页面：
-${context || '（知识库里没有相关内容）'}`;
+${contextBlock}
+
+回答完问题后，另起一行写 <<<SUGGEST>>>，然后下面写3个用户可能接着问的后续问题（每行一个，不要编号）。这3个问题要和当前知识库主题相关、和刚才的回答有延续性。`;
     } else {
       // 联网关（默认）：**严禁用自身知识**，只查知识库！
       sys = `你就是小麦，我的 AI 助手。我正在查我自己建设的「${kb.title}」知识库。
@@ -1926,7 +2122,9 @@ ${context || '（知识库里没有相关内容）'}`;
 5. 引用用 [[页面名]] 语法；简洁清晰
 
 知识页面：
-${context || '（知识库里没有相关内容）'}`;
+${contextBlock}
+
+回答完问题后，另起一行写 <<<SUGGEST>>>，然后下面写3个用户可能接着问的后续问题（每行一个，不要编号）。这3个问题要和当前知识库主题相关、和刚才的回答有延续性。`;
     }
 
     // 8. callLLM — history 砍到 3 条 + 200 chars/条（多轮意义不大）
@@ -1957,6 +2155,11 @@ ${context || '（知识库里没有相关内容）'}`;
       })),
       kb_title: kb.title,
     });
+
+    } else {
+      // ===== 情况 3：KB 为空 + import_mode=false → 说空 =====
+      return json({ answer: `「${kb.title}」还是空的～先去添加资料并汇入吧！`, sources: [] });
+    }
   } catch (e) {
     return json({ answer: '知识库问答出错了：' + (e.message || 'unknown'), sources: [] });
   }
