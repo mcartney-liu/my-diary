@@ -336,11 +336,11 @@ export function listSummaries() {
 }
 
 // AI 日记问答
-export function askDiary(question: string, history?: { role: "user" | "assistant"; content: string }[]) {
+export function askDiary(question: string, history?: { role: "user" | "assistant"; content: string }[], web_search = false) {
   return request<{ answer: string; sources: { diary_id: string; date?: string; score: number; content?: string }[] }>('/api/ai/ask', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ question, history }),
+    body: JSON.stringify({ question, history, web_search }),
   });
 }
 

@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { askDiary, askWiki, extractMemory, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, chatListSessions, chatUpsertSessions, chatDeleteSession, wikiAddSourceText, wikiIngestAll, wikiGetPage, type WikiKB, type WikiPage } from "../api";
+import { askDiary, askWiki, extractMemory, upsertDiary, listTemplates, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, chatListSessions, chatUpsertSessions, chatDeleteSession, wikiAddSourceText, wikiIngestAll, wikiGetPage, type WikiKB, type WikiPage } from "../api";
 import Modal from "./Modal";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { callChatCompletion, getAiProvider } from "../ai";
+import { callChatCompletion, getAiProvider, detectTemplate } from "../ai";
 import { useAuth } from "../AuthContext";
 
 interface DiarySource { diary_id: string; date?: string; score: number; content?: string; }
@@ -260,6 +260,7 @@ export default function AiChatView() {
       let resAnswer = "";
       let resSources: any[] = [];
       let resKbTitle: string | undefined;
+      let resWebSearch: boolean | undefined;
 
       if (srcType === "wiki") {
         // ═══════════════════════════════════════════════
@@ -453,6 +454,7 @@ export default function AiChatView() {
         let rawAnswer = res.answer;
         resSources = res.sources || [];
         resKbTitle = res.kb_title;
+        resWebSearch = useWebSearch;
 
         // 解析 <<<SUGGEST>>> 标记：正文和推荐问题分开
         let parsedSugg: string[] = [];
@@ -501,15 +503,17 @@ export default function AiChatView() {
         }));
         return;
       } else {
-        // 日记问答（原链路不动）
-        const res = await askDiary(question, recent);
+        // 日记问答（支持 web_search 联网）
+        const diaryWebSearch = webSearchMode || !!active.default_web_search;
+        const res = await askDiary(question, recent, diaryWebSearch);
         resAnswer = res.answer;
         resSources = res.sources || [];
+        resWebSearch = diaryWebSearch;
       }
 
       updateActive((s) => ({
         ...s,
-        msgs: [...s.msgs, { role: 'ai', content: resAnswer, sources: resSources, source_type: srcType, kb_title: resKbTitle }],
+        msgs: [...s.msgs, { role: 'ai', content: resAnswer, sources: resSources, source_type: srcType, kb_title: resKbTitle, web_search: resWebSearch }],
       }));
     } catch (e: any) {
       updateActive((s) => ({
@@ -592,7 +596,7 @@ export default function AiChatView() {
 
     try {
       // 两步：先插 wiki_sources，再调 ingest
-      await wikiAddSourceText(cur.kb_id, targetAi.content, `小麦AI回答：${targetAi.content.slice(0, 20)}...`);
+      await wikiAddSourceText(cur.kb_id, targetAi.content, `小麦回答：${targetAi.content.slice(0, 20)}...`);
       await wikiIngestAll(cur.kb_id);
 
       updateActive((s) => {
@@ -606,6 +610,67 @@ export default function AiChatView() {
         newMsgs[aiIdx] = { ...newMsgs[aiIdx], importing: false };
         return { ...s, msgs: newMsgs };
       });
+    }
+  }
+
+  // ===== saveAiAnswerAsDiary：把日记 tab 的 AI 回答存成一条日记 =====
+  async function saveAiAnswerAsDiary(aiIdx: number) {
+    if (loading) return;
+    const cur = active;
+    if (!cur) return;
+    const targetAi = cur.msgs[aiIdx];
+    if (!targetAi || targetAi.role !== "ai") return;
+
+    // 标记 importing
+    updateActive((s) => {
+      const newMsgs = [...s.msgs];
+      newMsgs[aiIdx] = { ...newMsgs[aiIdx], importing: true };
+      return { ...s, msgs: newMsgs };
+    });
+
+    try {
+      // 🧠 智能匹配模板（和语音会计流程一致）
+      let matchedTpl: string = "diary";
+      try {
+        const tplListResp = await listTemplates("mine");
+        const tplList = tplListResp.templates || [];
+        const tplDet = await detectTemplate(targetAi.content, undefined,
+          tplList.map((t: any) => ({ id: t.id, name: t.name, description: t.description }))
+        );
+        matchedTpl = tplDet.templateId;
+        console.log("[saveAiAnswerAsDiary] 模板匹配:", matchedTpl, tplDet.reason);
+      } catch (e) {
+        console.warn("[saveAiAnswerAsDiary] 模板匹配失败，默认 diary:", e);
+      }
+
+      const now = Date.now();
+      const diaryData = {
+        id: "diary_" + now,
+        date: new Date().toISOString().slice(0, 10),
+        title: targetAi.content.slice(0, 15) + (targetAi.content.length > 15 ? "…" : ""),
+        templateId: matchedTpl,
+        moodId: null as any,
+        blocks: [{ id: "b_" + now, kind: "text" as const, content: targetAi.content }],
+        createdAt: now,
+        updatedAt: now,
+      };
+      console.log("[saveAiAnswerAsDiary] 发送:", JSON.stringify(diaryData));
+      const result = await upsertDiary(diaryData);
+      console.log("[saveAiAnswerAsDiary] 成功:", result);
+
+      updateActive((s) => {
+        const newMsgs = [...s.msgs];
+        newMsgs[aiIdx] = { ...newMsgs[aiIdx], importing: false, imported: true, can_save: false };
+        return { ...s, msgs: newMsgs };
+      });
+    } catch (err) {
+      console.error("[saveAiAnswerAsDiary] 失败:", err);
+      updateActive((s) => {
+        const newMsgs = [...s.msgs];
+        newMsgs[aiIdx] = { ...newMsgs[aiIdx], importing: false };
+        return { ...s, msgs: newMsgs };
+      });
+      alert("存入日记失败: " + (err as Error)?.message);
     }
   }
 
@@ -936,8 +1001,8 @@ export default function AiChatView() {
           <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
             <div
               onClick={() => {
-                // 知识 tab 的 AI 回答：点一下浮出操作菜单；日记 tab 的 AI 回答不动
-                if (m.role === "ai" && m.source_type === "wiki") {
+                // AI 回答：点一下浮出操作菜单（日记和知识 tab 都支持）
+                if (m.role === "ai") {
                   setActiveMsgIdx((prev) => prev === i ? null : i);
                 }
               }}
@@ -945,7 +1010,7 @@ export default function AiChatView() {
                 m.role === "user"
                   ? "bg-paper-ink text-paper-bg rounded-br-sm"
                   : "bg-paper-card border border-paper-line text-paper-ink rounded-bl-sm"
-              } ${m.role === "ai" && m.source_type === "wiki" ? "cursor-pointer hover:border-paper-accent/40 transition" : ""}`}
+              } ${m.role === "ai" ? "cursor-pointer hover:border-paper-accent/40 transition" : ""}`}
             >
               {m.content}
               {m.sources?.length ? (
@@ -992,18 +1057,20 @@ export default function AiChatView() {
                 <RememberButton content={m.content} />
               )}
               {/* wiki 模式的 AI 回答底部：纯状态展示 */}
-              {m.role === "ai" && m.source_type === "wiki" && !m.importing && !m.imported && (
+              {m.role === "ai" && !m.importing && !m.imported && (
                 <div className="mt-2 pt-2 border-t border-paper-line/60">
                   {m.web_search ? (
-                    <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">🔎 联网搜索 + 知识库</span>
+                    <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">🔎 联网搜索 + {m.source_type === "wiki" ? "知识库" : "日记"}</span>
                   ) : (
-                    <span className="text-[10px] text-paper-ink2 bg-paper-surface/60 px-1.5 py-0.5 rounded">� 仅知识库</span>
+                    <span className="text-[10px] text-paper-ink2 bg-paper-surface/60 px-1.5 py-0.5 rounded">
+                      {m.source_type === "wiki" ? "📚 仅知识库" : "📓 仅日记"}
+                    </span>
                   )}
                 </div>
               )}
             </div>
-            {/* AI 气泡操作菜单：点击浮出 */}
-            {activeMsgIdx === i && m.role === "ai" && m.source_type === "wiki" && !m.importing && !m.imported && (
+            {/* AI 气泡操作菜单：点击浮出（日记和知识 tab 都支持）*/}
+            {activeMsgIdx === i && m.role === "ai" && !m.importing && !m.imported && (
               <div className="mt-1 flex items-center gap-1.5 px-1 flex-wrap">
                 <button
                   onClick={(e) => { e.stopPropagation(); retryWikiAnswer(i, m.web_search || false); setActiveMsgIdx(null); }}
@@ -1012,13 +1079,23 @@ export default function AiChatView() {
                 >
                   🔄 重新回答
                 </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); saveAiAnswerToWiki(i); setActiveMsgIdx(null); }}
-                  disabled={loading || !active?.kb_id}
-                  className="text-[11px] px-2.5 py-1 rounded-full border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 transition"
-                >
-                  📥 汇入知识库
-                </button>
+                {m.source_type === "wiki" ? (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); saveAiAnswerToWiki(i); setActiveMsgIdx(null); }}
+                    disabled={loading || !active?.kb_id}
+                    className="text-[11px] px-2.5 py-1 rounded-full border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 transition"
+                  >
+                    📥 汇入知识库
+                  </button>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); saveAiAnswerAsDiary(i); setActiveMsgIdx(null); }}
+                    disabled={loading}
+                    className="text-[11px] px-2.5 py-1 rounded-full border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 transition"
+                  >
+                    📝 存入日记
+                  </button>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); deleteAiMessage(i); }}
                   className="text-[11px] px-2.5 py-1 rounded-full border border-red-300 text-red-600 bg-red-50 hover:bg-red-100 transition"
@@ -1107,24 +1184,26 @@ export default function AiChatView() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={activeType === "wiki" ? (webSearchMode ? "联网 + 知识库回答…" : "仅知识库回答…") : "问点什么…"}
+            placeholder={
+              activeType === "wiki"
+                ? (webSearchMode ? "联网 + 知识库回答…" : "仅知识库回答…")
+                : (webSearchMode ? "联网 + 日记回答…" : "仅用日记回答…")
+            }
             className="flex-1 px-4 py-2.5 rounded-full border border-paper-line bg-paper-card text-sm focus:outline-none focus:border-paper-ink/50"
           />
-          {/* 知识 tab：联网图标按钮 */}
-          {activeType === "wiki" && (
-            <button
-              type="button"
-              onClick={() => setWebSearchMode((v) => !v)}
-              className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center border transition text-lg ${
-                webSearchMode
-                  ? "border-blue-300 bg-blue-50 text-blue-500 hover:bg-blue-100"
-                  : "border-paper-line bg-paper-card text-paper-ink3 hover:text-paper-ink2 hover:bg-paper-surface"
-              }`}
-              title={webSearchMode ? "联网搜索已开启（点一下关闭）" : "仅用知识库（点一下开启联网）"}
-            >
-              🌐
-            </button>
-          )}
+          {/* 联网图标按钮（日记和知识 tab 都显示）*/}
+          <button
+            type="button"
+            onClick={() => setWebSearchMode((v) => !v)}
+            className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center border transition text-lg ${
+              webSearchMode
+                ? "border-blue-300 bg-blue-50 text-blue-500 hover:bg-blue-100"
+                : "border-paper-line bg-paper-card text-paper-ink3 hover:text-paper-ink2 hover:bg-paper-surface"
+            }`}
+            title={webSearchMode ? "联网搜索已开启（点一下关闭）" : (activeType === "wiki" ? "仅用知识库（点一下开启联网）" : "仅用日记（点一下开启联网）")}
+          >
+            🌐
+          </button>
           <button
             type="submit"
             disabled={loading || !input.trim()}

@@ -231,7 +231,7 @@ export default function App() {
     // 表现为：Web 写的日记 App 看不到、App 写的 Web 能看到（上传不依赖 init）、
     // 重启 App 就好了。知识库两边都在，因为它是进页面实时请求、不走 init。
     // 改为依赖 auth.loggedIn：登录成功后补跑一次拉取。
-  }, [auth.loggedIn]);
+  }, [auth.loggedIn, auth.user?.id]);
 
   // 切回前台自动刷新由下方 `refreshFromCloud()` + visibilitychange/focus 监听负责
   // （Web 端同事已实现通用版，比之前这里另写的一套更完整，避免两套重复发请求）

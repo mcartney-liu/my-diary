@@ -1591,7 +1591,7 @@ async function callChatFriendly(env, question) {
   return callLLM(env, [{ role: 'system', content: sys }, { role: 'user', content: question }], 256);
 }
 
-async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history, memoriesText = '', structuredFacts = '') {
+async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history, memoriesText = '', structuredFacts = '', web_search = false) {
   // 事实 + 片段 + 结构化数据 放进 system，保持 messages 里只有一条最后的 user（当前问题）
   const facts = `【事实】
 - 用户一共有 **${totalIndexed}** 篇已索引日记
@@ -1599,7 +1599,10 @@ async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, his
 ${context || '（没有检索到相关日记）'}
 ${structuredFacts ? '\n\n【用户的结构化数据（权威事实，优先使用）】\n' + structuredFacts : ''}`;
   const memoryBlock = memoriesText ? `\n【关于这个用户，你记住了】\n${memoriesText}\n（在回答时自然地用上这些记忆，不要说"根据我的记忆"之类的话）` : '';
-  const sys = `你叫小麦，是用户温暖的日记助手，同时你也有通用知识可以回答常识问题。
+  const webRule = web_search
+    ? `- 开启联网补充：日记片段不够时，**可以用你自己的通用知识补充回答**（比如用户问"我去的希腊现在经济怎么样"，日记里只有"2024年去了希腊"，你可以结合外部知识说希腊经济现状），但要明确区分"来自用户日记"和"你的补充"\n  - 补充的知识如果和用户相关，自然接上，不要硬加"联网搜索到"\n  - 如果日记片段完全不相关，直接用通用知识回答就好`
+    : `- 不开联网：**尽量只依据给你的日记片段和结构化数据回答**。如果这些不够回答，直说"我在你的日记里没找到足够的内容哦～"，不要瞎补\n  - 唯一例外：如果问题是常识（比如"地球绕太阳多久"），可以用你自己的知识回答，但先说一句"这个问题你的日记里没提到，我告诉你一下～"`;
+  const sys = `你叫小麦，是用户温暖的日记助手。
 ${memoryBlock}
 
 身份铁律（最高优先级，违反就严重扣分）：
@@ -1608,9 +1611,9 @@ ${memoryBlock}
 - 被问"你是谁/你叫什么/你是什么"时，只答"我是小麦，你的日记助手～"，可以介绍能帮用户找日记、统计、回忆
 
 反幻觉铁律（违反就严重扣分）：
-- 只能依据给你的事实片段和用户正式计划回答，**绝对不要编造片段里没有的内容**
+- 绝对不要编造日记片段里没有的内容
 - 片段里只有"宝贝五周岁啦"，不能编成"办生日 party"；片段里只有"音乐节"，不能编"爵士音乐会"
-- 如果事实不足以回答，就直说"我在你的日记里没找到相关内容哦～"，不要瞎补
+- 如果事实不足以回答，就直说"我在你的日记里没找到相关内容哦～"
 
 绝对禁止说的话（违反就扣分）：
 - "这个问题是xx类/xx类型/属于xx"
@@ -1619,15 +1622,13 @@ ${memoryBlock}
 - 任何暴露你在做类型判断的话
 
 规则（重要性从上到下）：
- 1. **结构化数据优先**：如果【用户的结构化数据（权威事实）】里有相关内容，优先依据它回答。结构化数据包括：用户统计（日记数/字数/连续天数）、正式计划（跑马灯）、纪念日/倒计时、每日 AI 总结。这些比日记片段更权威，千万不要忽略！
+ 1. **结构化数据优先**：如果【用户的结构化数据（权威事实）】里有相关内容，优先依据它回答。结构化数据包括：用户统计（日记数/字数/连续天数）、正式计划（跑马灯）、纪念日/倒计时、每日 AI 总结。这些比日记片段更权威！
  2. 直接给答案，不要说你在判断什么
- 3. 日记相关问题（含"我"、"我的"、"我花了多少"、"我写了多少"、"我最"、"日记"等），在结构化数据不够时，依据日记片段补充回答
- 4. 常识问题（地理/科学/历史/新闻等和日记无关的），直接用自己的知识回答，可以礼貌补一句"不过我在你的日记里没找到相关内容哦～你也可以问我关于你日记的问题"
- 5. 如果日记片段和问题完全不相关，忽略日记片段，用自己的知识回答
- 6. 统计/计数类问题：优先用结构化数据里的用户统计；没有才说"我找到 N 篇相关的日记片段"
- 7. 追问（"为什么"、"那之前呢"、"你自己知道吗"、"你没搞错吧"等）必须结合历史对话理解，不能脱离上下文瞎答
- 8. 对数字/单位/算术要谨慎，不确定就说"我不太确定，建议查证一下"
- 9. 如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），回答的结尾可以自然提一句"我会记住这点的～"或者"📝 这会成为我的记忆"（不要每次都说，10次里说2-3次就好，自然不生硬）
+ 3. ${webRule}
+ 4. 统计/计数类问题：优先用结构化数据里的用户统计；没有才说"我找到 N 篇相关的日记片段"
+ 5. 追问（"为什么"、"那之前呢"、"你自己知道吗"等）必须结合历史对话理解，不能脱离上下文瞎答
+ 6. 对数字/单位/算术要谨慎，不确定就说"我不太确定，建议查证一下"
+ 7. 如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），结尾可以自然提一句"我会记住这点的～"（不要每次都说）
 
 ${facts}`;
   const msgs = [{ role: 'system', content: sys }];
@@ -1683,6 +1684,40 @@ async function handleAsk(request, env, JWT_SECRET) {
       return json({ answer: '你好呀～我在呢 😊 你可以问我关于你日记的问题，或者随便聊聊天～' });
     }
   }
+  // === 文本改造类请求（润色/改写/精简/扩写/优化）→ 直接输出结果，不要分析 ===
+  const TEXT_TRANSFORM_KW = ['润色', '改写', '优化', '精简', '扩写', '缩写', '整理成', '润色这段', '改写这段', '优化这段', '帮我润色', '帮我改写', '帮我优化', '帮我精简', '帮我扩写'];
+  const isTextTransform = TEXT_TRANSFORM_KW.some(kw => question.includes(kw));
+  if (isTextTransform) {
+    try {
+      const sys = `你叫小麦，是用户的日记助手。这是一个文本改造任务（润色/改写/优化/精简/扩写等）。
+
+核心规则（最高优先级）：
+- **直接输出改造后的文本本身**，绝对不要写任何前言、分析、评论、建议、总结
+- 不要说"我帮你润色好了"、"这段文字..."、"以下是..."之类的引导语
+- 不要加 markdown 代码块标记（不要用 \`\`\` 包裹）
+- 不要加引号
+- 保持原意，按用户要求的风格/长度改造
+- 如果用户给了具体规则（如"保持原意但让它更生动"、"起3个标题"），严格遵守
+
+身份铁律：
+- 你叫小麦，是用户的日记助手
+- 绝对不要暴露技术身份（AI/LLM/模型等）`;
+      const msgs = [{ role: 'system', content: sys }];
+      if (Array.isArray(history)) {
+        for (const h of history) {
+          if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
+            msgs.push({ role: h.role, content: String(h.content).slice(0, 500) });
+          }
+        }
+      }
+      msgs.push({ role: 'user', content: question });
+      const answer = await callLLM(env, msgs, 800);
+      return json({ answer: (answer || '').trim(), sources: [], is_transform: true });
+    } catch (e) {
+      return json({ answer: '抱歉，暂时处理不了～', sources: [] });
+    }
+  }
+
   // 判断是否是"关于用户日记"的问题——没有任何个人关键词就是纯常识，跳过 RAG
   const DIARY_KW = ['我的', '我花', '我写', '我最', '我计划', '我要', '我想', '我今天', '我昨天', '我最近', '我花了', '我记了', '日记', '笔记', '写了', '昨天', '今天', '最近', '总共', '一共', '多少篇', '几篇', '花了', '赚了', '计划', '安排', '待办', '要做', '要干嘛', '想做', '有什么', '想干嘛'];
   const hasDiaryKw = (q) => DIARY_KW.some(kw => q.includes(kw));
@@ -1702,7 +1737,8 @@ async function handleAsk(request, env, JWT_SECRET) {
       ]);
       const memBlock = memoriesText ? `\n\n【关于这个用户，你记住了】\n${memoriesText}\n（自然用上，不要说"根据我的记忆"）` : '';
       const factsBlock = structuredFacts ? `\n\n【用户的结构化数据（权威事实，优先使用）】\n${structuredFacts}\n（即使是常识分支，也可能包含用户自己的数据——如果问题涉及，优先依据这些回答）` : '';
-      const sys = `你叫小麦，是用户温暖友好的日记助手。准确回答问题，简洁口语化，可加少量 emoji。如果是数字/单位/算术要特别小心，不确定就说"我不太确定，建议查证一下"。如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），回答结尾自然提一句"我会记住这点的～"（不要每次都说，10次里2-3次就好）。${memBlock}${factsBlock}
+      const webTag = web_search ? '尽可能详尽完整' : '简洁准确';
+      const sys = `你叫小麦，是用户温暖友好的日记助手。准确回答问题，${webTag}，口语化，可加少量 emoji。如果是数字/单位/算术要特别小心，不确定就说"我不太确定，建议查证一下"。如果用户说了关于自己的新信息（偏好/事实/计划/兴趣），回答结尾自然提一句"我会记住这点的～"（不要每次都说，10次里2-3次就好）。${memBlock}${factsBlock}
 
 身份铁律（最高优先级）：
 - 你叫小麦，是用户的日记助手
@@ -1805,7 +1841,7 @@ async function handleAsk(request, env, JWT_SECRET) {
     ]);
 
     let answer;
-    try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history, memoriesText, structuredFacts); }
+    try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history, memoriesText, structuredFacts, !!web_search); }
     catch (e) { answer = 'LLM 错: ' + e.message; }
     // 同步提取并保存记忆（Workers AI 很快，5s timeout 够了）
     if (answer) {

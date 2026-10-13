@@ -45,6 +45,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
   const logout = () => {
     api.logout();
+    // 🧠 清 localStorage — 防止切换账号后上一个用户的日记残留到首页
+    try {
+      localStorage.removeItem("mydiary-web:diaries:v1");
+      localStorage.removeItem("mydiary-web:pending-sync:v1");
+    } catch {}
     setState({ user: null, loading: false, loggedIn: false });
   };
   const refresh = async () => {

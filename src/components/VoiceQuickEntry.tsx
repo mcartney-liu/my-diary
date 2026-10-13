@@ -34,6 +34,8 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
   const recRef = useRef<any>(null);
   const timerRef = useRef<number | null>(null);
   const finalTextRef = useRef("");
+  const userStoppedRef = useRef(false);         // 用户主动停 → 不重连
+  const restartTimerRef = useRef<number | null>(null); // onend 自动重连防抖
 
   // ⭐ 用户自建模板（语音快记也要能匹配）
   const [userTemplates, setUserTemplates] = useState<UserTemplate[]>([]);
@@ -72,6 +74,17 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
       setTranscript(finalTextRef.current + interim);
     };
 
+    // 🧠 onend: 如果不是用户主动停的 → 自动重启（300ms 防抖，避免 onend 风暴）
+    rec.onend = () => {
+      if (userStoppedRef.current) return; // 用户主动停的，不重连
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = window.setTimeout(() => {
+        if (recRef.current === rec && !userStoppedRef.current) {
+          try { rec.start(); } catch { /* 静默失败 */ }
+        }
+      }, 300);
+    };
+
     rec.onerror = (e: any) => {
       const err = e.error || "unknown";
       let msg = "";
@@ -97,6 +110,8 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
 
     recRef.current = rec;
     finalTextRef.current = "";
+    userStoppedRef.current = false;
+    if (restartTimerRef.current) { clearTimeout(restartTimerRef.current); restartTimerRef.current = null; }
     setTranscript("");
     setPhase("recording");
     setElapsed(0);
@@ -129,6 +144,8 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
   };
 
   const stopRecording = async () => {
+    userStoppedRef.current = true; // 🧠 标记用户主动停，阻止 onend 自动重连
+    if (restartTimerRef.current) { clearTimeout(restartTimerRef.current); restartTimerRef.current = null; }
     if (recRef.current) { try { recRef.current.stop(); } catch {} }
     stopTimer();
     const text = (finalTextRef.current || transcript).trim();

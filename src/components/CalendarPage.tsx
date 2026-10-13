@@ -627,7 +627,7 @@ const TOUR_STEPS: TourStep[] = [
   {
     selector: "#tour-tabs",
     title: "🗂️ 四种视图",
-    description: "月历看每天、年度回顾看心情热力图、知识库整理资料、小麦 AI 随时问答。",
+    description: "月历看每天、年度回顾看心情热力图、知识库整理资料、小麦随时问答。",
   },
   {
     selector: "#tour-month-grid",

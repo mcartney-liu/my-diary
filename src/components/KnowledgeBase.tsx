@@ -795,7 +795,7 @@ function SettingsTab(props: {
       const r = await wikiAIDesignCategories(curKb.title, curKb.description);
       setAiDesignedCats(r.categories);
     } catch (e: any) {
-      setAiDesignError(e?.message || "AI 暂时打盹了");
+      setAiDesignError(e?.message || "小麦暂时打盹了");
     } finally {
       setAiDesignLoading(false);
     }

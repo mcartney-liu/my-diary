@@ -781,12 +781,33 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-     {/* === v0.5.11 当前版本（高亮） === */}
+     {/* === v0.5.12 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v0.5.11</span>
-                  <span className="text-paper-ink3 text-xs">2026年10月11日</span>
+                  <span className="font-bold text-paper-accent">v0.5.12</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月13日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">🎉 新功能</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>✨ <b>小麦问答：气泡点击浮出操作菜单</b> — 知识 / 日记 tab 的每条小麦回答点一下就弹出操作菜单：🔄 重新回答（用原问题再问一遍）、📥 汇入知识库（知识 tab）或存入日记（日记 tab，自动匹配模板）、🗑️ 删除这条回答；默认隐藏不占位，想操作才出现</li>
+                    <li>✨ <b>知识 tab 收集功能完整上线</b> — 之前的"帮我收集"从顶部开关改成对话内气泡，点一下弹出两个选项：⚡ 直接收集体自动联网查找资料、✏️ 插入到输入框自己改好再发；小麦回答后底部常驻 4 个气泡，前 3 个是小麦根据当前话题推荐的后续问题，最后一个永远是收集入口</li>
+                    <li>✨ <b>联网查询开关移到输入框旁</b> — 之前每条小麦回答底部都有"联网重试 / 仅本地重试"按钮，状态和功能混在一起；现在统一成输入框旁的🌐图标（会话级），灰色=仅用知识库/日记回答，点亮蓝色=联网搜索补充资料；知识 tab 和日记 tab 都能用</li>
+                  </ul>
+                  <div><b className="text-paper-ink">🎨 优化</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>📋 <b>知识库页面引用弹窗显示</b> — 小麦回答里的 [[页面名]] 链接之前点了会跳到知识库 tab，返回时要重新切回来；现在点了直接弹出详情面板，看完关掉就回到问答界面，原来的对话状态完全不变</li>
+                    <li>📝 <b>小麦气泡底部纯状态展示</b> — 小麦回答底部之前是"🔎 联网搜索回答 + 🔒 仅本地重试"，一个状态标签混着一个功能按钮，用户看不懂；现在只剩纯状态，一眼知道这条回答是怎么来的</li>
+                    <li>✏️ <b>写日记润色/改写更干净</b> — 之前点"帮我润色"，小麦会先分析你的写作风格、再给建议、最后才给润色版，还带一堆前言；现在润色/改写/精简类请求小麦直接输出改造后的文本，干净利落</li>
+                  </ul>
+                </div>
+              </div>
+     {/* === v0.5.11 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.11</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月11日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
@@ -814,7 +835,7 @@ export default function ProfilePage() {
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
                   <ul className="list-disc pl-5 space-y-1">
                     <li>📚 <b>书架：日记变成书来读</b> — 所有日记自动按模板分组，每本日记就是一本书；3D 翻书效果，正面写完翻过来背面接，像真的在翻日记本；窄屏自动变成单页模式，左右滑动翻页</li>
-                    <li>🤖 <b>写日记时的小麦 AI 辅助</b> — 底部工具栏新增小麦按钮，写日记时点一下就能让小麦帮忙；4 个快捷建议：帮我润色、起个标题、写个结尾、来句名言；AI 给的建议一键贴到日记里，前面带"小麦建议"标识</li>
+                    <li>🤖 <b>写日记时的小麦辅助</b> — 底部工具栏新增小麦按钮，写日记时点一下就能让小麦帮忙；4 个快捷建议：帮我润色、起个标题、写个结尾、来句名言；小麦给的建议一键贴到日记里，前面带"小麦建议"标识</li>
                   </ul>
                 </div>
               </div>
@@ -952,9 +973,9 @@ export default function ProfilePage() {
                   </ul>
                   <div><b className="text-paper-ink">🧭 交互调整</b></div>
                   <ul className="list-disc pl-5 space-y-1">
-                    <li>顶栏导航变成三 Tab（📅 月历 / 📊 年度回顾 / 💬 知识库），AI 入口从底部导航移除，保持底部三项不变</li>
+                    <li>顶栏导航变成三 Tab（📅 月历 / 📊 年度回顾 / 💬 知识库），问答入口从底部导航移除，保持底部三项不变</li>
                     <li>知识库内嵌在 Tab 切换区，不再是右侧抽屉，和月历 / 年度回顾同级同宽</li>
-                    <li>全局不用 "AI" 字样，统一叫「知识库」、图标 💬</li>
+                    <li>全局不用 "AI" 字样，统一叫「小麦」「知识库」、图标 💬</li>
                   </ul>
                 </div>
               </div>
