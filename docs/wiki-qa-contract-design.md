@@ -1,7 +1,9 @@
-# 小麦问答 × 知识库 一体化方案
+# 小麦问答 × 知识库 一体化方案（v2.0 合并版）
 
-> **核心思想**：用户选了哪个知识库，AI 就按那个知识库的「分类+模板+规范」来回答。
-> 当知识库本身答不出来时，AI 跳出知识库回答，但答案仍严格符合该知识库的输出契约 → 可以一键保存入库。
+> **版本**：v2.0（2026-10-12）
+> **历史**：v1.0（2026-10-11）用户手动开关版 → v2.0 合并自动触发气泡 + 数据模型 + 输出契约 + 汇入流程
+> **核心思想**：选知识库 = 选输出契约 + 选检索范围。知识库答不出时 AI 跳出回答，但答案符合该 KB 的分类和范本 → 可以一键汇入。
+> **本次合并**：旧方案的后端设计 + 数据模型 + 输出契约的思路全部保留；新方案的触发时机 + 气泡 UI + 自然语言回答 + 复用 handleWikiIngestAll 汇入路径 全部采纳。解决了三个冲突。
 
 ---
 
@@ -14,12 +16,15 @@
 | 用户想在「📐 小学数学」知识库里问一道新题 | 小麦问答查知识库 → 没找到 → "知识库里没有这个内容" | 用户得切出去用豆包解题，再复制粘贴回来汇入，3 步 |
 | 用户想往「红楼梦」知识库里加一个新分析 | 同上 | 答案格式不统一（豆包吐的 vs 知识库模板不一样），汇入时 AI 还要清洗 |
 | 用户想往「菜谱」知识库里加一道菜 | 同上 | 同样的问题 |
+| 用户空 KB，进来不知道第一步怎么建 | 小麦说"还是空的～先去添加资料吧" | 用户得切到 KB 页面手动粘贴，门槛高 |
 
 ### 根因
 
 **选知识库 = 只选了检索范围，没选输出契约。**
 
 小麦问答现在的 system prompt 只告诉 AI "查这些知识页面来回答"，没告诉 AI "如果知识库里没有，你应该按什么格式来回答才能直接入库"。
+
+另外知识库建设的入口太重——用户得切页面、选分类、粘贴、点汇入——没人做。
 
 ---
 
@@ -28,482 +33,292 @@
 ### 一句话版本
 
 > **选知识库 = 选输出契约 + 选检索范围**。
+> **AI 回答要自然**（不是硬塞模板），但内容分布要符合 KB 的分类和范本，这样能直接被汇入流程消化。
 
-### 🔑 关键澄清：输出契约 ≠ 限制 AI 能力
-
-输出契约**只是约束"回答长什么样"，不约束 AI 知道什么、能解什么**。
-
-打个比方：
-
-| 类比 | AI 能力 | 输出契约 |
-|------|---------|---------|
-| 小学生做题 | 脑子里会算 | 答题纸格式："先写解，再列公式，最后答" |
-| 医生写病历 | 脑子里会看病 | 病历模板："主诉、现病史、诊断、处方" |
-| 作家写小说 | 脑子里会讲故事 | 出版社格式要求："标题黑体三号，章节编号" |
-
-**答题纸不限制学生解题能力，病历模板不限制医生诊断能力**。输出契约就是那个答题纸——AI 该会解什么题还是会解，只是解完之后按模板组织一下内容。
-
-### 输出契约的三个组件（只约束格式）
+### 输出契约的三个组件（只约束格式，不限制 AI 能力）
 
 | 组件 | 作用 | 限制了什么 | 没限制什么 |
 |------|------|-----------|-----------|
-| **分类列表** | 告诉 AI 回答要归到哪个分类 | 归到哪里 | AI 能答什么 |
-| **页面模板** | 告诉 AI 回答要填哪些 section | 长什么样 | section 里写什么 |
-| **专属规范** | 格式约束（如禁 LaTeX） | 不能用什么格式标记 | AI 的知识范围 |
+| **分类列表** | 告诉 AI 回答内容应该归到哪些分类 | 归到哪里 | AI 能答什么 |
+| **页面模板** | 告诉 AI 每个分类的页面应该有哪些 section | 长什么样 | section 里写什么 |
+| **专属规范** | 格式约束（如数学禁 LaTeX、菜谱要写用量） | 不能用什么格式标记 | AI 的知识范围 |
 
-### 边界情况：AI 能答但装不下怎么办？
+类比：**答题纸不限制学生解题能力，病历模板不限制医生诊断能力**。输出契约就是那个答题纸——AI 该会解什么题还是会解，只是解完之后按模板组织一下内容分布。
 
-AI 能力很强（agnes-3.0-flash 能解高中微积分），但知识库的分类可能只有小学数学——
+### 边界情况
 
-| 场景 | AI 能答吗？ | 能装进去吗？ | 处理 |
-|------|-----------|-------------|------|
-| 数学库 + 小学数学题 | ✅ | ✅ 分类装得下 | 直接生成 |
-| 数学库 + 高中微积分 | ✅ | ⚠️ 分类里没高中 | **check-match 先挡**：low 匹配 → "主题不太相关" |
-
-check-match（P0-2 已决策）就是干这个的——保护知识库数据质量，避免奇怪的数据混进来。
-
-### 展开
-
-用户在小麦问答里选了某个知识库后，AI 拿到的不只是"该查哪些 wiki_pages"，还要拿到：
-
-1. **分类列表**（categories）— 回答应该归到哪个分类
-2. **页面模板**（page_format）— 回答应该长什么样
-3. **专属规范**（preset 里定义的规则，如数学禁 LaTeX）— 回答的边界条件
-
-然后 AI 的行为分两种模式：
-
-| 情况 | AI 行为 | 前端表现 |
-|------|---------|---------|
-| **知识库能答**（检索命中 ≥ 阈值） | 正常 RAG 回答，引用 [[页面]] | 就是现在的样子 |
-| **知识库答不出**（检索命中 = 0 或低质量） | AI 跳出知识库自由回答，但**回答格式严格符合知识库的模板** | 回答下方出现「💡 这个答案符合知识库规范，保存入库」按钮 |
-
-### 为什么可行
-
-- **输出契约可控**：分类+模板+规范 都是知识库创建时就定好的，AI 按规矩输出就能直接入库
-- **质量有保证**：AI 用的是我们自己的模型（agnes-3.0-flash），比豆包更懂我们的规范
-- **用户零摩擦**：不用跳出去、不用复制粘贴，问答完一键入库
+| 场景 | AI 能答吗 | 能装进去吗 | 处理 |
+|------|-----------|-----------|------|
+| 数学库 + 小学数学题 | ✅ | ✅ 分类装得下 | 正常输出 → 直接汇入 |
+| 数学库 + 高中微积分 | ✅ | ⚠️ 分类里没高中 | **check-match 先挡**：low 匹配 → "主题不太相关"弹 ConfirmDialog |
 
 ---
 
-## 三、完整用户流程（UI 设计）
+## 三、触发方式（两套并行）
 
-### 3.1 现状（不变）
+### 方式 1：气泡自动触发（小白用户，降低门槛）
 
-```
-小麦问答输入框
-  ├─ 选了"日记" → 查日记 → 返回
-  └─ 选了某个知识库 → 查知识库 wiki_pages → 返回（严格模式/联网模式）
-```
+4 个自动触发时机，前端发请求前判断，满足任一条件就加 `import_mode=true`：
 
-### 3.2 新增：意图开关 + 智能补全入库
+| # | 时机 | 判定逻辑 |
+|---|---|---|
+| **1** | **知识 tab 刚进来 + 空 KB + 空 history** | 第一次对话，引导用户第一步怎么建设 KB |
+| **2** | **用户自然语言里说"帮我收集/查询 XX 信息"** | question 匹配 `/收集|查询|整理|帮我找|帮我查|帮我搜/` + `/信息|资料|内容/` |
+| **3** | **上一条 AI 回答说"KB 还是空的"** | lastAiAnswer 含「还是空的」 |
+| **4** | **上一条 AI 回答说"KB 没找到"** | lastAiAnswer 含「暂时没有」 |
 
-#### 核心决策：用户意图由用户自己选（方案 B）
+**不触发的情况**：用户正常问"知识库里刘备在哪几个事件里出场过？"→ 正常 KB RAG 问答，完全不变。
 
-不是靠检索分数判断，而是让用户在选知识库后**显式选意图**：
+气泡不是每个 AI 回答下面都出（太吵），只在触发 import_mode 的时机里出。
 
-```
-┌─────────────────────────────────────┐
-│ 小麦问答                             │
-│                                     │
-│  🍳 菜谱知识库                       │
-│  ┌──────────┬──────────┐            │
-│  │ ○ 只查   │ ● 生成   │  ← 新增开关 │
-│  └──────────┴──────────┘            │
-│                                     │
-│  你的问题...                         │
-└─────────────────────────────────────┘
-```
+### 方式 2：手动开关（重度用户，显式选择）
+
+UI 上保留可选的「只查 / 生成」单选按钮，和气泡**不冲突、并行**：
 
 | 开关 | 含义 | AI 行为 |
 |------|------|---------|
 | **只查**（默认） | 查我已存的内容 | 现在的行为：检索 → 引用知识库页面 → 找不到就说"没有" |
-| **生成** | 帮我创造新内容，顺便存进去 | 检索 → 有就引用；没有就按知识库模板回答 → 下方出现"💡 保存入库"提示 |
+| **生成** | 帮我创造新内容，顺便存进去 | 强制 import_mode=true → 跳出知识库回答 → 下方出"💡 保存入库"提示 |
 
-#### 用户完整流程
+**为什么两套都要**：气泡降低新用户门槛（空 KB 一进来就被引导），开关给重度用户精确控制（比如"这次我就要生成，不管检索分数怎么样"）。
 
-```
-小麦问答输入框（选了知识库 + 选了"生成"）
-│
-├─ 用户输入："小明有 24 颗糖，平均分给 6 个小朋友，每人几颗？"
-│
-├─ 后端做两件事：
-│  ├─ 1. 检索知识库 wiki_pages → 没找到（新题）
-│  └─ 2. 用户选了"生成" → 构造输出契约 prompt → call LLM
-│
-├─ AI 回答（按知识库模板输出）：
-│  │
-│  │  【口语化回答给用户看】
-│  │  这是一道平均分的除法题：24 ÷ 6 = 4，每个小朋友分 4 颗～
-│  │  知识点是除法和平均分。
-│  │
-│  │  【结构化数据给系统看】
-│  │  pages: [小明分24颗糖→二年级, 平均分→知识点]
-│  │  links: [...]
-│
-└─ 前端检测到有结构化数据 → 回答下方出现：
-   │
-   │  ┌─────────────────────────────────┐
-   │  │ 💡 这个答案按「📐 小学数学」      │
-   │  │    的规范整理好了                 │
-   │  │                                  │
-   │  │    会新建 2 个页面：              │
-   │  │    📄 小明分24颗糖（二年级）      │
-   │  │    📄 平均分（知识点）            │
-   │  │                                  │
-   │  │         [保存]    [不保存]        │
-   │  └─────────────────────────────────┘
-```
-
-#### 为什么不用检索分数判断？
-
-同一个"答不出"，意图完全不同：
-
-| 知识库 | 用户问 | 检索结果 | 用户真实意图 | 应该走 |
-|--------|--------|---------|-------------|--------|
-| 菜谱库 | "红烧肉怎么做？" | 没找到 | **查我存的**（没有就说没有） | 只查 → 诚实说没有 |
-| 菜谱库 | "给我列 3 道凉菜" | 没找到 | **帮我生成** | 生成 → 跳出知识库 |
-| 数学库 | "小明分糖这道题怎么解？" | 没找到 | **帮我解题** | 生成 → 跳出知识库 |
-| 红楼梦库 | "林黛玉葬花时写了什么？" | 没找到 | **查我存的** | 只查 → 诚实说没有 |
-| 红楼梦库 | "帮我分析葬花的深层含义" | 没找到 | **帮我写分析** | 生成 → 跳出知识库 |
-
-分数无法区分"查"和"生成"——只有用户自己知道。
-
-#### 与现有联网开关的关系
-
-现有开关：`严格模式 / 联网模式`（system prompt 里是否允许用自身知识）
-新增开关：`只查 / 生成`（是否允许跳出知识库创造新内容）
-
-两个开关可以**正交组合**：
-
-| 组合 | 效果 |
-|------|------|
-| 只查 + 严格 | 只能引用知识库页面，找不到就说没有（最保守） |
-| 只查 + 联网 | 查知识库，补充可以用自身知识，但不创造新页面 |
-| 生成 + 严格 | 知识库有就引用，没有就按模板回答（不能用知识库外的知识？其实不太对） |
-| 生成 + 联网 | 知识库有就引用，没有就用自身知识按模板回答 → **主要场景** |
-
-### 3.3 UI 关键问题：怎么让用户懂？
-
-这是**最关键的设计决策**——用户可能不知道"什么是知识库规范"、"为什么这个答案能保存"。
-
-**方案：渐进式教育**
-
-| 场景 | 提示文字 | 理由 |
-|------|---------|------|
-| 用户第一次使用（没建过知识库） | 不显示这个功能 | 先把基础功能玩明白 |
-| 用户建了知识库，在知识库 tab 里进问答 | 回答完后："💡 这个答案按「📐 小学数学」的规范整理好了，可以保存进知识库" | 明确告诉用户是"按你的知识库规范"，不是随便的答案 |
-| 用户点"保存入库"后 | Toast："已保存 2 个页面到「📐 小学数学」" + 可点跳转查看 | 确认结果 |
-| 用户点"不保存" | 记录偏好，下次同类问题可以不再提示（或者一直提示） | 尊重用户选择 |
-
-### 3.4 前端交互 mockup（文字版）
+### 触发优先级
 
 ```
-┌─────────────────────────────────────┐
-│ 小麦问答                             │
-│                                     │
-│  你：小明有24颗糖，平均分给6个小      │
-│      朋友，每人几颗？                │
-│                                     │
-│  🌾：这是一道平均分的除法题～         │
-│      24 ÷ 6 = 4，每个小朋友分4颗。   │
-│      涉及的知识点：除法、平均分。      │
-│                                     │
-│  ┌─────────────────────────────┐    │
-│  │ 💡 这个答案按「📐 小学数学」   │    │
-│  │    的规范整理好了             │    │
-│  │                              │    │
-│  │    会新建：                   │    │
-│  │    📄 小明分24颗糖（二年级）  │    │
-│  │    📄 平均分（知识点）       │    │
-│  │                              │    │
-│  │         [保存]  [不保存]      │    │
-│  └─────────────────────────────┘    │
-│                                     │
-│  ┌─────────────────────────────┐    │
-│  │ 选知识库：📐 小学数学解题知识  │    │
-│  └─────────────────────────────┘    │
-└─────────────────────────────────────┘
+用户手动选了开关 → 以开关为准
+用户没选开关 → 前端自动判断 4 个时机 → 决定 import_mode
 ```
 
 ---
 
-## 四、后端设计
+## 四、气泡 UI 设计
 
-### 4.1 API 改动
-
-现有 `handleWikiAsk`（index.js L1755）加两个参数：
+### 气泡文案
 
 ```
-POST /api/wiki/:kbId/ask
-  body: { question, history[], web_search, auto_save }
-                                        ↑ 新增
+🔍 按我知识库的分类和范本，帮我收集 {推荐实体} 的信息
 ```
 
-### 4.2 handleWikiAsk 新逻辑
+- 从这个 KB 的 categories 里取前 2 个分类
+- AI 动态推荐实体（和已有 wiki 页面**不重复**）
+- 每个气泡有两个按钮：「发送」和「添加到对话」
+
+### 示例 1：「三国」KB（分类：人物、事件）
+
+```
+用户刚选了 KB，还没开始对话
+→ 出两个气泡：
+   🔍 按我知识库的分类和范本，帮我收集 司马懿 的信息  [发送] [添加到对话]
+   🔍 按我知识库的分类和范本，帮我收集 夷陵之战 的信息  [发送] [添加到对话]
+```
+
+### 示例 2：「路亚笔记」KB（分类：装备、钓法、钓点）
+
+```
+用户空 KB，小麦刚说「还是空的～先去添加资料吧」
+→ 小麦 AI 回答改成直接出气泡：
+   🔍 按我知识库的分类和范本，帮我收集 水滴轮 的信息  [发送] [添加到对话]
+   🔍 按我知识库的分类和范本，帮我收集 波爬钓法 的信息  [发送] [添加到对话]
+```
+
+**用户点「添加到对话」→ 气泡内容插入输入框 → 用户可以自由修改**（比如加上限定条件：「帮我收集 司马懿 在 239 年之前的主要事迹」）→ 发送 → 后端走 import_mode 特殊流程。
+
+---
+
+## 五、完整用户流程
+
+### 5.1 import_mode 特殊流程
+
+```
+import_mode=true 的请求进来
+│
+├─ 1. 强制 web_search=true（不管用户开关）
+│     因为用户点气泡/选生成 = 他想查 KB 里还没有的东西
+│
+├─ 2. check-match 预检（主题 low 就弹 ConfirmDialog）
+│     避免"数学 KB 问红楼梦"这种奇怪请求
+│     low → 返回 need_confirm: true → 前端弹窗
+│     medium / high → 继续往下
+│
+├─ 3. 拉 KB 的 categories + 每个分类的模板结构
+│     wiki_categories 表
+│
+├─ 4. 拉 preset（如果是官方预设，有专属规范）
+│     OFFICIAL_KB_PRESETS
+│
+├─ 5. buildWikiContractPrompt（输出契约 prompt）
+│     注入：分类列表 + 每个分类的模板 + 专属规范
+│     要求：AI 自然地组织回答，让内容分布符合这些分类和范本
+│           语言要流畅连贯，不要生硬分标题
+│
+├─ 6. callLLM → AI 回答
+│     （自然语言、连贯，但内容结构上符合范本）
+│     ✅ 重点：内容要能直接被汇入！
+│
+└─ 7. 前端拿到回答 → 底部出现汇入按钮：
+      📥 将本次回答汇入「三国」知识库（按【人物】分类）
+      （按钮上直接写清楚汇入哪个 KB、哪个分类）
+
+└─ 用户点「是」
+      └─ **两步**（handleWikiIngestAll 不接受自由文本，必须先插 wiki_sources）：
+         1. INSERT INTO wiki_sources (kb_id, user_id, kind='text', raw_text=AI回答, source='qa', ingested=0)
+         2. POST /api/wiki/kbs/:kb_id/ingest（handleWikiIngestAll 查 ingested=0 的 source → 走完整 ingest → 处理完自动标记 ingested=1）
+         ✅ wiki_pages.source_ids 溯源自动成立！
+```
+
+### 5.2 正常流程（import_mode=false，完全不变）
+
+```
+import_mode=false
+├── 知识库能答（bestScore ≥ 阈值）→ 正常 RAG 回答 → 不出现汇入按钮
+└── 知识库答不出 → 正常说「知识库里没有」或「可以开启联网查询」
+```
+
+### 5.3 关键设计决策记录
+
+| # | 决策 | 结论 | 理由 |
+|---|---|---|---|
+| P0-1 | 触发方式 | 气泡自动触发（4 个时机）+ 可选手动开关（两套并行）| 气泡降新用户门槛，开关给重度用户精确控制 |
+| P0-2 | AI 输出格式 | **自然语言，不硬塞模板，不是严格 JSON** | 用户明确要求"AI 回答要自然、连贯" |
+| P0-3 | 汇入路径 | **走 handleWikiIngestAll，不跳过 ingest** | 旧方案"跳过 ingest 因为 AI 输出结构化"的假设不成立。handleWikiIngestAll 有涟漪更新、实体识别、交叉链接，跳过反而丢能力 |
+| P0-4 | check-match 预检 | **挡**。生成模式下先跑，主题 low 弹 ConfirmDialog | 避免 AI 硬归出奇怪页面，保护 KB 质量 |
+| P0-5 | 汇入是自动还是让用户点 | **让用户点**。AI 生成但不自动写入，回答下方出"📥 汇入"按钮 | 用户有最终决定权 |
+| P0-6 | import_mode 暴露给用户吗 | 不暴露。气泡和开关都是 UI 层的，import_mode 是内部字段 | 小白用户不需要知道 |
+| P0-7 | import_mode 时联网开关 | 强制 ON | 用户点气泡 = 查 KB 没有的，必须联网 |
+| P0-8 | 气泡里的实体名 | AI 动态推荐 + 和已有页面不重复 | 避免推荐用户已经有的 |
+
+---
+
+## 六、后端设计
+
+### 6.1 API 改动
+
+```
+现有 POST /api/chat/ask（或 /api/wiki/:kbId/ask）
+  body: { question, history[], source_type, kb_id, web_search, import_mode }
+                                                                    ↑ 新增
+
+新增 GET /api/wiki/kbs/:kb_id/suggest
+  给气泡用：返回 2 个 AI 推荐的实体名（和现有页面不重复）
+```
+
+### 6.2 handleWikiAsk 新逻辑（伪代码）
 
 ```js
-async function handleWikiAsk(env, user, question, history, kb_id, web_search, generate_mode) {
+async function handleWikiAsk(env, user, question, history, kb_id, web_search, import_mode) {
   // ... 前半段不变：拉 pages → 检索 → rerank → 算 bestScore
 
-  // ✅ 关键修正：开关控制的是"答不出时怎么办"，不是"强制走哪条路"
-  // 不管开关开不开 → 只要知识库能答（检索命中够高 + AI 能推理）→ 就正常 RAG
-  const KNOWLEDGE_HAS_ANSWER_THRESHOLD = 0.05;
-  const kbHasAnswer = bestScore >= KNOWLEDGE_HAS_ANSWER_THRESHOLD && contextParts.length > 0;
+  // ===== 情况 1：知识库能答 → 不管 import_mode，都正常 RAG =====
+  if (bestScore >= THRESHOLD && contextParts.length > 0) {
+    return json({ answer, sources, kb_title });
+  }
 
-  // ===== 情况 1：知识库能答 → 不管开关，都正常 RAG =====
-  if (kbHasAnswer) {
-    sys = buildWikiRAGPrompt(kb, context, web_search);
-    answer = await callLLM(env, sys + question);
-    return json({ answer, sources: finalTop, kb_title });
-    // 不下发 can_save —— 知识库里已经有了，不需要重复生成
-
-  // ===== 情况 2：知识库答不出 + 只查模式 =====
-  } else if (!generate_mode) {
-    sys = buildWikiRAGPrompt(kb, '（知识库里没有相关内容）', false);
+  // ===== 情况 2：知识库答不出 + 非 import_mode → 正常说没有 =====
+  if (!import_mode) {
+    sys = buildWikiRAGPrompt(kb, '（知识库里没有相关内容）', web_search);
     answer = await callLLM(env, sys + question);
     return json({ answer, sources: [], kb_title });
-
-  // ===== 情况 3：知识库答不出 + 生成模式 =====
-  } else {
-
-    // ✅ P0-2 已决策：先跑 check-match 预检
-    const matchResult = await checkWikiThemeMatch(env, kb, question);
-    if (matchResult.level === 'low') {
-      // low 匹配 → 返回给前端让弹 ConfirmDialog
-      // 前端显示："🤔 这个问题和「数学」知识库主题不太匹配，要强行生成吗？"
-      return json({
-        need_confirm: true,
-        match_level: 'low',
-        match_reason: matchResult.reason,
-        kb_title: kb.title,
-      });
-    }
-    // medium / high 直接往下走，让 AI 生成
-
-    // 1. 拉 categories（含 page_format 模板）
-    const cats = await env.DB.prepare(
-      "SELECT * FROM wiki_categories WHERE kb_id=? ORDER BY sort_order"
-    ).bind(kb_id).all();
-
-    // 2. 拉 preset（如果是官方预设，有专属规范）
-    const kb = await env.DB.prepare(
-      "SELECT slug FROM wiki_knowledge_bases WHERE id=?"
-    ).bind(kb_id).first();
-    const preset = OFFICIAL_KB_PRESETS.find(p => p.slug === kb?.slug);
-
-    // 3. 构造"输出契约 prompt"
-    const contractPrompt = buildWikiContractPrompt(kb, cats, preset, question);
-
-    // 4. callLLM（要求返回 JSON + 口语化回答）
-    const raw = await callLLM(env, contractPrompt, 4096);
-    const parsed = repairAiJson(raw);
-
-    // 5. 用户点了"保存"后（前端再调一次 POST save-pages）
-    //    这里不自动保存——让用户有最终决定权
-
-    // 6. 返回（含结构化数据，前端用来渲染"保存入库"提示）
-    return json({
-      answer: parsed?.natural_answer || '我整理了一下，请看下面的结构化内容～',
-      sources: [],
-      kb_title: kb.title,
-      can_save: true,                     // 生成模式下永远可保存
-      proposed_pages: parsed?.pages?.map(p => ({
-        title: p.title,
-        category_slug: p.category_slug,
-      })) || [],
-      raw_json: parsed,                    // 前端存着，用户点"保存"时 POST 回来
-    });
   }
+
+  // ===== 情况 3：知识库答不出 + import_mode=true → 新流程 =====
+
+  // 1. check-match 预检
+  const matchResult = await checkWikiThemeMatch(env, kb, question);
+  if (matchResult.level === 'low') {
+    return json({ need_confirm: true, match_level: 'low', match_reason: matchResult.reason });
+  }
+
+  // 2. 强制 web_search
+  web_search = true;
+
+  // 3. 拉 categories + 模板
+  const cats = await env.DB.prepare(
+    "SELECT * FROM wiki_categories WHERE kb_id=? ORDER BY sort_order"
+  ).bind(kb_id).all();
+
+  // 4. 拉 preset 专属规范（如数学禁 LaTeX）
+  const kbInfo = await env.DB.prepare(
+    "SELECT slug FROM wiki_knowledge_bases WHERE id=?"
+  ).bind(kb_id).first();
+  const preset = OFFICIAL_KB_PRESETS.find(p => p.slug === kbInfo?.slug);
+
+  // 5. buildWikiContractPrompt（输出契约 prompt）
+  const contractPrompt = buildWikiContractPrompt(kb, cats, preset, question);
+
+  // 6. callLLM（自然语言回答，不是 JSON）
+  let answer;
+  try { answer = await callLLM(env, contractPrompt, 800); }
+  catch (e) { answer = '抱歉，我暂时答不上来：' + (e.message || ''); }
+
+  // 7. 返回（含 can_save，告诉前端出汇入按钮）
+  return json({
+    answer,
+    sources: [],
+    kb_title: kb.title,
+    can_save: true,
+    category_hint: matchResult.suggested_category || cats.results[0]?.name,
+  });
 }
 ```
 
-### 4.3 buildWikiContractPrompt（新函数）
+### 6.3 buildWikiContractPrompt（输出契约 prompt）
+
+> **注意**：和旧方案不同——**不要求 AI 输出 JSON**。要求自然语言回答，但内容分布符合 KB 分类和范本。
 
 ```js
 function buildWikiContractPrompt(kb, categories, preset, question) {
-  // 拼分类+模板
+  // 拼分类+模板参考
   const catSection = categories.results.map(c => `
-## ${c.name} (slug: ${c.slug})
-页面模板：
+### 分类：${c.name}
+页面模板参考：
 ${c.page_format || '(暂无模板)'}`).join('\n');
 
   // 拼专属规范（比如数学禁 LaTeX）
   const specialRules = preset?.extra_rules || '';
 
-  return `# 你是「${kb.title}」的专属整理助手
+  return `你就是小麦，我的 AI 助手。我正在建设「${kb.title}」知识库。
 
 ## 用户问题
 ${question}
 
-## 可用分类和模板
+## 这个知识库的分类和范本（请参考，让回答内容自然地符合这些结构）
 ${catSection}
 
-${specialRules}
+${specialRules ? '## 专属规范\n' + specialRules : ''}
 
-## 任务
-用户的问题**没有在知识库中找到答案**，需要你根据问题内容，自行回答并按上述分类和模板整理成知识库页面。
-
-## 输出格式
-严格 JSON，不要任何解释文字：
-{
-  "pages": [
-    {
-      "title": "<=20字的概括标题",
-      "category_slug": "分类slug",
-      "action": "create",
-      "summary": "一句话说明",
-      "content": "按模板写的 Markdown。注意：不要第一行 # 大标题（title 字段已经有了）。content 从模板的第一个 ## 开始。{{占位符}}替换成真实值。"
-    }
-  ],
-  "links": [{"from": "页面A", "to": "页面B"}],
-  "natural_answer": "给用户看的口语化回答，2-3句话，友好简洁"
-}
-
-## 铁律
-- 严格 JSON，不解释
-- 一个问题至少建 1 个 pages；如果涉及多个知识点，每个知识点各建一页
-- 知识点之间用 [[链接]] 双向引用
-`;
+## 回答要求
+1. 语言流畅连贯，就像正常对话一样，**不要生硬地分标题或贴模板**
+2. 但内容分布要自然地覆盖上面的分类和范本——比如提到"人物"时要提到他的生平、核心事件、关系网
+3. 可以用你自己的知识补充（联网模式）
+4. 如果内容涉及多个分类，自然地在各段落里体现，不用显式标注分类
+5. 200-600 字，简洁清晰`;
 }
 ```
 
-### 4.4 新增：前端点"保存"的后端接口
+### 6.4 suggest 接口（气泡用的实体推荐）
 
 ```
-POST /api/wiki/:kbId/save-pages
-  body: { pages: [...], links: [...] }
-  → 写入 wiki_pages + wiki_links
-```
+GET /api/wiki/kbs/:kb_id/suggest?count=2
 
-或者直接在 ask 时传 `auto_save: true`，一步到位。
-
----
-
-## 五、前端改动
-
-### 5.1 api.ts
-
-```typescript
-// askWiki 加参数
-export function askWiki(
-  question: string,
-  kbId: string,
-  history?: ChatMessage[],
-  web_search = false,
-  generate_mode = false  // 新增：用户选的"生成"开关
-)
-
-// 新增：保存 AI 生成的页面（用户点"保存"后调用）
-export function saveWikiPages(
-  kbId: string,
-  pages: WikiPageDraft[],
-  links: WikiLinkDraft[]
-)
-```
-
-### 5.2 UI 组件
-
-在小麦问答的回答渲染组件里加一个新分支：
-
-```tsx
-// 伪代码
-{response.can_save && !response.auto_saved && (
-  <SaveToKbPrompt
-    kbTitle={response.kb_title}
-    proposedPages={response.proposed_pages}
-    onSave={async () => {
-      await saveWikiPages(kbId, response.raw_json.pages, response.raw_json.links);
-      // Toast + 刷新知识库页面列表
-    }}
-    onDismiss={() => { /* 不保存 */ }}
-  />
-)}
+逻辑：
+1. 拉这个 KB 所有 wiki_pages 的 title
+2. 拉这个 KB 所有 categories 的 name
+3. 调一次小模型（Workers AI llama 或便宜的）：
+   「KB 已有页面：{titles}，分类：{cats}。
+    对于分类【{catA}】，用户还应该了解哪些实体？给 1 个。
+    要求：不能和已有页面重复。」
+4. 返回 [{ category: "人物", entity: "司马懿" }, ...]
 ```
 
 ---
 
-## 六、边界情况
+## 七、汇入路径（走 handleWikiIngestAll，统一入口）
 
-| 情况 | 处理 |
-|------|------|
-| 用户在"日记"模式问问题（没选知识库） | 不触发这个功能，保持原样 |
-| 知识库只有模板，还没有任何页面 | 触发！因为检索肯定是空的，正符合"跳出知识库回答"的场景 |
-| AI 返回的 pages 里 category_slug 不存在 | 后端 validate 一下，不存在就 fallback 到第一个分类，log 警告 |
-| 用户点了"不保存"后又想保存 | 目前这轮 ask 的 raw_json 前端可以暂存 5 分钟，过期了就重新问一次 |
-| 自动保存（auto_save=true）但 pages 里有标题重复 | upsert：存在就 update，不存在就 create |
-| 用户问的问题和知识库完全不相关（比如在数学 KB 问红楼梦） | AI 可能硬归到某个分类 → 这到底要不要挡？（见下面的待讨论） |
-
----
-
-## 七、已决策 & 待讨论
-
-### ✅ 已决策
-
-| # | 问题 | 决定 | 理由 |
-|---|------|------|------|
-| P0-1 | 怎么判断"知识库答不出"？ | **用户开关**（方案 B）：`只查`/`生成` 由用户自己选 | 检索分数无法区分"查已存内容"和"让你帮我创造"这两种完全不同的意图，只有用户自己知道 |
-| P0-2 | 不相关问题挡不挡？ | **挡**（选项 b）。生成模式下先跑 check-match 预检，主题 low 就弹 ConfirmDialog 让用户确认是否强行生成 | 避免 AI 硬归出奇怪的页面，保护知识库质量 |
-| P0-3 | 保存入库是自动的还是让用户点？ | **让用户点**。生成模式下 AI 生成页面但不自动写入，回答下方出现"💡 保存"卡片让用户确认 | 用户有最终决定权，避免误写入 |
-
-### 🔴 待讨论（必须定了才能开工）
-
-| # | 问题 | 选项 |
-|---|------|------|
-| P1-1 | 回答里的结构化 JSON 怎么传给前端？ | a) 后端返回 `raw_json` 字段存 state（推荐）<br>b) AI 输出隐藏 `<details>` 块前端正则解析<br>c) 两次 callLLM |
-| P1-2 | "保存入库"按钮在回答里显示多久？ | a) 一直显示（推荐）<br>b) 5 分钟后消失<br>c) 刷新页面就消失 |
-| P1-3 | 保存后是否自动刷新知识库页面列表？ | a) 自动刷新（推荐）<br>b) 用户手动刷新 |
-| P1-4 | 开关 UI 形式？ | a) 两个圆形单选项（推荐）<br>b) toggle 开关<br>c) 下拉菜单 |
-
----
-
-## 八、实现优先级（建议分 3 步）
-
-| 步骤 | 内容 | 风险 | 依赖 |
-|------|------|------|------|
-| **Step 1** | 后端 `buildWikiContractPrompt` + 知识库空时返回 `can_save=true` | 低 | 无，纯后端 |
-| **Step 2** | 前端 `SaveToKbPrompt` 组件 + `saveWikiPages` 接口 | 中 | Step 1 |
-| **Step 3** | 主题匹配检查（check-match 复用）+ auto_save 开关 | 中 | Step 1+2 |
-
----
-
-## 九、与现有方案的关系
-
-| 现有功能 | 关系 |
-|---------|------|
-| **汇入资料（ingest）** | 继续保留。豆包复制粘贴的场景仍然需要。新方案是"AI 直接帮你解题+入库"的快捷路径 |
-| **check-match 预检** | 可复用到 Step 3 的主题匹配判断 |
-| **数学专属 prompt** | 直接复用。`buildWikiContractPrompt` 里调用 `buildWikiSystemPrompt` 里那套数学规则 |
-| **小麦问答现有联网模式** | 融合。"跳出知识库回答"本质上就是联网模式的一种，只是多了输出契约和入库逻辑 |
-| **Modal / ConfirmDialog** | 新增的 `SaveToKbPrompt` 用 ConfirmDialog 风格 |
-
----
-
-## 十、知识库输入统一入口
-
-### 10.1 现有数据模型回顾
-
-`
-wiki_sources（原始输入）
-  ├─ id, kb_id, user_id
-  ├─ raw_text        ← 原始文本（可能脏、非结构化）
-  ├─ kind            ← 'text' | 'diary' | 'file'
-  ├─ ingested        ← 0=待汇入, 1=已汇入
-  └─ ingested_at
-
-wiki_pages（结构化页面）
-  ├─ id, kb_id, user_id
-  ├─ title, content, summary
-  ├─ category_id
-  └─ source_ids      ← 已预留！关联 wiki_sources.id 的 JSON 数组
-`
-
-**关键发现**：wiki_pages.source_ids 字段已经存在——之前设计时就考虑了"溯源"，一个页面可能来自多份资料。
-
-### 10.2 三个入口的统一模型
+### 7.1 三个入口统一模型
 
 所有入口最终都汇入 **wiki_pages**（结构化页面），区别只在于 wiki_sources 这一层：
 
-`
+```
                     ┌─────────────────────────────────┐
                     │         wiki_pages（结构化）       │
                     │  source_ids 溯源 → wiki_sources   │
@@ -514,57 +329,211 @@ wiki_pages（结构化页面）
     ┌────▼────┐             ┌─────▼─────┐            ┌─────▼──────┐
     │ 入口 1  │             │  入口 2   │            │   入口 3    │
     │ 资料库  │             │ 知识库里  │            │  小麦问答   │
-    │ 粘贴   │             │ 录入按钮  │            │  生成模式   │
+    │ 粘贴   │             │ 录入按钮  │            │ import_mode │
     └────┬────┘             └─────┬─────┘            └─────┬──────┘
          │                        │                        │
          ▼                        ▼                        ▼
    wiki_sources             wiki_sources              wiki_sources
    source='paste'           source='kb_entry'         source='qa'
-   ingested=0               ingested=0                ingested=1  ← 同步写 pages
-   (用户手动点汇入)          (用户手动点汇入)           (AI 输出已是结构化)
-`
+   ingested=0               ingested=0                ingested=0
+   (用户手动点汇入)          (用户手动点汇入)           (用户点📥汇入)
+         │                        │                        │
+         └────────────────────────┼────────────────────────┘
+                                  │
+                                  ▼
+                    handleWikiIngestAll(kb_id, text, category_hint?)
+                                  │
+                                  ▼
+                    AI 自动识别实体 → 生成 wiki 页面
+                    补 [[]] 交叉链接 → wiki_links
+                    涟漪更新已有相关页面
+                                  │
+                                  ▼
+                            wiki_pages 写入完成
+```
 
-| 入口 | 用户操作 | wiki_sources | ingest 触发 | wiki_pages |
-|------|---------|-------------|------------|-----------|
-| **1. 资料库粘贴/上传** | 粘贴文本或上传文件 | source='paste', ingested=0 | 用户点「汇入」按钮 | AI 清洗 + 归类 + 写 pages |
-| **2. 知识库录入按钮** | 在 KB 里点「录入资料」 | source='kb_entry', ingested=0 | 用户点「汇入」按钮 | 和入口 1 完全一样 |
-| **3. 问答生成模式** | AI 答不出 → 输出契约生成 | source='qa', ingested=1 | **跳过 ingest** ↓ | 直接写 pages + links |
+| 入口 | 用户操作 | wiki_sources | ingest 触发 | 汇入函数 |
+|------|---------|-------------|------------|---------|
+| **1. 资料库粘贴/上传** | 粘贴文本或上传文件 | source='paste', ingested=0 | 用户点「汇入」| handleWikiIngestAll |
+| **2. 知识库录入按钮** | 在 KB 里点「录入资料」 | source='kb_entry', ingested=0 | 用户点「汇入」| handleWikiIngestAll |
+| **3. 问答 import_mode** | AI 答不出 → 生成自然语言回答 | source='qa', ingested=0 | 用户点「📥 汇入」| **handleWikiIngestAll（同一个函数！）**|
 
-### 10.3 入口 3 为什么跳过 ingest？
+### 7.2 为什么统一走 handleWikiIngestAll（不用旧方案的"跳过 ingest 直接写 DB"）
 
-入口 1 和 2 的 wiki_sources.raw_text 是**脏的**——可能是豆包复制粘贴、可能是文件上传、格式乱七八糟——必须走一遍 ingest 清洗（repairAiJson + 模板填充 + 链接提取）。
+旧方案假设"AI 输出结构化 JSON → 跳过 ingest → 直接写 wiki_pages"。这个假设**不成立**，因为：
 
-但入口 3 的 wiki_sources.raw_text 是**AI 按输出契约生成的**——已经是正确的模板格式、已经分好类、已经建了链接——**不需要再清洗**，可以直接写 wiki_pages。
+1. **新方案 AI 输出是自然语言**，不是结构化 JSON——还是得走 AI 清洗/拆分
+2. **handleWikiIngestAll 有涟漪更新**——新资料进来会自动扫描已有页面、补 `[[]]` 交叉引用、更新 wiki_links。跳过 ingest 会丢这个能力
+3. **统一入口 = 统一溯源**——三个入口最终都走同一个函数，wiki_pages.source_ids 的溯源逻辑完全一致
 
-### 10.4 wiki_sources 新增字段
+### 7.3 wiki_sources 新增字段
 
-`sql
+```sql
 ALTER TABLE wiki_sources ADD COLUMN source TEXT DEFAULT 'paste';
 -- 值：'paste' | 'kb_entry' | 'qa'
-`
+```
 
-### 10.5 状态流转
-
-`
-入口 1 / 2：
-  用户粘贴 → wiki_sources(ingested=0) → 用户点汇入 → ingest → wiki_pages → wiki_sources(ingested=1)
-
-入口 3：
-  AI 生成 → wiki_sources(ingested=1) + wiki_pages 同步写入 → 直接完成
-`
-
-**统一语义**：ingested=1 = 已回录 = 已汇入。不管哪个入口，最终状态都是一样的。
-
-### 10.6 溯源关系
+### 7.4 wiki_pages.source_ids（已预留）
 
 wiki_pages.source_ids 是 JSON 数组，记录"这个页面来自哪些 wiki_sources"：
 
-`json
-// 入口 1/2：一个页面可能来自多份资料（汇入时 AI 合并了）
-source_ids: ["src_001", "src_003"]
-
+```json
 // 入口 3：AI 生成的 pages 都来自同一个 qa source
 source_ids: ["src_007"]  // 这是 AI 回答对应的 wiki_source
-`
+```
 
 这样用户可以在知识库里看到每个页面的"来源"——是粘贴的哪份资料、还是哪次问答生成的。
+
+---
+
+## 八、前端改动
+
+### 8.1 api.ts 改动
+
+```typescript
+// askWiki 加参数
+export function askWiki(
+  question: string,
+  kbId: string,
+  history?: ChatMessage[],
+  web_search = false,
+  import_mode = false  // 新增：内部字段，不暴露给用户
+)
+
+// 新增：气泡用的实体推荐
+export function wikiSuggestEntities(kbId: string, count = 2)
+
+// 新增：汇入 AI 回答（和手动汇入同一个函数！）
+export function wikiIngestAll(kbId: string, text: string, categoryHint?: string)
+```
+
+### 8.2 AiChatView.tsx 改动
+
+```tsx
+// 1. 触发时机判断（伪代码）
+function shouldImportMode(question, kb, context) {
+  const firstDialog = !history || history.length === 0;
+  const kbEmpty = kb.pageCount === 0;
+  const collectingIntent = 
+    /收集|查询|整理|帮我找|帮我查|帮我搜/.test(question) 
+    && /信息|资料|内容/.test(question);
+  const lastAiSaysEmpty = lastAiAnswer?.includes?.("还是空的");
+  const lastAiSaysNotFound = lastAiAnswer?.includes?.("暂时没有");
+  const manualSwitchOn = userSelectedGenerateMode;  // 手动开关
+
+  return manualSwitchOn || firstDialog || collectingIntent || lastAiSaysEmpty || lastAiSaysNotFound;
+}
+
+// 2. 气泡渲染（只在触发时机 + 还没对话时出）
+{shouldShowBubbles && (
+  <BubbleBar>
+    {suggestions.map(s => (
+      <Bubble
+        text={`🔍 按我知识库的分类和范本，帮我收集 ${s.entity} 的信息`}
+        onSend={() => sendWithImportMode(s.text)}
+        onInsert={() => insertToInput(s.text)}
+      />
+    ))}
+  </BubbleBar>
+)}
+
+// 3. 汇入按钮（AI 回答后，response.can_save=true 时出）
+{response.can_save && (
+  <SaveToKbPrompt
+    kbTitle={response.kb_title}
+    categoryHint={response.category_hint}
+    onSave={async () => {
+      await wikiIngestAll(kbId, response.answer, response.category_hint);
+      // Toast："已汇入「三国」知识库"
+    }}
+  />
+)}
+```
+
+### 8.3 改动量预估
+
+| 层 | 改动 | 量 | 复用现有逻辑 |
+|---|---|---|---|
+| Worker | `handleWikiAsk` 加 `import_mode` 分支 + `buildWikiContractPrompt` | ~50 行 | ✅ 复用 callLLM / checkWikiThemeMatch / 现有 categories 查询 |
+| Worker | 新增 `GET /api/wiki/kbs/:kb_id/suggest` | ~20 行 | ✅ 调一次小模型 |
+| Worker | wiki_sources 加 source 字段 | 1 条 SQL | |
+| 前端 AiChatView | 触发时机判断 + 气泡渲染 | ~60 行 | 新 UI |
+| 前端 AiChatView | 发请求带 import_mode + 汇入按钮 | ~30 行 | ✅ 复用 handleWikiIngestAll |
+| | **总计** | **~160 行** | |
+
+---
+
+## 九、边界情况
+
+| 情况 | 处理 |
+|------|------|
+| 用户在"日记"模式问问题（没选知识库） | 不触发这个功能，保持原样 |
+| 知识库只有模板，还没有任何页面 | 触发！因为检索肯定是空的，正符合"跳出知识库回答"的场景 |
+| AI 返回的 pages 里分类不存在 | 后端 validate 一下，不存在就 fallback 到第一个分类 |
+| 用户点了"不汇入"后又想汇入 | 回答还在屏幕上，按钮一直显示（不消失） |
+| 用户问的问题和知识库完全不相关 | check-match 预检挡掉，弹 ConfirmDialog 让用户确认 |
+| 用户选了 import_mode 但 KB 不存在 | 后端返回错误，和现在一样 |
+| import_mode + 联网关 | 强制联网 ON，忽略用户开关 |
+
+---
+
+## 十、已决策 & 待讨论
+
+### ✅ 已决策
+
+| # | 问题 | 决定 | 理由 |
+|---|------|------|------|
+| P0-1 | 触发方式 | 气泡自动触发 + 可选手动开关（两套并行）| 降门槛 + 给重度用户精确控制 |
+| P0-2 | AI 输出格式 | **自然语言，不硬塞模板，不是严格 JSON** | 用户明确要求 |
+| P0-3 | 汇入路径 | **走 handleWikiIngestAll，不跳过 ingest** | 统一入口 = 统一溯源 = 统一涟漪更新 |
+| P0-4 | check-match 预检 | **挡**。主题 low 弹 ConfirmDialog | 保护 KB 质量 |
+| P0-5 | 汇入是自动还是让用户点 | **让用户点**「📥 汇入」按钮 | 用户有最终决定权 |
+| P0-6 | import_mode 暴露给用户吗 | 不暴露 | 小白用户不需要知道 |
+| P0-7 | import_mode 时联网开关 | 强制 ON | 用户点气泡 = 查 KB 没有的 |
+| P0-8 | 气泡里的实体名 | AI 动态推荐 + 和已有页面不重复 | 避免重复 |
+| P0-9 | wiki_sources 新增 source 字段 | `'paste' \| 'kb_entry' \| 'qa'` | 三个入口统一溯源 |
+
+### 🔴 待讨论
+
+| # | 问题 | 选项 |
+|---|------|------|
+| P1-1 | 手动开关 UI 形式 | a) 两个圆形单选项（推荐）b) toggle 开关 c) 下拉菜单 |
+| P1-2 | check-match 预检逻辑 | 复用现有 handleWikiCheckMatch 还是写轻量版？现有那个是"汇入前预检"，import_mode 场景是"回答前预检" |
+| P1-3 | import_mode 时 history 砍几条 | 现有 handleWikiAsk 砍到最近 6 条（3 轮），import_mode 要不要砍更多？（因为 import_mode 是"跳出知识库"，多轮上下文意义不大）|
+
+---
+
+## 十一、实现优先级（建议分 3 步）
+
+| 步骤 | 内容 | 风险 | 依赖 |
+|------|------|------|------|
+| **Step 1** | 后端 import_mode 分支 + buildWikiContractPrompt + suggest 接口 + wiki_sources 加字段 | 低 | 无 |
+| **Step 2** | 前端气泡 UI + 触发时机判断 + 汇入按钮 | 中 | Step 1 |
+| **Step 3** | check-match 预检接入 + 手动开关 UI（可选）+ 边界情况打磨 | 中 | Step 1+2 |
+
+---
+
+## 十二、与现有方案的关系
+
+| 现有功能 | 关系 |
+|---------|------|
+| **handleWikiAsk（现有）** | import_mode=false 时完全不变，import_mode=true 时走新分支 |
+| **handleWikiIngestAll（现有）** | **核心复用**。三个入口统一走这个函数 |
+| **check-match 预检（现有）** | 复用到 import_mode 场景 |
+| **wiki_categories + page_format（现有）** | buildWikiContractPrompt 直接读，不新增表 |
+| **小麦问答现有联网模式** | import_mode 本质是联网模式 + 输出契约 + 汇入路径 |
+| **一键建 KB（v0.5.11）** | import_mode 是"让 KB 活起来"的第二个步骤——一键建 KB = 建空壳；import_mode = 自动往里填肉 |
+
+---
+
+## 附录：v1.0 → v2.0 改了什么（合并记录）
+
+| 维度 | v1.0（旧 wiki-qa-contract-design）| v2.0（合并版）| 为什么改 |
+|---|---|---|---|
+| 触发方式 | 用户手动选「只查/生成」开关 | 气泡自动触发（4 时机）+ 可选手动开关 | 降低新用户门槛 |
+| AI 输出 | 严格 JSON `{ pages, links, natural_answer }` | 自然语言，不硬塞模板 | 用户明确要求 |
+| 汇入路径 | 跳过 ingest，直接写 DB | 走 handleWikiIngestAll | 旧假设不成立 + 统一入口有涟漪更新 |
+| 联网开关 | 没说要不要强制 | import_mode 时强制 ON | 符合用户预期 |
+| 气泡 UI | 没有 | 有（触发时机 + 文案 + 示例）| 用户纠正后的设计 |
+| 后端函数名 | `handleWikiAsk(kb, question, generate_mode)` | `handleWikiAsk(kb, question, import_mode)` | 更准确，generate 暗示"创造"，import 暗示"汇入" |
+| API 改动 | `auto_save` 字段 + `save-pages` 新接口 | `import_mode` 字段 + `suggest` 新接口 | save-pages 不需要了，因为走 handleWikiIngestAll |
