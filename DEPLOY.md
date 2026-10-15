@@ -790,9 +790,11 @@ APK 最初放在 Cloudflare Pages 静态目录 `mydiary-web-site/download/`，�
 | **官网 Pages 项目** | `mydiary-site`（独立于主 app） |
 | **官网项目源码** | `mydiary-web-site/`（独立目录，不在 mydiary-web 里） |
 
-### 上传新 APK（v0.5.9-FIX-token 实操过）
+### 上传 APK 流程（v0.5.9-FIX-token → v0.5.13-mic-fix 迭代验证）
 
 **⚠️ 不要用 `wrangler r2 object put`！** wrangler 在国内网络下上传超过 10MB 文件会 `TypeError: terminated`。**用 curl.exe + Cloudflare REST API**。
+
+**⚠️ 同版本修复不要覆盖旧 key！** Cloudflare R2 custom domain 对覆盖替换的 key 永远返回旧内容（详见下方踩坑记录）。**必须用新 key 名**。
 
 ```powershell
 # 1. 先让 wrangler 刷新 OAuth token（过期自动续）
@@ -802,13 +804,27 @@ npx wrangler whoami
 $token = (Get-Content "$env:APPDATA\xdg.config\.wrangler\config\default.toml" | `
   Select-String 'oauth_token = "(.+?)"').Matches.Groups[1].Value
 
-# 3. curl 上传（覆盖最新版）
+# 3. curl 上传（⚠️ key 名必须是新的，不能覆盖！）
 curl.exe -X PUT `
   -H "Authorization: Bearer $token" `
   -H "Content-Type: application/vnd.android.package-archive" `
   --data-binary "@C:\path\to\your.apk" `
-  "https://api.cloudflare.com/client/v4/accounts/f6ca7e151a87ec9040e8a5777dd95b87/r2/buckets/mydiary-assets/objects/apk/MyDiary-0.5.9.apk"
+  "https://api.cloudflare.com/client/v4/accounts/f6ca7e151a87ec9040e8a5777dd95b87/r2/buckets/mydiary-assets/objects/apk/MyDiary-0.5.13-latest.apk"
+#                                                                                              ^^^^^^^^^^^^^^ 新 key 名！
 ```
+
+**上传后验证**（必做！防止 custom domain 返回旧内容）：
+```powershell
+# R2 API 直接下载（正确基准）
+curl.exe -s -H "Authorization: Bearer $token" `
+  "https://api.cloudflare.com/client/v4/accounts/f6ca7e151a87ec9040e8a5777dd95b87/r2/buckets/mydiary-assets/objects/apk/MyDiary-0.5.13-latest.apk" `
+  -o test-r2.apk; (Get-Item test-r2.apk).Length / 1MB
+
+# Custom domain 下载（应该和上面一样大）
+curl.exe -sL "https://download.callmydiary.online/apk/MyDiary-0.5.13-latest.apk" `
+  -o test-custom.apk; (Get-Item test-custom.apk).Length / 1MB
+```
+两个大小一致才对！如果 custom domain 返回的比 R2 API 小 → 你又覆盖了旧 key → 换新 key 名重传。
 
 成功返回：`{"success":true,"result":{"key":"apk/MyDiary-0.5.9.apk","size":"14597879","etag":"..."}}`
 
@@ -845,26 +861,29 @@ npx wrangler pages deploy . --project-name mydiary-site
 npx wrangler whoami
 $token = (Get-Content "$env:APPDATA\xdg.config\.wrangler\config\default.toml" | Select-String 'oauth_token = "(.+?)"').Matches.Groups[1].Value
 
-# Step 2: 上传新 APK 到 R2（key 用完整版本号，不要用 latest）
+# Step 2: 上传新 APK 到 R2
+#   ✅ 新版本（0.6.0 首次发布）→ key 用完整版本号
+#   ❌ 同版本修复（如 0.6.0-mic-fix）→ 不能覆盖旧 key！用 -latest / -fix 等后缀
 curl.exe -X PUT -H "Authorization: Bearer $token" -H "Content-Type: application/vnd.android.package-archive" `
   --data-binary "@C:\Users\haizhi\WorkBuddy\2026-xx-xx\outputs\MyDiary-0.6.0-debug.apk" `
   "https://api.cloudflare.com/client/v4/accounts/f6ca7e151a87ec9040e8a5777dd95b87/r2/buckets/mydiary-assets/objects/apk/MyDiary-0.6.0.apk"
 
 # Step 3: 改官网 index.html 两处（mydiary-web-site/index.html）
-#   - badge: v0.5.10 → v0.6.0，描述更新
-#   - Hero 下载按钮 href: .../MyDiary-0.5.10.apk → .../MyDiary-0.6.0.apk
+#   - badge: v0.5.13 → v0.6.0，描述更新
+#   - Hero 下载按钮 href: .../MyDiary-0.5.13-latest.apk → .../MyDiary-0.6.0.apk
 
 # Step 4: 改历史版本页（mydiary-web-site/download/index.html）
 #   - 顶部加新卡片：v0.6.0 最新
-#   - 原来的 v0.5.10 卡片 badge 从 "最新" 改 "旧版"
+#   - 原来的 v0.5.13 卡片 badge 从 "最新" 改 "旧版"
 
 # Step 5: 部署官网
 cd mydiary-web-site
 npx wrangler pages deploy . --project-name mydiary-site
 # → 自定义域名 https://callmydiary.online 自动生效
 
-# Step 6: 验证（手机访问 https://callmydiary.online 点下载按钮）
-#   或者直接测 APK URL: https://download.callmydiary.online/apk/MyDiary-0.6.0.apk
+# Step 6: 验证！必做！
+#   curl.exe -sL "https://download.callmydiary.online/apk/MyDiary-0.6.0.apk" -o test.apk; (Get-Item test.apk).Length / 1MB
+#   跟本地源文件大小对比，一致才对
 ```
 
 ### v0.5.10 实操记录（2026-10-10）
