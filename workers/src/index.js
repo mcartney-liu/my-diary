@@ -165,6 +165,7 @@ export default {
       ["GET",    "/api/wiki/kbs/:kb_id/suggest",                 handleWikiSuggestEntities],
       ["POST",   "/api/wiki/ai-design-categories",               handleWikiAIDesignCategories],
       ["POST",   "/api/wiki/optimize-description",              handleWikiOptimizeDescription],
+      ["POST",   "/api/transcribe",                              handleTranscribe],
     ];
 
     // 路由器：支持 :id 参数
@@ -1555,6 +1556,56 @@ async function embedText(env, text) {
   return r.data[0];
 }
 
+// ========== ASR：语音转文字（Workers AI Whisper） ==========
+// 前端用 MediaRecorder 录音 → Blob → POST /api/transcribe（application/octet-stream）
+async function handleTranscribe(request, env) {
+  // 前端发的是 application/octet-stream 直接 body blob（不是 FormData）
+  const buf = await request.arrayBuffer();
+  if (!buf || buf.byteLength === 0) {
+    return json({ error: "音频数据为空" }, 400);
+  }
+  // Workers AI Whisper 最大支持约 25MB / 30 分钟
+  const MAX_BYTES = 25 * 1024 * 1024;
+  if (buf.byteLength > MAX_BYTES) {
+    return json({ error: `音频太大（${(buf.byteLength/1024/1024).toFixed(1)}MB），请控制在 25MB 以内` }, 400);
+  }
+  // 从 Content-Type 或 URL query 推断 MIME，默认为 webm
+  const mime = request.headers.get('content-type')?.split(';')[0] || 'audio/webm';
+
+  // Workers AI Whisper 需要 base64 编码的字符串，不是 Blob！
+  // 见：https://developers.cloudflare.com/workers-ai/models/whisper-large-v3-turbo/
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  const b64 = btoa(binary);
+
+  console.log(`[asr] 收到音频 ${(buf.byteLength/1024).toFixed(1)}KB, mime=${mime}`);
+  const startTs = Date.now();
+
+  try {
+    const res = await env.AI.run('@cf/openai/whisper-large-v3-turbo', {
+      audio: b64,
+      task: 'transcribe',
+      language: 'zh',
+    });
+
+    const text = (res?.text || '').trim();
+    const cost = Date.now() - startTs;
+    console.log(`[asr] 转写完成 ${text.length}字, 耗时 ${cost}ms`);
+
+    return json({
+      text,
+      word_count: res?.word_count ?? text.length,
+      took_ms: cost,
+    });
+  } catch (e) {
+    const cost = Date.now() - startTs;
+    console.error(`[asr] Whisper 失败 (${cost}ms):`, e?.message, e?.name);
+    return json({ error: "语音转写失败：" + (e?.message || "未知错误") }, 500);
+  }
+}
+
+
 async function upsertEmbedding(env, diaryId, userId, content) {
   if (!content || content.trim().length < 2) return;
   const vec = await embedText(env, content);
@@ -2088,14 +2139,13 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
       return { ...p, score, vecScore: vecRaw };
     }).sort((a, b) => b.score - a.score);
 
-    // 5. reranker 精排 — 智能跳过！
-    // 候选 ≤ 8 且 top1 分数够高 → 混合检索已经足够，跳过 reranker（省 0.5-1.5s）
+    // 5. reranker 精排 — 始终跑！（评审意见：reranker score 是最可靠的相关性信号）
     const CANDIDATE_COUNT = Math.min(12, candidates.length);
     let finalTop = candidates.slice(0, Math.min(5, candidates.length));
-
     const topCandidates = candidates.slice(0, CANDIDATE_COUNT);
-    const SMART_SKIP_RERANKER = CANDIDATE_COUNT <= 8 && (candidates[0]?.score ?? 0) >= 0.05;
-    if (!SMART_SKIP_RERANKER && topCandidates.length >= 3) {
+
+    let rerankerTopScore = null; // 🆕 收集 reranker top1 分数
+    if (topCandidates.length >= 3) {
       try {
         const contexts = topCandidates.map(c => ({
           text: ((c.title || '') + ' ' + ((c.summary || c.content || '').slice(0, 300)))
@@ -2105,6 +2155,7 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
           new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
         ]);
         if (rerankResp?.response?.length) {
+          rerankerTopScore = rerankResp.response[0]?.score ?? null; // 🆕 记录 top1 分数
           const reranked = rerankResp.response.map(r => ({
             ...topCandidates[r.id],
             score: r.score ?? topCandidates[r.id].score,
@@ -2113,6 +2164,10 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
         }
       } catch {}
     }
+
+    // 🆕 日志：收集分数分布，为阈值定标提供数据
+    const mixedTopScore = candidates[0]?.score ?? 0;
+    console.log(`[wikiAsk] scores kb=${kb.title} q="${question.slice(0,30)}" mixedTop=${mixedTopScore.toFixed(4)} rerankTop=${rerankerTopScore?.toFixed(4) ?? 'null'} candidates=${candidates.length}`);
 
     // 6. 拼知识上下文 — 砍到每页 250 chars（prompt 砍一半 → callLLM 快一倍）
     // 重要：只要 DB 里有页面（hasAnyPage=true），就喂给 LLM，让它自己判断相关性
@@ -2141,6 +2196,7 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
 3. 优先根据给你的知识页面回答；知识库里没有的，可以用你自己的知识补充
 4. 回答里要区分：哪些来自知识库（用 [[页面名]] 引用），哪些是你的补充
 5. 简洁清晰，结构分明
+6. ⚠️ 如果你认为给你的知识页面和问题**完全无关**，请直接说"「${kb.title}」知识库里暂时没有这个问题的答案"，然后再用你的知识补充。不要假装在知识库里找到了。
 
 知识页面：
 ${contextBlock}
@@ -2154,7 +2210,7 @@ ${contextBlock}
 1. 说"我帮你查了一下「${kb.title}」知识库里的内容"，**不要说"自己的知识库"**
 2. **绝对不许提及/查日记**、**绝对不许说"日记里没找到"**
 3. ⛔ **严禁使用你自己的知识**，只能根据给你的知识页面回答！
-4. 知识页面里没有相关内容时，直接说"「${kb.title}」知识库里暂时没有这个问题的答案，可以开启联网查询让我用自己的知识回答"
+4. ⚠️ **最重要的一条**：如果你认为提供的这些页面与问题**完全无关**，请直接说"「${kb.title}」知识库里暂时没有这个问题的答案，可以开启联网查询让我用自己的知识回答"。**不要试图编造答案，不要假装在知识库里找到了。**
 5. 引用用 [[页面名]] 语法；简洁清晰
 
 知识页面：

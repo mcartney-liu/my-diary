@@ -72,9 +72,17 @@ export default function ProfilePage() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showThemeModal, setShowThemeModal] = useState(false);
   const [showRemindModal, setShowRemindModal] = useState(false);
+  const [showVoiceModal, setShowVoiceModal] = useState(false); // 🎙️ 流式语音识别设置弹窗
   const [showIdentityModal, setShowIdentityModal] = useState(false);
   const [showInterestsModal, setShowInterestsModal] = useState(false);
   const [themeSetting, setThemeSetting] = useState(localStorage.getItem("mydiary_theme") || "paper");
+  // 🎙️ 语音识别流式模式（默认关 → Whisper 批量转写，准但等 2-3 秒）
+  const [streamingVoice, setStreamingVoice] = useState(
+    () => localStorage.getItem("mydiary_streaming_voice") === "1"
+  );
+  useEffect(() => {
+    localStorage.setItem("mydiary_streaming_voice", streamingVoice ? "1" : "0");
+  }, [streamingVoice]);
   // 修改密码表单
   const [pwOld, setPwOld] = useState("");
   const [pwNew, setPwNew] = useState("");
@@ -354,6 +362,18 @@ export default function ProfilePage() {
                     <span className="flex-1 text-left">每日提醒</span>
                     <span className="text-xs text-paper-ink2">
                       {remindEnabled ? `已开启 ${remindTime}` : "未开启"}
+                    </span>
+                    <span className="text-paper-ink3">›</span>
+                  </button>
+                  {/* 🎙️ 流式语音识别 — 按钮风格（跟每日提醒一致） */}
+                  <button
+                    onClick={() => setShowVoiceModal(true)}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-paper-ink hover:bg-paper-surface transition"
+                  >
+                    <span>🎙️</span>
+                    <span className="flex-1 text-left">语音识别</span>
+                    <span className="text-xs text-paper-ink2">
+                      {streamingVoice ? "边说边出字" : "录完再转"}
                     </span>
                     <span className="text-paper-ink3">›</span>
                   </button>
@@ -1303,6 +1323,58 @@ export default function ProfilePage() {
               <button
                 onClick={() => setShowRemindModal(false)}
                 className="w-full py-2.5 rounded-lg bg-paper-accent text-paper-card font-medium hover:opacity-90 transition"
+              >完成</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🎙️ 语音识别 设置弹窗 — 两个选项卡直接点选 */}
+      {showVoiceModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowVoiceModal(false)}>
+          <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
+            <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
+              <h3 className="text-paper-ink font-semibold text-lg">🎙️ 语音识别</h3>
+              <button onClick={() => setShowVoiceModal(false)} className="text-paper-ink3 hover:text-paper-ink text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-paper-surface transition">×</button>
+            </div>
+            <div className="p-5 space-y-3">
+              {/* 选项 1：录完再转 */}
+              <button
+                onClick={() => setStreamingVoice(false)}
+                className={`w-full text-left p-4 rounded-xl border-2 transition active:scale-[0.99] ${
+                  !streamingVoice ? "border-paper-accent bg-paper-accent/5" : "border-paper-line hover:border-paper-ink3 bg-white"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-paper-ink">录完再转</span>
+                  {!streamingVoice && <span className="text-[10px] bg-paper-accent text-paper-card px-1.5 py-0.5 rounded">当前</span>}
+                  <span className="text-[10px] text-paper-accent">推荐</span>
+                </div>
+                <p className="text-[11px] text-paper-ink2 leading-relaxed">
+                  小麦用 AI 一次性转写，准确率高、自动加标点，
+                  桌面浏览器、iOS Safari、Android App 全平台可用。
+                  录完等 2-3 秒出结果。
+                </p>
+              </button>
+              {/* 选项 2：边说边出字 */}
+              <button
+                onClick={() => setStreamingVoice(true)}
+                className={`w-full text-left p-4 rounded-xl border-2 transition active:scale-[0.99] ${
+                  streamingVoice ? "border-paper-accent bg-paper-accent/5" : "border-paper-line hover:border-paper-ink3 bg-white"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-paper-ink">边说边出字</span>
+                  {streamingVoice && <span className="text-[10px] bg-paper-accent text-paper-card px-1.5 py-0.5 rounded">当前</span>}
+                </div>
+                <p className="text-[11px] text-paper-ink2 leading-relaxed">
+                  浏览器原生实时转写，说话时同步出字。
+                  ⚠️ 我们暂未适配移动端，iOS / Android 上可能不可用。
+                </p>
+              </button>
+              <button
+                onClick={() => setShowVoiceModal(false)}
+                className="w-full py-2.5 mt-2 rounded-lg bg-paper-accent text-paper-card font-medium hover:opacity-90 transition"
               >完成</button>
             </div>
           </div>

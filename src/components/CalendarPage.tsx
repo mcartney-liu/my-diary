@@ -540,7 +540,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           <button
             id="tour-dock-profile"
             onClick={() => nav("/profile")}
-            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
+            className="flex flex-col items-center justify-center h-10 text-[10px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap min-w-[44px]"
           >
             {avatarKey?.startsWith("emoji-") ? (
               <span className="w-5 h-5 rounded-full border border-paper-line shrink-0 flex items-center justify-center text-sm bg-gradient-to-br from-amber-100 to-paper-surface">{avatarKey.slice(6)}</span>
@@ -549,17 +549,17 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             ) : (
               <User className="w-4 h-4 shrink-0" />
             )}
-            <span>我的</span>
+            <span className="leading-none mt-0.5">我的</span>
           </button>
 
           {/* 📚 书柜 */}
           <button
             id="tour-dock-shelf"
             onClick={() => nav("/shelf")}
-            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
+            className="flex flex-col items-center justify-center h-10 text-[10px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap min-w-[44px]"
           >
             <LibraryBig className="w-4 h-4 shrink-0" />
-            <span>书柜</span>
+            <span className="leading-none mt-0.5">书柜</span>
           </button>
 
           {/* 🎤 语音快记（中心强调胶囊） */}
@@ -571,10 +571,10 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           <button
             id="tour-dock-write"
             onClick={() => nav("/editor")}
-            className="flex items-center gap-0.5 text-[12px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 py-1 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap"
+            className="flex flex-col items-center justify-center h-10 text-[10px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap min-w-[44px]"
           >
             <PenLine className="w-4 h-4 shrink-0" />
-            <span>写日记</span>
+            <span className="leading-none mt-0.5">写日记</span>
           </button>
         </div>
       </nav>

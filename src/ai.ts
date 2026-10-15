@@ -496,7 +496,8 @@ title 规则:
 - 比如用户说"今天心情不错，读了三体" → "📚 三体读到忘我"
 
 所有模板通用可用 block kind:
-- heading / text / checkbox / number / divider / finance_item
+- heading / text / checkbox / number / divider
+- 💰 只有记账 / 旅行模板才能用 finance_item，其他模板**严禁**！
 根据用户提到的内容自由组合，不要只用某一种。`,
 
   finance: `你是记账助手。用户说的每一笔收入/支出 → finance_item。
@@ -560,14 +561,30 @@ blocks 用 heading/text/checkbox 自由组织。`,
   "tags": ["健康"]
 }`,
 
-  plan: `你是计划整理助手。
+  plan: `你是计划整理助手。把用户说的待办/计划/日程整理成结构化清单。
 
 返回 JSON:
 {
-  "title": "🎯 从用户实际内容提炼",
+  "title": "🎯 从用户实际内容提炼（≤15字）",
   "blocks": [...],
   "tags": ["计划"]
-}`,
+}
+
+title 必须从用户说话里提炼，比如 "🎯 今天的几件事" / "🎯 周末安排"。
+
+blocks 规则:
+- ✅ 只用 heading / checkbox / text / divider
+- ❌ **严禁** finance_item（支出/记账）、❌ **严禁** number（金额/数字）
+- 待办事项 → checkbox {"kind":"checkbox","content":"具体事项","checked":false}
+- 分段 → heading {"kind":"heading","level":2,"text":"上午/下午/晚上 或 工作/生活"}
+- 时间点直接写在 checkbox content 里，比如 {"kind":"checkbox","content":"11:40 到要办的事","checked":false}
+- heading / divider 用来组织结构，自由混合
+
+示例: 用户说"今天11点要去修手机，13点到14点开会，15点后还要买菜" →
+  heading "今日待办"
+  checkbox "11:00 去修手机"
+  checkbox "13:00-14:00 开会"
+  checkbox "15:00 后买菜"`,
 };
 
 const FALLBACK_PROMPTS: Record<string, string[]> = {

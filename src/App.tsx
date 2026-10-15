@@ -485,6 +485,7 @@ function EditorPageWrapper(props: {
 
   // 如果 VoiceQuickEntry 传了 templateId，优先用它
   const effectiveTemplateId = templateIdOverride ?? templateId;
+  console.info("[QuickEditor] 📥 templateId=", templateId, "polished=", !!initialPolished, "templateIdOverride=", templateIdOverride);
 
   return (
     <EditorPage

@@ -3,10 +3,11 @@ import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { Mic, Bot, Loader2, Sparkles, PenLine } from "lucide-react";
 import { detectTemplate, polishTranscript } from "../ai";
+import { transcribeAudio } from "../api";
 import { TEMPLATES } from "../templates";
 import { listTemplates, type UserTemplate } from "../api";
 
-type Phase = "idle" | "menu" | "recording" | "input" | "processing" | "match";
+type Phase = "idle" | "menu" | "recording" | "transcribing" | "input" | "processing" | "match";
 
 interface QuickResult {
   templateId: string;
@@ -18,11 +19,6 @@ interface Props {
   dockVariant?: boolean;
 }
 
-function getSpeechRecognition(): any {
-  const w = window as any;
-  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
-}
-
 export default function VoiceQuickEntry({ dockVariant = false }: Props) {
   const nav = useNavigate();
   const [phase, setPhase] = useState<Phase>("idle");
@@ -31,11 +27,10 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
   const [result, setResult] = useState<QuickResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const recRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<number | null>(null);
-  const finalTextRef = useRef("");
-  const userStoppedRef = useRef(false);         // 用户主动停 → 不重连
-  const restartTimerRef = useRef<number | null>(null); // onend 自动重连防抖
 
   // ⭐ 用户自建模板（语音快记也要能匹配）
   const [userTemplates, setUserTemplates] = useState<UserTemplate[]>([]);
@@ -51,68 +46,83 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
   };
 
-  const startRecording = () => {
-    const SR = getSpeechRecognition();
+  const startRecording = async () => {
     setError(null);
-    if (!SR) { setPhase("input"); return; }
+    setTranscript("");
+    chunksRef.current = [];
 
-    const rec = new SR();
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.lang = "zh-CN";
+    // 1. 先检查 MediaRecorder 支持
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setError("当前设备浏览器不支持录音，改打字吧");
+      setPhase("input");
+      return;
+    }
 
-    rec.onresult = (e: any) => {
-      let interim = "";
-      let final = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        const t = r[0].transcript;
-        if (r.isFinal) final += t;
-        else interim += t;
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      if (msg.includes('Permission') || msg.includes('denied') || msg.includes('NotAllowed')) {
+        setError("麦克风权限被拒绝，检查浏览器设置后重试");
+      } else if (msg.includes('NotFound') || msg.includes('device')) {
+        setError("找不到麦克风设备");
+      } else {
+        setError("无法启动录音：" + msg);
       }
-      if (final) finalTextRef.current += final;
-      setTranscript(finalTextRef.current + interim);
-    };
+      setPhase("input");
+      return;
+    }
+    streamRef.current = stream;
 
-    // 🧠 onend: 如果不是用户主动停的 → 自动重启（300ms 防抖，避免 onend 风暴）
-    rec.onend = () => {
-      if (userStoppedRef.current) return; // 用户主动停的，不重连
-      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = window.setTimeout(() => {
-        if (recRef.current === rec && !userStoppedRef.current) {
-          try { rec.start(); } catch { /* 静默失败 */ }
+    // 2. 选一个浏览器支持的 MIME 类型
+    const mimes = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+      'audio/mp4',
+    ];
+    let mime = '';
+    for (const m of mimes) {
+      if (MediaRecorder.isTypeSupported(m)) { mime = m; break; }
+    }
+    const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+
+    mr.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    mr.onstop = async () => {
+      // 停止录音 → 合并 chunks → 传 Worker Whisper 转写
+      const blob = new Blob(chunksRef.current, { type: mime || 'audio/webm' });
+      // 先关掉麦克风，省电
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+      setPhase("transcribing");
+      try {
+        const text = await transcribeAudio(blob);
+        if (!text?.trim()) {
+          setError("没识别到语音内容，靠近麦克风再说一次，或改打字");
+          setPhase("input");
+          return;
         }
-      }, 300);
-    };
-
-    rec.onerror = (e: any) => {
-      const err = e.error || "unknown";
-      let msg = "";
-      switch (err) {
-        case "not-allowed":
-        case "service-not-allowed":
-          msg = "浏览器不允许录音，检查麦克风权限后重试，或改用打字"; break;
-        case "no-speech":
-          msg = "没听清你说的话，靠近手机麦克风再说一次"; break;
-        case "network":
-          msg = "网络差，连不上语音识别服务，检查网络后再试"; break;
-        case "aborted":
-          msg = "录音被中断"; break;
-        case "audio-capture":
-          msg = "找不到麦克风设备"; break;
-        default:
-          msg = `语音识别出错：${err}，改用打字吧`;
+        setTranscript(text);
+        await runDetect(text.trim());
+      } catch (e: any) {
+        console.error('[asr] transcribeAudio 失败:', e);
+        // Whisper 失败 → 降级：用旧 Web Speech API？不，直接让用户打字
+        setError("语音识别服务暂时不可用，改打字吧。错误：" + (e?.message || "网络问题"));
+        setPhase("input");
       }
-      setError(msg);
-      // 自动降级到打字界面，用户不用手动切
+    };
+    mr.onerror = (e: any) => {
+      setError("录音出错：" + (e?.error?.message || "未知错误"));
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
       setPhase("input");
     };
 
-    recRef.current = rec;
-    finalTextRef.current = "";
-    userStoppedRef.current = false;
-    if (restartTimerRef.current) { clearTimeout(restartTimerRef.current); restartTimerRef.current = null; }
-    setTranscript("");
+    mediaRecorderRef.current = mr;
+    mr.start(1000); // 每秒一次 dataavailable，避免内存里堆太大
     setPhase("recording");
     setElapsed(0);
 
@@ -120,11 +130,6 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
     timerRef.current = window.setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTs) / 1000));
     }, 250);
-
-    try { rec.start(); } catch (startErr: any) {
-      setError(`无法启动录音：${startErr?.message || "浏览器可能不支持语音识别"}`);
-      setPhase("input");
-    }
   };
 
   const runDetect = async (text: string) => {
@@ -143,18 +148,21 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
     }
   };
 
-  const stopRecording = async () => {
-    userStoppedRef.current = true; // 🧠 标记用户主动停，阻止 onend 自动重连
-    if (restartTimerRef.current) { clearTimeout(restartTimerRef.current); restartTimerRef.current = null; }
-    if (recRef.current) { try { recRef.current.stop(); } catch {} }
+  const stopRecording = () => {
     stopTimer();
-    const text = (finalTextRef.current || transcript).trim();
-    if (!text) {
-      setError("没识别到语音，改打字试试");
-      setPhase("input");
-      return;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try { mediaRecorderRef.current.stop(); } catch {}
+      // onstop 回调会自动走 transcribeAudio → runDetect
+    } else {
+      // MediaRecorder 已 inactive（比如 onerror 触发的）
+      const text = transcript.trim();
+      if (!text) {
+        setError("没识别到语音，改打字试试");
+        setPhase("input");
+        return;
+      }
+      runDetect(text);
     }
-    await runDetect(text);
   };
 
   const submitTyped = async () => {
@@ -195,14 +203,18 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
   };
 
   const cancel = () => {
-    if (recRef.current) { try { recRef.current.stop(); } catch {} }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try { mediaRecorderRef.current.stop(); } catch {}
+    }
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
     stopTimer();
-    finalTextRef.current = "";
+    chunksRef.current = [];
     setTranscript("");
     setTypedText("");
     setResult(null);
     setError(null);
-    setShowTemplatePicker(false); // 🔑 重置模板选择面板
+    setShowTemplatePicker(false);
     setPhase("idle");
     setElapsed(0);
   };
@@ -223,26 +235,28 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
   const btnBase = "px-3 py-2 rounded-xl border text-sm transition active:scale-95 select-none flex items-center gap-2";
   const btnClass = phase === "recording"
     ? `${btnBase} bg-paper-accent text-white border-paper-accent animate-pulse`
-    : (phase === "processing" || phase === "match")
+    : (phase === "transcribing" || phase === "processing" || phase === "match")
       ? `${btnBase} bg-paper-surface border-paper-line text-paper-ink/40 cursor-not-allowed`
       : `${btnBase} bg-paper-surface border-paper-line text-paper-ink hover:bg-paper-line/50`;
 
   // 🫧 悬浮胶囊坞 — 中心强调圆钮样式
   const dockBtnClass = phase === "recording"
     ? "p-2.5 rounded-full bg-paper-accent text-white hover:bg-paper-accent2 active:scale-95 transition-all shadow-md shadow-paper-accent/25 animate-pulse"
-    : (phase === "processing" || phase === "match")
+    : (phase === "transcribing" || phase === "processing" || phase === "match")
       ? "p-2.5 rounded-full bg-paper-accent/60 text-white cursor-not-allowed shadow-md shadow-paper-accent/20"
       : "p-2.5 rounded-full bg-paper-accent text-white hover:bg-paper-accent2 active:scale-95 transition-all shadow-md shadow-paper-accent/25";
 
   const dockLabel = phase === "recording" ? "停止" :
+                    phase === "transcribing" ? "转写中" :
                     phase === "input" ? "打字" :
                     phase === "processing" ? "想想" :
                     phase === "match" ? "结果" :
                     "语音";
 
   const btnLabel = phase === "recording" ? `${fmtTime(elapsed)} · 停止` :
+                   phase === "transcribing" ? "小麦转写中..." :
                    phase === "input" ? "语音快记" :
-                   phase === "processing" ? "帮你想想..." :
+                   phase === "processing" ? "小麦帮你想想..." :
                    phase === "match" ? "查看结果" :
                    "语音快记";
 
@@ -385,6 +399,17 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
                   ✨ 帮你分析这句话
                 </button>
               </>
+            )}
+
+            {/* ===== 小麦转写中 ===== */}
+            {phase === "transcribing" && (
+              <div className="flex items-center gap-3 py-4">
+                <Loader2 size={22} className="animate-spin text-paper-ink" />
+                <div>
+                  <div className="font-medium text-paper-ink">正在识别语音...</div>
+                  <div className="text-xs text-paper-ink2">小麦转写中，稍等 2-3 秒</div>
+                </div>
+              </div>
             )}
 
             {/* ===== AI 处理中 ===== */}

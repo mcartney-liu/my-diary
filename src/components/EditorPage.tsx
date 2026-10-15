@@ -621,19 +621,36 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   // 🔑 initialPolished（AI 快记注入）只跳过 blocks/title/mood/tags，但模板的视觉属性（showLines/wallpaper）仍然要应用
   useEffect(() => {
     if (initialDiary) return; // 编辑模式不走这里
-    const tpl = templateById(initialTemplateId);
-    if (!tpl) return;
-    setTemplateId(tpl.id);
-    // 视觉属性：不管有没有 polished 都应用
-    if (tpl.showLines !== undefined) setShowLines(tpl.showLines);
-    if (tpl.wallpaper) setWallpaper(tpl.wallpaper);
-    // 内容属性：有 polished 就跳过模板默认值
-    if (initialPolished) return;
-    setBlocks(tpl.defaultBlocks.map((b) => ({ ...b })));
-    if (tpl.defaultTitle) setTitle(tpl.defaultTitle);
-    if (tpl.defaultMoodId) setMoodId(tpl.defaultMoodId);
-    if (tpl.defaultTags?.length) setTags([...tpl.defaultTags]);
-  }, [initialDiary, initialTemplateId, initialPolished]);
+    if (!initialTemplateId) return;
+
+    // 1) 先查官方模板
+    const official = templateById(initialTemplateId);
+    if (official) {
+      setTemplateId(official.id);
+      if (official.showLines !== undefined) setShowLines(official.showLines);
+      if (official.wallpaper) setWallpaper(official.wallpaper);
+      if (initialPolished) return;
+      setBlocks(official.defaultBlocks.map((b) => ({ ...b })));
+      if (official.defaultTitle) setTitle(official.defaultTitle);
+      if (official.defaultMoodId) setMoodId(official.defaultMoodId);
+      if (official.defaultTags?.length) setTags([...official.defaultTags]);
+      return;
+    }
+
+    // 2) 再查用户自建模板（可能带 custom- 前缀，也可能不带）
+    const rawId = initialTemplateId.replace(/^custom-/, "");
+    const mine = myTemplates.find(t => t.id === rawId || t.id === initialTemplateId);
+    if (mine) {
+      setTemplateId(`custom-${mine.id}`);
+      if (mine.show_lines !== undefined) setShowLines(mine.show_lines);
+      if (mine.wallpaper) setWallpaper(mine.wallpaper);
+      if (initialPolished) return;
+      setBlocks(mine.blocks.map((b) => ({ ...b })));
+      if (mine.default_title) setTitle(mine.default_title);
+      if (mine.default_mood_id) setMoodId(mine.default_mood_id as MoodId);
+      if (mine.default_tags?.length) setTags([...mine.default_tags]);
+    }
+  }, [initialDiary, initialTemplateId, initialPolished, myTemplates]);
 
   // 新建日记时自动加载顶部栏的 定位 + 天气（不用用户点按钮）
   // 注意：自动模式只走 IP 定位，不碰 GPS（iOS Safari 要求 GPS 必须用户手势触发）
@@ -1194,8 +1211,13 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       return;
     }
 
-    // 2) Web Speech API 实时转写（支持就用它 + 🧠 自动重连 hack）
-    if (speechSupported) {
+    // 🎙️ 读设置：用户选了"流式模式" AND 浏览器支持 Web Speech API → 走实时
+    //     否则 → 统一走 Whisper 批量转写（准、全平台、自动标点）
+    const streaming = localStorage.getItem("mydiary_streaming_voice") === "1";
+    const useRealtime = streaming && speechSupported;
+
+    // 2) 如果用实时模式 → Web Speech API
+    if (useRealtime) {
       const rec = createSpeechRecognition();
       speechRecRef.current = rec;
       try {
@@ -1212,28 +1234,41 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       const mr = new MediaRecorder(stream, { mimeType: mime });
       recordedChunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size) recordedChunksRef.current.push(e.data); };
-      mr.onstop = () => {
+      mr.onstop = async () => {
         const blob = new Blob(recordedChunksRef.current, { type: mime });
         const durationMs = Date.now() - recordingStartRef.current;
         const speechText = pendingSpeechTextRef.current;
         pendingSpeechTextRef.current = ""; // 用完清
         const reader = new FileReader();
-        reader.onload = () => {
+        reader.onload = async () => {
           const rec: PendingRecording = { blob, dataUrl: reader.result as string, durationMs };
           if (speechText) {
             rec.speechText = speechText;
-            setEditableTranscript(speechText); // 初始化弹窗可编辑文字
+            setEditableTranscript(speechText);
           } else {
             setEditableTranscript("");
           }
           setPendingRec(rec);
+
+          // 🎙️ Whisper 模式 → 停了直接调 Worker 转写（不要等用户手动点）
+          if (!useRealtime) {
+            setTranscribing(true);
+            try {
+              const text = await transcribeAudio(blob);
+              if (text.trim()) setEditableTranscript(text.trim());
+            } catch (err) {
+              console.warn("[asr] Whisper 转写失败:", err);
+            } finally {
+              setTranscribing(false);
+            }
+          }
         };
         reader.readAsDataURL(blob);
       };
       mr.start();
       mediaRecorderRef.current = mr;
     } catch (e) {
-      console.warn("[mydiary] MediaRecorder 不可用，仅语音转写:", e);
+      console.warn("[mydiary] MediaRecorder 不可用:", e);
     }
 
     recordingStartRef.current = Date.now();
@@ -1243,24 +1278,18 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const stopRecording = () => {
     const speechText = (speechFinalRef.current.trim() + " " + speechInterim.trim()).trim();
 
-    // 🧠 告诉重连逻辑：这是用户主动停的，不要自动重启
     userStoppedSpeechRef.current = true;
     if (speechRestartTimerRef.current) { clearTimeout(speechRestartTimerRef.current); speechRestartTimerRef.current = null; }
 
-    // 停 Web Speech
     try { speechRecRef.current?.stop(); } catch {}
     speechRecRef.current = null;
-    // 停 MediaRecorder（它的 onstop 回调会 setPendingRec）
     try { mediaRecorderRef.current?.stop(); } catch {}
     mediaRecorderRef.current = null;
-    // 停麦克风
     speechStreamRef.current?.getTracks().forEach((t) => t.stop());
     speechStreamRef.current = null;
     setRecording(false);
     setSpeechInterim("");
 
-    // 不自动落字！把 speechText 塞进一个临时 ref，等 MediaRecorder onstop 合并进 pendingRec
-    // 这样弹窗里可以同时看到音频播放器 + 可编辑的转写文字
     pendingSpeechTextRef.current = speechText;
   };
 
@@ -2351,11 +2380,16 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                <audio src={pendingRec.dataUrl} controls className="w-full" />
              </div>
 
-             {/* 可编辑转写文字（Web Speech 实时转写结果，用户可改） */}
-             {pendingRec.speechText !== undefined || editableTranscript ? (
-               <div>
-                 <div className="text-xs text-paper-accent font-medium mb-1.5 flex items-center gap-1.5">
-                    <FileText size={13} /> 语音转文字（可编辑）
+             {/* 可编辑转写文字 */}
+            {transcribing ? (
+              <div className="rounded-xl bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-700 flex items-center gap-2">
+                <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                🎙️ 小麦正在转写，请稍候...
+              </div>
+            ) : pendingRec.speechText !== undefined || editableTranscript ? (
+              <div>
+                <div className="text-xs text-paper-accent font-medium mb-1.5 flex items-center gap-1.5">
+                   <FileText size={13} /> 语音转文字（可编辑）
                   </div>
                  <textarea
                    value={editableTranscript}
@@ -2367,7 +2401,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                </div>
              ) : (
                <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
-                 💡 当前浏览器不支持实时语音转写。保存音频后可用「🤖 AI 转写」按钮重新识别。
+                 💡 暂时没识别出文字。保存音频后可手动输入或点「🤖 AI 转写」重新识别。
                </div>
              )}
 

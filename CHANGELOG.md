@@ -1,5 +1,67 @@
 # MyDiary 版本更新记录
 
+## v0.5.13 — 2026-10-15（**未发版，累积小改动**）
+
+### 🎨 优化
+
+**1. 底部导航栏改为垂直排列**
+
+- 「我的」「书柜」「写日记」三个 tab 从水平排（图标和字挤一行）改成**图标在上、文字在下**的垂直布局
+- 保持悬浮胶囊坞的整体 glassmorphism 风格不变
+- 中间🎤语音会计大按钮不动
+- 统一每个 tab 高度 40px，底部齐平更整齐
+
+**2. 计划待办模板：语音会计不再乱识别成记账**
+
+- 根因：plan 模板的 prompt 太弱，没说 blocks 该用什么 kind，default prompt 又把 finance_item 列为"所有模板通用"
+- 修法：plan prompt 加强为明确规则——**只用 heading/checkbox/text/divider，严禁 finance_item（支出记账）和 number（金额）**；default prompt 把 finance_item 单独拎出"只有记账/旅行模板才能用"
+- 效果：语音会计说"今天11点修手机，13点到14点开会"→ 正确生成 checkbox 待办清单，不再冒出"支出 餐饮"
+
+### 🐛 Bug 修复
+
+**3. 知识库问答幻觉修复（泰坦尼克号事件）**
+
+- 根因：用户问一个知识库里**完全没有**的实体（比如"泰坦尼克号"），但混合检索没有分数阈值过滤——top 5 低分页面仍然喂给 LLM，LLM 被污染后要么用自己的世界知识瞎编，要么硬扯无关页面（即"幻觉"）
+- 修法（Prompt 止血版，后续上方案 C 阈值硬拦截）：
+  ① 联网关模式 prompt 加了"⚠️ 最重要的一条：如果你认为提供的页面与问题**完全无关**，请直接说'知识库里暂时没有'。**不要试图编造答案，不要假装在知识库里找到了**"
+  ② 联网开模式也加了类似兜底
+  ③ reranker 去掉 SMART_SKIP，始终跑并打日志收集分数分布，为后续阈值定标提供数据
+- 专家评审（来自 Android 团队）：方向正确，reranker score 比混合检索 score 更可靠，后续应优先用 reranker score 做阈值拦截
+- 详细技术文档见 `docs/wiki-rag-hallucination.md`
+
+**4. 语音识别引擎迁移：Web Speech → Workers AI Whisper**
+
+- 根因：iOS Safari 的 WKWebView 没有 `webkitSpeechRecognition` API → 自动 fallback 但等于不能用；Android App 壳虽然有 API 但后端是 Google Cloud Speech-to-Text，国内被墙 → 静默失败
+- 修法：Worker 新增 `POST /api/transcribe` 路由，调 Cloudflare Workers AI 的 Whisper large-v3-turbo 模型；前端录音用 MediaRecorder → 把 blob 转 base64 上传（Workers AI 要 base64 不要 Blob）
+- Worker 配置：`wrangler.toml` 加 `[ai] binding = "AI"`，Dev 和 Prod 都有
+- 效果：iOS Safari / Android App / Chrome 三端统一可用，准确率高于 Web Speech，自动加标点；录完等 2-3 秒出结果
+- 免费额度：Workers AI 每天 10,000 Neurons → Whisper large-v3-turbo ≈ 214 分钟/天免费
+
+### ⚙️ 设置重构
+
+**5. 语音识别设置从 inline switch 改为 Modal 选项卡**
+
+- 之前：设置菜单里直接摆一个开关 + 长说明文字（"录完再转（Whisper）..."），跟其他菜单项（主题色、每日提醒、我的身份）风格不统一
+- 现在：所有设置项统一为「标题 + 状态文字 + › 箭头」按钮风格，点进去弹 Modal
+- Modal 里**两个大卡片直接点选**（无开关）：
+  - 🟢 **录完再转（推荐）**：小麦用 AI 一次性转写，全平台可用
+  - ⚪ **边说边出字**：浏览器原生实时转写，我们暂未适配移动端
+- 标题改名为「语音识别」，所有用户可见文案 **Whisper → 小麦**（代码注释里还留着，不影响）
+
+### 🐛 Bug 修复
+
+**6. 账号切换后首页日记残留 localStorage 数据**
+
+- 根因：AuthContext.logout 没清 localStorage，App.tsx 的日记列表 useEffect 没有 auth.user?.id 依赖
+- 修法：logout 里清空 localStorage；首页列表 useEffect 加 [auth.user?.id] 依赖，用户切换时强制重新拉云端
+
+**7. 语音快记匹配到用户自建模板 → 编辑器不带模板内容**
+
+- 根因：EditorPage 模板初始化 useEffect 只调用 `templateById(id)` 查 8 个官方模板，用户自建模板永远返回 undefined → defaultBlocks / defaultTitle / defaultTags 全都不加载
+- 修法：模板初始化逻辑改为先查官方模板，查不到再查 `myTemplates`（用户自建），支持 `custom-` 前缀和原始 id 两种格式；依赖数组加 `myTemplates`，用户模板异步加载完后重新触发
+
+---
+
 ## v0.5.11 — 2026-10-11
 
 ### 🎉 新功能
