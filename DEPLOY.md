@@ -785,8 +785,8 @@ APK 最初放在 Cloudflare Pages 静态目录 `mydiary-web-site/download/`，�
 | **Bucket 创建时间** | 2026-09-24 |
 | **Bucket Location** | WNAM（美国西部） |
 | **Custom Domain** | `download.callmydiary.online`（已连接） |
-| **APK 最新版** | `/apk/MyDiary-0.5.9.apk` |
-| **APK 旧版** | `/apk/MyDiary-0.5.9-old.apk` |
+| **APK 最新版** | `/apk/MyDiary-0.5.13.apk` |
+| **APK 历史版** | `/apk/MyDiary-0.5.12.apk`, `/apk/MyDiary-0.5.11.apk`, `/apk/MyDiary-0.5.10.apk`, `/apk/MyDiary-0.5.9.apk` |
 | **官网 Pages 项目** | `mydiary-site`（独立于主 app） |
 | **官网项目源码** | `mydiary-web-site/`（独立目录，不在 mydiary-web 里） |
 
@@ -879,6 +879,61 @@ npx wrangler pages deploy . --project-name mydiary-site
 | download/index.html 改动 | 顶部新增 v0.5.10 卡片（最新），v0.5.9 降为旧版 |
 | 官网部署 | ✅ 成功 |
 
+### 安卓团队 APK 固定存放路径
+
+安卓团队每次打完包，**所有 APK 统一放在**：
+
+```
+C:\Users\haizhi\WorkBuddy\2026-09-23-11-40-59\outputs\
+```
+
+文件名规律：`MyDiary-{版本号}-{标注}.apk`，比如：
+- `MyDiary-0.5.13-whisper.apk` — Whisper 功能版
+- `MyDiary-0.5.13-mic-fix.apk` — Manifest 权限修复版
+- `MyDiary-0.5.12-debug.apk` — 旧版 debug 包
+
+**⚠️ 注意**：路径里的 `2026-09-23-11-40-59` 是安卓团队 WorkBuddy 任务 ID，可能每次变，但最终 `outputs/` 目录里会有最新 APK。
+
+### v0.5.13 实操记录（2026-10-15 ~ 2026-10-16）
+
+**Phase 1 — Whisper 迁移版（2026-10-15）**
+
+| 项 | 值 |
+|---|---|
+| APK 源文件 | `...outputs\MyDiary-0.5.13-whisper.apk` (13.94 MB) |
+| R2 key | `apk/MyDiary-0.5.13.apk` |
+| 官网改动 | index.html badge + Hero 下载按钮 + VERSIONS 数组 + download/index.html 新增 v0.5.13 卡片 |
+| 官网部署 | ✅ 成功 |
+
+**Phase 2 — Manifest 权限修复版（2026-10-16）⚠️ 覆盖替换场景**
+
+安卓团队定位：Android WebView 麦克风权限组缺 `MODIFY_AUDIO_SETTINGS`，只有 `RECORD_AUDIO` → 用户点了"允许"但录音还是失败。修复：`android/app/src/main/AndroidManifest.xml` 加一行 `<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />`。
+
+前端仓库也已同步修复（commit `7f76f5a`），安卓团队下次 `cap sync android` 自动带上。
+
+| 项 | 值 |
+|---|---|
+| APK 源文件 | `...outputs\MyDiary-0.5.13-mic-fix.apk` (14.25 MB) |
+| R2 key | `apk/MyDiary-0.5.13.apk` ← **同一个 key，直接覆盖** |
+| 官网改动 | ❌ 不用改（同一个版本号，下载 URL 不变） |
+| 下载链接 | `https://download.callmydiary.online/apk/MyDiary-0.5.13.apk` ← 自动拿到新包 |
+
+**⚠️ 覆盖替换场景 vs 新版本场景**：
+- **同版本修复**（如 mic-fix）→ R2 key 不变，直接 PUT 覆盖，官网不动
+- **真新版本**（如 0.5.13 → 0.5.14）→ 新 R2 key，官网 index.html + download/index.html 都要改
+
+### APK 覆盖替换操作模板（同版本修复）
+
+```powershell
+# 同版本覆盖：key 不变，直接 PUT
+$apk = "C:\Users\haizhi\WorkBuddy\2026-09-23-11-40-59\outputs\MyDiary-0.5.13-mic-fix.apk"
+curl.exe -s -X PUT -H "Authorization: Bearer $token" -H "Content-Type: application/vnd.android.package-archive" `
+  --data-binary "@$apk" `
+  "https://api.cloudflare.com/client/v4/accounts/f6ca7e151a87ec9040e8a5777dd95b87/r2/buckets/mydiary-assets/objects/apk/MyDiary-0.5.13.apk"
+# → "success":true 即成功
+# → 官网不用改，同一个 URL 用户自动拿到新包
+```
+
 ### OAuth Token 注意事项
 
 - wrangler OAuth token **默认缺 R2 权限**（`k2.read`, `k2.write`）
@@ -890,7 +945,8 @@ npx wrangler pages deploy . --project-name mydiary-site
 
 R2 走 Cloudflare CDN，用户手机可能有旧 APK 缓存。下载不生效时：
 - PC 浏览器：Ctrl+Shift+R 强制刷新
-- Android：清除浏览器缓存，或直接访问 `https://download.callmydiary.online/apk/MyDiary-0.5.9.apk` 重新下载
+- Android：清除浏览器缓存，或直接访问 `https://download.callmydiary.online/apk/MyDiary-0.5.13.apk` 重新下载
+- **同版本覆盖替换时尤其要注意**：CDN 可能缓存 10-30 分钟，等一下再试或手动清缓存
 
 ---
 
