@@ -919,19 +919,53 @@ C:\Users\haizhi\WorkBuddy\2026-09-23-11-40-59\outputs\
 | 下载链接 | `https://download.callmydiary.online/apk/MyDiary-0.5.13.apk` ← 自动拿到新包 |
 
 **⚠️ 覆盖替换场景 vs 新版本场景**：
-- **同版本修复**（如 mic-fix）→ R2 key 不变，直接 PUT 覆盖，官网不动
 - **真新版本**（如 0.5.13 → 0.5.14）→ 新 R2 key，官网 index.html + download/index.html 都要改
+- **同版本修复**（如 mic-fix）→ ⚠️ **不能直接覆盖同一个 R2 key！** Cloudflare R2 custom domain 对同一个 key 名的覆盖替换，GET 请求永远返回旧缓存内容（HEAD 可能返回新 metadata，但 GET 还是旧内容）。**必须用新 key 名上传**（如 `MyDiary-0.5.13-latest.apk`），同时改官网下载链接
+
+### Cloudflare R2 Custom Domain 覆盖替换失效（踩坑记录 2026-10-16）
+
+mic-fix APK 上传 `apk/MyDiary-0.5.13.apk`（覆盖 whisper 版）后：
+- R2 API HEAD: `Content-Length: 14940086` ✅（mic-fix，正确）
+- R2 API GET: 14.25 MB ✅（mic-fix，正确）
+- download.callmydiary.online HEAD: `Content-Length: 14940086` ✅
+- **download.callmydiary.online GET: 13.94 MB ❌（永远返回旧 whisper 包）**
+
+`cf-cache-status: DYNAMIC`（说明不走 CDN 缓存），但实际 GET 还是旧内容。加 `Cache-Control: no-store` header 也没用。
+
+**根因推测**：Cloudflare R2 custom domain 内部有一层不透明的对象缓存，对覆盖替换不感知。
+
+**解法**：换全新 key 名 → 新 key 第一次访问 → 直接返回正确内容 ✅
+
+```powershell
+# ❌ 错误：覆盖旧 key
+curl.exe ... PUT ... "MyDiary-0.5.13.apk"   # custom domain 永远返回旧内容
+
+# ✅ 正确：新 key 名
+curl.exe ... PUT ... "MyDiary-0.5.13-latest.apk"  # 新 key → 正确内容
+```
+
+**同时官网下载链接必须改到新 key**（index.html Hero 按钮 + download/index.html 历史版本页）。
 
 ### APK 覆盖替换操作模板（同版本修复）
 
 ```powershell
-# 同版本覆盖：key 不变，直接 PUT
+# 同版本修复：必须用新 key 名！
 $apk = "C:\Users\haizhi\WorkBuddy\2026-09-23-11-40-59\outputs\MyDiary-0.5.13-mic-fix.apk"
+
+# Step 1: 新 key 名上传
 curl.exe -s -X PUT -H "Authorization: Bearer $token" -H "Content-Type: application/vnd.android.package-archive" `
   --data-binary "@$apk" `
-  "https://api.cloudflare.com/client/v4/accounts/f6ca7e151a87ec9040e8a5777dd95b87/r2/buckets/mydiary-assets/objects/apk/MyDiary-0.5.13.apk"
-# → "success":true 即成功
-# → 官网不用改，同一个 URL 用户自动拿到新包
+  "https://api.cloudflare.com/client/v4/accounts/f6ca7e151a87ec9040e8a5777dd95b87/r2/buckets/mydiary-assets/objects/apk/MyDiary-0.5.13-latest.apk"
+
+# Step 2: 验证（R2 API 直接下载 vs custom domain）
+# R2 API: curl -H "Authorization: Bearer $token" ... → 14.25 MB ✅
+# Custom: curl -sL https://download.callmydiary.online/apk/MyDiary-0.5.13-latest.apk → 14.25 MB ✅
+
+# Step 3: 改官网下载链接（index.html + download/index.html）指向新 key
+# Step 4: 部署官网
+cd mydiary-web-site; npx wrangler pages deploy . --project-name mydiary-site
+
+# → 用户从官网下载，拿到的是修复版
 ```
 
 ### OAuth Token 注意事项
