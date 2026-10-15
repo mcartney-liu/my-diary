@@ -1206,8 +1206,25 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       speechStreamRef.current = stream;
-    } catch {
-      alert("无法访问麦克风，请检查权限或改用上方📎上传录音文件");
+    } catch (e: any) {
+      const name = e?.name || "";
+      const msg = e?.message || String(e);
+      if (name === "NotAllowedError") {
+        const ua = navigator.userAgent;
+        let tip = "";
+        if (/iPhone|iPad/.test(ua) && /Safari/.test(ua)) {
+          tip = "iPhone：设置 → Safari → 麦克风 → 允许";
+        } else if (/Android/.test(ua)) {
+          tip = "安卓：地址栏 🔒 → 网站设置 → 麦克风 → 允许";
+        } else {
+          tip = "点地址栏左边的 🔒 → 网站设置 → 麦克风 → 允许";
+        }
+        alert(`麦克风被禁用了。${tip}`);
+      } else if (name === "NotFoundError") {
+        alert("没找到麦克风设备，检查系统设置");
+      } else {
+        alert("无法访问麦克风：" + (msg || "请检查权限"));
+      }
       return;
     }
 
@@ -1230,7 +1247,10 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     // 3) 同时录一份音频做备份
     try {
       const mimeCandidates = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"];
+      const supported = mimeCandidates.map(m => `${m}:${MediaRecorder.isTypeSupported(m)}`).join(' | ');
+      console.log('[editor] mimeType 支持情况:', supported);
       const mime = mimeCandidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "audio/webm";
+      console.log('[editor] 选中 mimeType:', mime);
       const mr = new MediaRecorder(stream, { mimeType: mime });
       recordedChunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size) recordedChunksRef.current.push(e.data); };

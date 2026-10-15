@@ -62,11 +62,24 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (e: any) {
+      const name = e?.name || "";
       const msg = e?.message || String(e);
-      if (msg.includes('Permission') || msg.includes('denied') || msg.includes('NotAllowed')) {
-        setError("麦克风权限被拒绝，检查浏览器设置后重试");
-      } else if (msg.includes('NotFound') || msg.includes('device')) {
-        setError("找不到麦克风设备");
+      if (name === "NotAllowedError" || msg.includes('Permission') || msg.includes('denied')) {
+        // 用户之前拒绝过 → 浏览器记住了，不会再弹框
+        const ua = navigator.userAgent;
+        let tip = "";
+        if (/iPhone|iPad/.test(ua) && /Safari/.test(ua)) {
+          tip = "iPhone：设置 → Safari → 麦克风 → 允许 callmydiary.online";
+        } else if (/Android/.test(ua)) {
+          tip = "安卓：地址栏左边的 🔒 → 网站设置 → 麦克风 → 允许";
+        } else {
+          tip = "点地址栏左边的 🔒 → 网站设置 → 麦克风 → 允许";
+        }
+        setError(`麦克风被禁用了。${tip}`);
+      } else if (name === "NotFoundError" || msg.includes('NotFound') || msg.includes('device')) {
+        setError("没找到麦克风设备，检查系统设置");
+      } else if (name === "NotReadableError") {
+        setError("麦克风被别的程序占着，关掉别的录音软件再试");
       } else {
         setError("无法启动录音：" + msg);
       }
@@ -82,11 +95,23 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
       'audio/ogg;codecs=opus',
       'audio/mp4',
     ];
+    const supported = mimes.map(m => `${m}:${MediaRecorder.isTypeSupported(m)}`).join(' | ');
+    console.log('[voice] mimeType 支持情况:', supported);
     let mime = '';
     for (const m of mimes) {
       if (MediaRecorder.isTypeSupported(m)) { mime = m; break; }
     }
-    const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    console.log('[voice] 选中 mimeType:', mime || '(无，使用浏览器默认)');
+    let mr: MediaRecorder;
+    try {
+      mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    } catch (e: any) {
+      console.error('[voice] MediaRecorder 构造失败:', e?.message);
+      setError("录音器初始化失败，换 Chrome 或桌面浏览器试试");
+      stream.getTracks().forEach(t => t.stop());
+      setPhase("input");
+      return;
+    }
 
     mr.ondataavailable = (e) => {
       if (e.data.size > 0) chunksRef.current.push(e.data);
