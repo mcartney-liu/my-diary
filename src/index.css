@@ -259,17 +259,22 @@
 [data-theme="glass"] [class*="border-paper-accent/40"] { border-color: rgba(139,111,71,0.4) !important; border-style: dashed !important; }
 [data-theme="glass"] [class*="text-paper-accent"] { color: #8b6f47 !important; }
 
-/* === 本地字体（永远秒开，不受网络影响） === */
+/* === 本地字体（永远秒开，不受网络影响） ===
+   2026-10-21 性能优化：优先用 WOFF2（省 2.6MB，-45%），TTF 作为兜底
+   woff2 缺失时自动回落 truetype，不影响任何机器显示
+   ——字形 7015 个全量保留，不做子集化（用户写生僻字不会变方框） */
 @font-face {
   font-family: "Ma Shan Zheng";
-  src: url("/fonts/MaShanZheng.ttf") format("truetype");
+  src: url("/fonts/MaShanZheng.woff2") format("woff2"),
+       url("/fonts/MaShanZheng.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: "Kalam";
-  src: url("/fonts/Kalam.ttf") format("truetype");
+  src: url("/fonts/Kalam.woff2") format("woff2"),
+       url("/fonts/Kalam.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
