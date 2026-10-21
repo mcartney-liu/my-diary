@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   base: "./",
   define: {
-    __APP_VERSION__: JSON.stringify("0.5.12"),
+    __APP_VERSION__: JSON.stringify("0.5.13"),
   },
   server: {
     host: true,

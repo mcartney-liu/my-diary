@@ -801,12 +801,29 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-     {/* === v0.5.12 当前版本（高亮） === */}
+     {/* === v0.5.13 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v0.5.12</span>
-                  <span className="text-paper-ink3 text-xs">2026年10月13日</span>
+                  <span className="font-bold text-paper-accent">v0.5.13</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月15日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">🎨 优化</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>🎙️ <b>语音识别体验全面升级</b> — 换成小麦自己的 AI 识别引擎，iPhone / 安卓 / Chrome 三端统一可用，准确率更高还自动加标点，录完等 2-3 秒就出字；语音识别设置也改成了跟主题色、我的身份一样的弹窗点选，两个模式一目了然</li>
+                    <li>📋 <b>底部导航图标垂直排列</b> — 写日记 / 书柜 / 我的三个 tab 改成图标在上、文字在下，更整齐</li>
+                    <li>🎯 <b>语音会计说啥是啥</b> — 对着语音会计说"今天11点修手机、13点到14点开会"，老老实实生成待办清单，不会再冒出奇怪的收支条目</li>
+                    <li>🔍 <b>知识库问答更老实</b> — 问一个知识库里没有的问题，现在会直接说"暂时没有"，不会硬扯</li>
+                    <li>👤 <b>账号切换更干净</b> — 登出换号后，每个账号的日记互相隔离，不会串了</li>
+                  </ul>
+                </div>
+              </div>
+     {/* === v0.5.12 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.12</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月13日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎉 新功能</b></div>
