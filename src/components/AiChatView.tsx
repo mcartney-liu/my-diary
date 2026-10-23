@@ -998,7 +998,7 @@ export default function AiChatView() {
         )}
 
         {active?.msgs.map((m, i) => (
-          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "flex-col items-start"}`}>
             <div
               onClick={() => {
                 // AI 回答：点一下浮出操作菜单（日记和知识 tab 都支持）
@@ -1069,21 +1069,22 @@ export default function AiChatView() {
                 </div>
               )}
             </div>
-            {/* AI 气泡操作菜单：点击浮出（日记和知识 tab 都支持）*/}
+            {/* AI 操作按钮：扁平文字按钮条（跟内容气泡/推荐气泡视觉区分开）*/}
             {activeMsgIdx === i && m.role === "ai" && !m.importing && !m.imported && (
-              <div className="mt-1 flex items-center gap-1.5 px-1 flex-wrap">
+              <div className="mt-1.5 flex items-center gap-3 px-1 text-[11px] text-paper-ink2/70">
                 <button
                   onClick={(e) => { e.stopPropagation(); retryWikiAnswer(i, m.web_search || false); setActiveMsgIdx(null); }}
                   disabled={loading}
-                  className="text-[11px] px-2.5 py-1 rounded-full border border-paper-line text-paper-ink2 bg-paper-card hover:bg-paper-surface disabled:opacity-50 transition"
+                  className="hover:text-paper-accent disabled:opacity-50 transition"
                 >
                   🔄 重新回答
                 </button>
+                <span className="text-paper-line/60">·</span>
                 {m.source_type === "wiki" ? (
                   <button
                     onClick={(e) => { e.stopPropagation(); saveAiAnswerToWiki(i); setActiveMsgIdx(null); }}
                     disabled={loading || !active?.kb_id}
-                    className="text-[11px] px-2.5 py-1 rounded-full border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 transition"
+                    className="hover:text-emerald-600 disabled:opacity-50 transition"
                   >
                     📥 汇入知识库
                   </button>
@@ -1091,14 +1092,15 @@ export default function AiChatView() {
                   <button
                     onClick={(e) => { e.stopPropagation(); saveAiAnswerAsDiary(i); setActiveMsgIdx(null); }}
                     disabled={loading}
-                    className="text-[11px] px-2.5 py-1 rounded-full border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 transition"
+                    className="hover:text-emerald-600 disabled:opacity-50 transition"
                   >
                     📝 存入日记
                   </button>
                 )}
+                <span className="text-paper-line/60">·</span>
                 <button
                   onClick={(e) => { e.stopPropagation(); deleteAiMessage(i); }}
-                  className="text-[11px] px-2.5 py-1 rounded-full border border-red-300 text-red-600 bg-red-50 hover:bg-red-100 transition"
+                  className="hover:text-red-500 transition"
                 >
                   🗑️ 删除
                 </button>
