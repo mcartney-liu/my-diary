@@ -17,6 +17,7 @@ import PlanPage from "./components/PlanPage";
 import FinancePage from "./components/FinancePage";
 import ProfilePage from "./components/ProfilePage";
 import BookShelfPage from "./components/BookShelfPage";
+import DiaryListPage from "./components/DiaryListPage";
 import SourcesPanel from "./components/SourcesPanel";
 
 // 后台写入 localStorage（不阻塞主线程）
@@ -421,6 +422,7 @@ export default function App() {
 
       <Routes>
         <Route path="/" element={<CalendarPage diaries={diaries} onSoftDelete={handleSoftDelete} />} />
+        <Route path="/diaries" element={<DiaryListPage diaries={diaries} />} />
         <Route path="/trash" element={<TrashPage diaries={deletedDiaries} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onBatchRestore={handleBatchRestore} onBatchPermanentDelete={handleBatchPermanentDelete} />} />
         <Route path="/tags" element={<TagsPage diaries={diaries} />} />
         <Route path="/capsule" element={<CapsulePage diaries={diaries} />} />

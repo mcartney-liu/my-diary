@@ -567,14 +567,14 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
             <VoiceQuickEntry dockVariant />
           </span>
 
-          {/* 写日记 */}
+          {/* 日记列表 */}
           <button
             id="tour-dock-write"
-            onClick={() => nav("/editor")}
+            onClick={() => nav("/diaries")}
             className="flex flex-col items-center justify-center h-10 text-[10px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap min-w-[44px]"
           >
             <PenLine className="w-4 h-4 shrink-0" />
-            <span className="leading-none mt-0.5">写日记</span>
+            <span className="leading-none mt-0.5">日记</span>
           </button>
         </div>
       </nav>
