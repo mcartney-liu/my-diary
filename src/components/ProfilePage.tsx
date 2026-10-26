@@ -801,12 +801,27 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-     {/* === v0.5.13 当前版本（高亮） === */}
+     {/* === v0.5.14 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v0.5.13</span>
-                  <span className="text-paper-ink3 text-xs">2026年10月15日</span>
+                  <span className="font-bold text-paper-accent">v0.5.14</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月26日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">🎨 优化</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>📋 <b>底部导航「写日记」→「日记」</b> — 点进去不再直接进编辑器，先看到你所有日记的清单（按日期分组、支持搜索和心情筛选），右下角有 + 按钮新建日记；想快速写日记，底部那个 🎤 语音快记按钮随时可用</li>
+                    <li>💬 <b>小麦问答操作按钮改扁平文字条</b> — 之前胶囊气泡样式跟推荐问题气泡长得一样，分不清哪个是操作哪个是推荐；现在改成灰色文字 + icon 的扁平按钮，跟内容气泡、推荐气泡视觉上明显区分开</li>
+                    <li>⚡ <b>首屏字体加载减半</b> — 手写中文/英文字体从 TTF 换成 WOFF2，总负载从 6.2MB 减到 3.4MB，打开更快</li>
+                  </ul>
+                </div>
+              </div>
+     {/* === v0.5.13 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.13</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月15日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎨 优化</b></div>
