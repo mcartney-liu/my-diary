@@ -801,12 +801,26 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-     {/* === v0.5.14 当前版本（高亮） === */}
+     {/* === v0.5.15 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v0.5.14</span>
-                  <span className="text-paper-ink3 text-xs">2026年10月26日</span>
+                  <span className="font-bold text-paper-accent">v0.5.15</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月30日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">✨ 新功能</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>🌾 <b>演示模式 · 免注册逛本子</b> — WorkBuddy 1024 大赛投稿特别版；登录页底部加了「🌾 先逛逛 · 演示模式」按钮，点一下直接进主界面，看到 5 条精心准备的示例日记（记账/读书笔记/倒计时/心情/感恩），每条都有壁纸；所有数据每天中午自动重置，不脏</li>
+                    <li>🚫 <b>演示态顶部提示条</b> — 演示账号登录后，顶部挂一条可关闭的琥珀色小横幅：「🌾 当前是演示账号哦，所有数据每天都会重置；注册一个邮箱，拥有自己的专属小本子～」，小麦口吻，不出现 AI 字样</li>
+                  </ul>
+                </div>
+              </div>
+     {/* === v0.5.14 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.14</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月26日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">🎨 优化</b></div>
