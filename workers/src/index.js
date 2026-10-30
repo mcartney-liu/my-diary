@@ -2337,6 +2337,7 @@ async function resetDemoAccount(env) {
     {
       date: todayStr, template_id: "plan", title: "五一回老家倒计时",
       mood_id: "calm", tags: ["旅行", "家人"],
+      wallpaper: "/papers/mist-mountain.jpg", show_lines: false,
       blocks: [
         blocks("heading", "⏳ 还有 128 天", { level: 1 }),
         blocks("text", "每年五一都要回一趟老家，今年已经定好票了。准备带娃去看看爷爷奶奶，还有小时候常去的那个后山。小麦🌾帮我记得了，不用自己翻日历。"),
@@ -2347,17 +2348,18 @@ async function resetDemoAccount(env) {
         blocks("checkbox", "请 3 天年假", { checked: true }),
       ],
     },
-    // ② 记账（finance 模板）
+    // ② 记账（finance 模板）⚠️ category key 必须跟 categories.ts 对齐！
     {
       date: todayStr, template_id: "finance", title: "2026 年 10 月消费",
-      mood_id: "content", tags: ["记账", "月度"],
+      mood_id: "calm", tags: ["记账", "月度"],
+      wallpaper: "/papers/mist-mountain.jpg", show_lines: false,
       blocks: [
         blocks("heading", "本月支出 ¥2,386", { level: 1 }),
-        blocks("finance_item", "早午餐", { direction: "expense", category: "food", value: 520 }),
-        blocks("finance_item", "交通费", { direction: "expense", category: "transport", value: 180 }),
-        blocks("finance_item", "京东买书", { direction: "expense", category: "shopping", value: 399 }),
-        blocks("finance_item", "奶茶续命", { direction: "expense", category: "food", value: 268 }),
-        blocks("finance_item", "房租", { direction: "expense", category: "housing", value: 1000 }),
+        blocks("finance_item", "早午餐",   { direction: "expense", category: "food",      value: 520 }),
+        blocks("finance_item", "交通费",   { direction: "expense", category: "transport", value: 180 }),
+        blocks("finance_item", "京东买书", { direction: "expense", category: "shopping",  value: 399 }),
+        blocks("finance_item", "奶茶续命", { direction: "expense", category: "food",      value: 268 }),
+        blocks("finance_item", "房租",     { direction: "expense", category: "home",      value: 1000 }),
         blocks("divider", ""),
         blocks("heading", "本月结余 ¥5,114", { level: 2 }),
         blocks("text", "小麦🌾帮我把这些自动整理好了，之前要自己一条条算。"),
@@ -2367,6 +2369,7 @@ async function resetDemoAccount(env) {
     {
       date: todayStr, template_id: "diary", title: "今天阳光很好",
       mood_id: "happy", tags: ["日常", "心情"],
+      wallpaper: "/papers/mist-mountain.jpg", show_lines: false,
       blocks: [
         blocks("text", "早上拉开窗帘就被晃了一下。北京的秋天真的是一年里最好的季节，不冷不热，阳光是金色的。"),
         blocks("text", "下午在工位旁边的小树林走了一圈，叶子开始黄了，风一吹就飘下来几片。"),
@@ -2377,6 +2380,7 @@ async function resetDemoAccount(env) {
     {
       date: todayStr, template_id: "reading", title: "《蛤蟆先生去看心理医生》",
       mood_id: "calm", tags: ["读书", "心理学"],
+      wallpaper: "/papers/sage-journal.jpg", show_lines: false,
       blocks: [
         blocks("book", "蛤蟆先生去看心理医生", { author: "罗伯特·戴博德", totalPages: 208, currentPage: 142 }),
         blocks("heading", "今天读的部分", { level: 2 }),
@@ -2388,7 +2392,8 @@ async function resetDemoAccount(env) {
     // ⑤ 感恩日记（gratitude 模板）
     {
       date: todayStr, template_id: "gratitude", title: "感恩三件事",
-      mood_id: "grateful", tags: ["感恩", "每日"],
+      mood_id: "calm", tags: ["感恩", "每日"],
+      wallpaper: "/papers/vintage-rose.jpg", show_lines: false,
       blocks: [
         blocks("heading", "1. 今天同事帮我挡了一个坑", { level: 2 }),
         blocks("text", "本来要上线的功能，他想起了之前踩过的一个坑，及时拦住了。这种有人提醒的感觉真好。"),
@@ -2406,9 +2411,9 @@ async function resetDemoAccount(env) {
     const blocksJson = JSON.stringify(s.blocks);
     try {
       await env.DB.prepare(
-        `INSERT INTO diaries (id, user_id, date, template_id, title, mood_id, tags, weather, blocks, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`
-      ).bind(id, uid, s.date, s.template_id, s.title, s.mood_id, JSON.stringify(s.tags), blocksJson, now, now).run();
+        `INSERT INTO diaries (id, user_id, date, template_id, title, mood_id, tags, weather, blocks, wallpaper, show_lines, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`
+      ).bind(id, uid, s.date, s.template_id, s.title, s.mood_id, JSON.stringify(s.tags), blocksJson, s.wallpaper || null, s.show_lines ? 1 : 0, now, now).run();
     } catch (e) {
       console.error("[demo] 种子日记插入失败:", s.title, e.message);
     }
