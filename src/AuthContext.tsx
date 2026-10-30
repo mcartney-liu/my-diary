@@ -6,6 +6,7 @@ interface AuthState {
   user: AuthUser | null;
   loading: boolean;    // 首次启动时验证 token
   loggedIn: boolean;
+  isDemo: boolean;     // 是否为演示账号（评委免注册体验用）
 }
 
 interface AuthActions {
@@ -19,21 +20,23 @@ interface AuthActions {
 const AuthContext = createContext<(AuthState & AuthActions) | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthState>({ user: null, loading: true, loggedIn: false });
+  const [state, setState] = useState<AuthState>({ user: null, loading: true, loggedIn: false, isDemo: false });
+
+  const DEMO_EMAIL = "demo@callmydiary.online";
 
   // 首次启动：如果有 token，验证一下
   useEffect(() => {
     const t = api.getToken();
-    if (!t) { setState({ user: null, loading: false, loggedIn: false }); return; }
+    if (!t) { setState({ user: null, loading: false, loggedIn: false, isDemo: false }); return; }
     api.me()
-      .then(r => setState({ user: r.user, loading: false, loggedIn: true }))
-      .catch(() => { api.setToken(null); setState({ user: null, loading: false, loggedIn: false }); });
+      .then(r => setState({ user: r.user, loading: false, loggedIn: true, isDemo: r.user.email === DEMO_EMAIL }))
+      .catch(() => { api.setToken(null); setState({ user: null, loading: false, loggedIn: false, isDemo: false }); });
   }, []);
 
   const login = async (email: string, password: string) => {
     const r = await api.login(email, password);
     api.setToken(r.token);
-    setState({ user: r.user, loading: false, loggedIn: true });
+    setState({ user: r.user, loading: false, loggedIn: true, isDemo: r.user.email === DEMO_EMAIL });
   };
   const sendCode = async (email: string) => {
     return await api.sendVerificationCode(email);
@@ -41,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = async (email: string, password: string, code: string, nickname?: string) => {
     const r = await api.register(email, password, code, nickname);
     api.setToken(r.token);
-    setState({ user: r.user, loading: false, loggedIn: true });
+    setState({ user: r.user, loading: false, loggedIn: true, isDemo: r.user.email === DEMO_EMAIL });
   };
   const logout = () => {
     api.logout();
@@ -50,13 +53,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem("mydiary-web:diaries:v1");
       localStorage.removeItem("mydiary-web:pending-sync:v1");
     } catch {}
-    setState({ user: null, loading: false, loggedIn: false });
+    setState({ user: null, loading: false, loggedIn: false, isDemo: false });
   };
   const refresh = async () => {
     if (!api.getToken()) return;
     try {
       const r = await api.me();
-      setState(s => ({ ...s, user: r.user, loggedIn: true }));
+      setState(s => ({ ...s, user: r.user, loggedIn: true, isDemo: r.user.email === DEMO_EMAIL }));
     } catch { logout(); }
   };
 

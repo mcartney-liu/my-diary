@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [nickname, setNickname] = useState("");
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [countdown, setCountdown] = useState(0);
@@ -70,6 +71,17 @@ export default function LoginPage() {
       else if (msg.includes("验证码不对")) setError("验证码不对，再看看邮箱");
       else setError(clean);
     } finally { setLoading(false); }
+  };
+
+  const handleDemo = async () => {
+    setError(""); setSuccess("");
+    setDemoLoading(true);
+    try {
+      await login("demo@callmydiary.online", "demodemo123");
+    } catch (e: any) {
+      setError(e.message || "演示登录失败，请稍后再试");
+      setDemoLoading(false);
+    }
   };
 
   return (
@@ -189,6 +201,21 @@ export default function LoginPage() {
           >
             {loading ? "..." : mode === "login" ? "登录" : "注册并登录"}
           </button>
+
+          {/* 分隔线 + 演示模式 */}
+          <div className="flex items-center gap-3 my-5">
+            <div className="flex-1 h-px bg-paper-line"></div>
+            <span className="text-[11px] text-paper-ink3 whitespace-nowrap">或者</span>
+            <div className="flex-1 h-px bg-paper-line"></div>
+          </div>
+          <button
+            onClick={handleDemo}
+            disabled={demoLoading}
+            className="w-full py-2.5 rounded-xl bg-paper-surface border border-paper-line text-sm text-paper-ink2 hover:text-paper-ink hover:border-paper-accent active:scale-[0.98] transition disabled:opacity-60"
+          >
+            {demoLoading ? "..." : "🌾 先逛逛 · 演示模式"}
+          </button>
+          <p className="text-[11px] text-paper-ink3 text-center mt-2">无需注册，数据每日重置</p>
         </div>
       </div>
     </div>

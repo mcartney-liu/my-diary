@@ -64,7 +64,24 @@ function buildCors(request) {
   };
 }
 
+const DEMO_EMAIL = "demo@callmydiary.online";
+const DEMO_PASSWORD = "demodemo123";
+const DEMO_NICKNAME = "小麦🌾演示本";
+
+// 🔧 临时调试路由：POST /api/demo/reset 触发演示账号重置（调完可删）
+async function handleDemoReset(request, env) {
+  try {
+    await resetDemoAccount(env);
+    return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
+  } catch (e) {
+    return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 500, headers: { "Content-Type": "application/json" } });
+  }
+}
+
 export default {
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(resetDemoAccount(env));
+  },
   async fetch(request, env, ctx) {
     // CORS preflight
     if (request.method === "OPTIONS") {
@@ -166,6 +183,7 @@ export default {
       ["POST",   "/api/wiki/ai-design-categories",               handleWikiAIDesignCategories],
       ["POST",   "/api/wiki/optimize-description",              handleWikiOptimizeDescription],
       ["POST",   "/api/transcribe",                              handleTranscribe],
+      ["POST",   "/api/demo/reset",                             handleDemoReset],
     ];
 
     // 路由器：支持 :id 参数
@@ -2274,4 +2292,128 @@ async function handleReindex(request, env, JWT_SECRET) {
     }
     return json({ ok: true, total, done });
   } catch (e) { dblog(env, 'ai', 'REINDEX_FAIL', { msg: e.message }); return json({ error: e.message }, 500); }
+}
+
+// ====== 演示账号每日重置 ======
+async function resetDemoAccount(env) {
+  console.log("[demo] 开始重置演示账号");
+  const now = Date.now();
+
+  // 1. 确保 demo 用户存在
+  let user = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(DEMO_EMAIL).first();
+  if (!user) {
+    const salt = genSalt();
+    const hash = await hashPassword(DEMO_PASSWORD, salt);
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO users (id, email, password_hash, nickname, avatar, created_at, updated_at, last_login_at, onboarding_done) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)"
+    ).bind(id, DEMO_EMAIL, `${salt}$${hash}`, DEMO_NICKNAME, null, now, now, now).run();
+    user = { id };
+    console.log("[demo] 创建了新演示用户", id);
+  }
+  const uid = user.id;
+
+  // 2. 清空该用户所有业务表数据（保留 users 记录）
+  const tables = ["diaries", "milestones", "plans", "daily_summaries", "diary_embeddings", "memory", "chat_sessions", "templates", "papers", "feedback"];
+  for (const t of tables) {
+    try { await env.DB.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(uid).run(); } catch { /* 表不存在或无 user_id 列，忽略 */ }
+  }
+  // wiki 相关表也清
+  const wikiTables = ["wiki_pages", "wiki_links", "wiki_sources", "wiki_embeddings"];
+  for (const t of wikiTables) {
+    try { await env.DB.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(uid).run(); } catch {}
+  }
+  try { await env.DB.prepare(`DELETE FROM wiki_categories WHERE kb_id IN (SELECT id FROM wiki_kbs WHERE user_id = ?)`).bind(uid).run(); } catch {}
+  try { await env.DB.prepare(`DELETE FROM wiki_kbs WHERE user_id = ?`).bind(uid).run(); } catch {}
+  console.log("[demo] 清空完成");
+
+  // 3. 灌种子日记（今天 + 过去 5 天）
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const blocks = (kind, content, extra = {}) => ({ id: crypto.randomUUID(), kind, content, ...extra });
+
+  const seeds = [
+    // ① 倒计时里程碑（plan 模板）
+    {
+      date: todayStr, template_id: "plan", title: "五一回老家倒计时",
+      mood_id: "calm", tags: ["旅行", "家人"],
+      blocks: [
+        blocks("heading", "⏳ 还有 128 天", { level: 1 }),
+        blocks("text", "每年五一都要回一趟老家，今年已经定好票了。准备带娃去看看爷爷奶奶，还有小时候常去的那个后山。小麦🌾帮我记得了，不用自己翻日历。"),
+        blocks("heading", "出发前要做的事", { level: 2 }),
+        blocks("checkbox", "订高铁票（已完成 ✅）", { checked: true }),
+        blocks("checkbox", "给爷爷奶奶买保健品", { checked: false }),
+        blocks("checkbox", "收拾娃的衣服和玩具", { checked: false }),
+        blocks("checkbox", "请 3 天年假", { checked: true }),
+      ],
+    },
+    // ② 记账（finance 模板）
+    {
+      date: todayStr, template_id: "finance", title: "2026 年 10 月消费",
+      mood_id: "content", tags: ["记账", "月度"],
+      blocks: [
+        blocks("heading", "本月支出 ¥2,386", { level: 1 }),
+        blocks("finance_item", "早午餐", { direction: "expense", category: "food", value: 520 }),
+        blocks("finance_item", "交通费", { direction: "expense", category: "transport", value: 180 }),
+        blocks("finance_item", "京东买书", { direction: "expense", category: "shopping", value: 399 }),
+        blocks("finance_item", "奶茶续命", { direction: "expense", category: "food", value: 268 }),
+        blocks("finance_item", "房租", { direction: "expense", category: "housing", value: 1000 }),
+        blocks("divider", ""),
+        blocks("heading", "本月结余 ¥5,114", { level: 2 }),
+        blocks("text", "小麦🌾帮我把这些自动整理好了，之前要自己一条条算。"),
+      ],
+    },
+    // ③ 心情日记（普通 diary）
+    {
+      date: todayStr, template_id: "diary", title: "今天阳光很好",
+      mood_id: "happy", tags: ["日常", "心情"],
+      blocks: [
+        blocks("text", "早上拉开窗帘就被晃了一下。北京的秋天真的是一年里最好的季节，不冷不热，阳光是金色的。"),
+        blocks("text", "下午在工位旁边的小树林走了一圈，叶子开始黄了，风一吹就飘下来几片。"),
+        blocks("text", "今天心情 ☀️ ☀️ ☀️"),
+      ],
+    },
+    // ④ 读书笔记（reading 模板）
+    {
+      date: todayStr, template_id: "reading", title: "《蛤蟆先生去看心理医生》",
+      mood_id: "calm", tags: ["读书", "心理学"],
+      blocks: [
+        blocks("book", "蛤蟆先生去看心理医生", { author: "罗伯特·戴博德", totalPages: 208, currentPage: 142 }),
+        blocks("heading", "今天读的部分", { level: 2 }),
+        blocks("quote", "所谓活得真实，就是真诚地回应当下的需求。", { pageNumber: 128 }),
+        blocks("text", "这本书用童话的方式讲心理学，一点都不晦涩。蛤蟆先生其实就是我们每个人——有时候觉得自己不够好，有时候把情绪压着不说。"),
+        blocks("text", "最触动的是「你要不要为自己的人生负责」这个问题。"),
+      ],
+    },
+    // ⑤ 感恩日记（gratitude 模板）
+    {
+      date: todayStr, template_id: "gratitude", title: "感恩三件事",
+      mood_id: "grateful", tags: ["感恩", "每日"],
+      blocks: [
+        blocks("heading", "1. 今天同事帮我挡了一个坑", { level: 2 }),
+        blocks("text", "本来要上线的功能，他想起了之前踩过的一个坑，及时拦住了。这种有人提醒的感觉真好。"),
+        blocks("heading", "2. 晚上吃到了妈妈做的红烧肉", { level: 2 }),
+        blocks("text", "回家就闻到香味，肥而不腻入口即化。世界上最好吃的红烧肉永远是妈妈做的。"),
+        blocks("heading", "3. 睡前看了 30 页书", { level: 2 }),
+        blocks("text", "放下手机坐下来读了一会儿，脑子安静下来的感觉很好。以后要坚持。"),
+      ],
+    },
+  ];
+
+  // 全部灌进去
+  for (const s of seeds) {
+    const id = crypto.randomUUID();
+    const blocksJson = JSON.stringify(s.blocks);
+    try {
+      await env.DB.prepare(
+        `INSERT INTO diaries (id, user_id, date, template_id, title, mood_id, tags, weather, blocks, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`
+      ).bind(id, uid, s.date, s.template_id, s.title, s.mood_id, JSON.stringify(s.tags), blocksJson, now, now).run();
+    } catch (e) {
+      console.error("[demo] 种子日记插入失败:", s.title, e.message);
+    }
+  }
+  console.log("[demo] 种子日记灌入完成，共", seeds.length, "条");
+
+  console.log("[demo] ✅ 重置完成");
 }

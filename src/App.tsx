@@ -146,7 +146,16 @@ export default function App() {
   const [allDiaries, setAllDiaries] = useState<Diary[]>([]);
   const [loading, setLoading] = useState(true);
   const [offlineBanner, setOfflineBanner] = useState(false);
+  const [demoBannerClosed, setDemoBannerClosed] = useState(() => {
+    try { return sessionStorage.getItem("mydiary:demoBannerClosed") === "1"; } catch { return false; }
+  });
   const skipBackgroundSyncRef = useRef(false);
+
+  // 关闭演示横幅（本次会话内有效）
+  const closeDemoBanner = () => {
+    setDemoBannerClosed(true);
+    try { sessionStorage.setItem("mydiary:demoBannerClosed", "1"); } catch {}
+  };
 
   // 全局主题初始化（刷新后不丢失）
   useEffect(() => {
@@ -417,6 +426,16 @@ export default function App() {
       {offlineBanner && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-yellow-100 text-yellow-800 text-xs text-center py-1 animate-[fade-in_0.3s]">
 ⚠️ 云端保存失败，已暂存本地，联网后自动同步
+        </div>
+      )}
+      {auth.isDemo && !demoBannerClosed && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200 text-amber-900 text-xs text-center py-1.5 px-4 flex items-center justify-center gap-2">
+          <span>🌾 当前是演示账号哦，所有数据每天都会重置；注册一个邮箱，拥有自己的专属小本子～</span>
+          <button
+            onClick={closeDemoBanner}
+            className="text-amber-600 hover:text-amber-900 transition ml-1"
+            aria-label="关闭演示提示"
+          >×</button>
         </div>
       )}
 

@@ -26,6 +26,10 @@ binding = "AI"
 binding = "verify_codes"
 id = "81191d85345e4bde9a9895c530a24d9a"
 
+# 演示账号每日重置（UTC 04:00 = 北京时间 12:00）
+[triggers]
+crons = ["0 4 * * *"]
+
 # ====== 测试环境 ======
 [env.dev]
 name = "mydiary-api-dev"
