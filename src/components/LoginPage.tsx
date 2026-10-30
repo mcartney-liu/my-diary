@@ -219,13 +219,14 @@ export default function LoginPage() {
         </div>
 
         {/* 官网地址 */}
-        <div className="mt-6 text-center">
+        <div className="mt-6 text-center text-[11px] text-paper-ink3">
+          <span>官网地址：</span>
           <a
             href="https://www.callmydiary.online"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[11px] text-paper-ink3 hover:text-paper-accent transition"
-          >🌐 www.callmydiary.online</a>
+            className="hover:text-paper-accent transition"
+          >www.callmydiary.online</a>
         </div>
       </div>
     </div>
