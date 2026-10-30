@@ -377,13 +377,15 @@ npm run dev                                             # localhost:5173 (Vite)
 | App 内弹窗 | `src/components/ProfilePage.tsx` | 用户点「关于 → 版本」弹出的 changelog |
 | Git 仓库 | `CHANGELOG.md` | 根目录的版本记录文件 |
 
-**版本号两处对齐：**
+**版本号三处对齐（必须一起改，漏了界面就显示旧号）：**
 
-| 位置 | 文件 |
-|------|------|
-| `package.json` | `"version": "0.2.1"` |
-| `vite.config.ts` | `__APP_VERSION__: JSON.stringify("0.2.1")` |
-| changelog 弹窗 | `<span>v{__APP_VERSION__}</span>` ← 用动态变量，不要硬编码！ |
+| 位置 | 文件 | 说明 |
+|------|------|------|
+| ① `vite.config.ts` | `__APP_VERSION__: JSON.stringify("0.2.1")` | 用户「我的 → 版本 v{__APP_VERSION__}」动态读这里 |
+| ② `package.json` | `"version": "0.2.1"` | NPM 包版本 |
+| ③ `android/app/build.gradle` | `versionName "0.2.1"` | 安卓 APK 版本号 |
+
+⚠️ **只改 changelog 弹窗内容不改这三处 → 用户看到版本号还是旧的！** 踩过的坑：v0.5.14 → v0.5.15 时只改了 ProfilePage changelog 文本，忘了改这三处，结果「我的」页面顶部显示还是 0.5.14。
 
 ### ✍️ Changelog 写作风格规范（对齐 v0.2.0 / v0.2.1 风格）
 
