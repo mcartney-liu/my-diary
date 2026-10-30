@@ -217,6 +217,16 @@ export default function LoginPage() {
           </button>
           <p className="text-[11px] text-paper-ink3 text-center mt-2">无需注册，数据每日重置</p>
         </div>
+
+        {/* 官网地址 */}
+        <div className="mt-6 text-center">
+          <a
+            href="https://www.callmydiary.online"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-paper-ink3 hover:text-paper-accent transition"
+          >🌐 www.callmydiary.online</a>
+        </div>
       </div>
     </div>
   );
