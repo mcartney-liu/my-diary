@@ -756,6 +756,30 @@ wrangler d1 execute mydiary-db --remote --command="SELECT COUNT(*) FROM users WH
 - videoMap 定义：`index.html` 内 `<script>` 块的 `const videoMap = {...}`
 - 视频 Modal HTML：`index.html` 内 `<div id="video-modal">`
 
+### 🌐 官网双语支持（2026-11-02 新增 · 硬规则）
+
+官网 `index.html` 和 `download/index.html` 已加 **单 HTML + 翻译表 + JS 切换** 的双语引擎。原理：HTML 保留中文原文，JS 启动时根据 localStorage 语言扫描所有文本节点替换。
+
+**运维红线：改官网任何中文文案（包括新增），必须同步更新 I18N 对象的 zh + en 字段！**
+
+| 文件 | I18N 对象位置 | 说明 |
+|---|---|---|
+| `mydiary-web-site/index.html` | `<script>` 块最开头的 `const I18N = {...}` | 主站 ~100+ key |
+| `mydiary-web-site/download/index.html` | `<head>` 里的 `const I18N_DL = {...}` | 下载页简化版 |
+
+**加新文案的 checklist：**
+1. HTML 里正常写中文（不用动 data-i18n 属性）
+2. 往 I18N 对象加一行：`'新中文文案': { zh:'新中文文案', en:'New English text' },`
+3. 翻译地道英文（产品术语：小麦→Millie、知识库→Knowledge Base、双向链接→Backlinks）
+4. 如果是 JS 动态生成的（如 VERSIONS、mockDiaryData），还要给数据加 en_ 前缀的双语字段
+5. 部署：`cd mydiary-web-site && npx wrangler pages deploy . --project-name=mydiary-site`
+
+**用户切换方式：**
+- 导航栏有 EN / 中文 按钮（自动加到 nav-actions 最左边）
+- localStorage key: `md-lang`（值 `zh` 或 `en`）
+- 首次访问自动检测浏览器语言（`navigator.language.startsWith('en')`）
+- title 和 meta description 也会随语言切换
+
 ---
 
 ## 📦 官网 Android APK 下载（2026-10-06 更新）
