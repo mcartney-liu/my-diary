@@ -2420,5 +2420,308 @@ async function resetDemoAccount(env) {
   }
   console.log("[demo] 种子日记灌入完成，共", seeds.length, "条");
 
+  // 4. 灌种子知识库
+  await seedDemoWiki(env, uid, now);
+
   console.log("[demo] ✅ 重置完成");
+}
+
+// ====== 演示账号 Wiki 种子 ======
+async function seedDemoWiki(env, uid, now) {
+  try {
+    const insertKb = async (title, slug, description, icon) => {
+      const id = crypto.randomUUID();
+      await env.DB.prepare(
+        "INSERT INTO wiki_kbs (id, user_id, title, slug, description, icon, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)"
+      ).bind(id, uid, title, slug, description, icon, now, now).run();
+      return id;
+    };
+
+    const insertCat = async (kbId, name, slug, sort, hints, fmt) => {
+      const id = crypto.randomUUID();
+      await env.DB.prepare(
+        "INSERT INTO wiki_categories (id, kb_id, user_id, name, slug, sort_order, extract_hints, page_format, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+      ).bind(id, kbId, uid, name, slug, sort, hints, fmt, now, now).run();
+      return id;
+    };
+
+    const insertPage = async (kbId, catId, title, content, summary) => {
+      const id = crypto.randomUUID();
+      await env.DB.prepare(
+        "INSERT INTO wiki_pages (id, kb_id, user_id, category_id, title, content, summary, is_system, created_at, updated_at) VALUES (?,?,?,?,?,?,?,0,?,?)"
+      ).bind(id, kbId, uid, catId, title, content, summary, now, now).run();
+      return { id, title };
+    };
+
+    const insertLink = async (kbId, fromId, toTitle) => {
+      try {
+        const rows = await env.DB.prepare("SELECT id FROM wiki_pages WHERE kb_id=? AND title=? AND user_id=?").bind(kbId, toTitle, uid).all();
+        const toId = rows.results[0]?.id;
+        if (!toId) return;
+        const linkId = crypto.randomUUID();
+        await env.DB.prepare(
+          "INSERT OR IGNORE INTO wiki_links (id, kb_id, user_id, from_page_id, to_page_id, from_title, to_title, created_at) VALUES (?,?,?,?,?,?,?,?)"
+        ).bind(linkId, kbId, uid, fromId, toId, '', toTitle, now).run();
+      } catch {}
+    };
+
+    // ========== KB 1: 三国历史 ==========
+    const kb1Id = await insertKb("📚 三国历史", "sanguo", "《三国演义》人物、事件、地点整理", "📚");
+    const catPeople = await insertCat(kb1Id, "人物", "renwu", 0,
+      "提取姓名、别名、字号、官职、势力、关键事件、性格特征、与其他人物关系",
+      "# {{title}}\n\n## 基本信息\n- 姓名：\n- 字号：\n- 官职：\n- 势力：\n\n## 关键事件\n\n## 性格特征\n\n## 相关人物\n");
+    const catEvent = await insertCat(kb1Id, "事件", "shijian", 1,
+      "提取事件名称、时间、地点、参与人物、起因经过结果、历史意义",
+      "# {{title}}\n\n## 时间 & 地点\n\n## 参与人物\n\n## 经过\n\n## 历史意义\n");
+    const catPlace = await insertCat(kb1Id, "地点", "didian", 2,
+      "提取地点名称、位置、发生过的事件、相关人物、战略意义",
+      "# {{title}}\n\n## 位置\n\n## 相关事件\n\n## 相关人物\n\n## 战略意义\n");
+
+    const pages1 = [];
+    // 人物页
+    pages1.push(await insertPage(kb1Id, catPeople, "刘备",
+`# 刘备
+
+## 基本信息
+- 姓名：刘备
+- 字号：玄德
+- 官职：汉中王、昭烈帝
+- 势力：蜀汉
+
+## 关键事件
+- 桃园结义
+- 三顾茅庐
+- 赤壁之战
+- 夷陵之战
+
+## 性格特征
+仁义宽厚，知人善任，百折不挠。
+
+## 相关人物
+- [[关羽]] — 二弟
+- [[张飞]] — 三弟
+- [[诸葛亮]] — 军师`,
+"蜀汉开国皇帝，仁义之君"));
+
+    pages1.push(await insertPage(kb1Id, catPeople, "关羽",
+`# 关羽
+
+## 基本信息
+- 姓名：关羽
+- 字号：云长
+- 官职：汉寿亭侯
+- 势力：蜀汉
+
+## 关键事件
+- 桃园结义
+- 温酒斩华雄
+- 过五关斩六将
+- 水淹七军
+- 败走麦城
+
+## 性格特征
+傲上而不侮下，重义气，智勇双全。
+
+## 相关人物
+- [[刘备]] — 大哥
+- [[张飞]] — 三弟
+- [[曹操]] — 威震华夏后被孙权偷袭`,
+"武圣，忠义千秋"));
+
+    pages1.push(await insertPage(kb1Id, catPeople, "诸葛亮",
+`# 诸葛亮
+
+## 基本信息
+- 姓名：诸葛亮
+- 字号：孔明
+- 官职：丞相、武乡侯
+- 势力：蜀汉
+
+## 关键事件
+- 三顾茅庐
+- 隆中对
+- 赤壁之战
+- 七擒孟获
+- 六出祁山
+- 秋风五丈原
+
+## 性格特征
+鞠躬尽瘁，死而后已，智谋超群。
+
+## 相关人物
+- [[刘备]] — 主公
+- [[关羽]] — 五虎上将
+- [[司马懿]] — 对手`,
+"蜀汉丞相，智慧化身"));
+
+    pages1.push(await insertPage(kb1Id, catPeople, "曹操",
+`# 曹操
+
+## 基本信息
+- 姓名：曹操
+- 字号：孟德
+- 官职：魏王、丞相
+- 势力：曹魏
+
+## 关键事件
+- 挟天子以令诸侯
+- 官渡之战
+- 赤壁之战
+- 杀华佗
+
+## 性格特征
+雄才大略，多疑奸诈，诗人气质。
+
+## 相关人物
+- [[关羽]] — 曾俘获后义释
+- [[诸葛亮]] — 主要对手`,
+"魏武帝，一代枭雄"));
+
+    // 事件页
+    pages1.push(await insertPage(kb1Id, catEvent, "赤壁之战",
+`# 赤壁之战
+
+## 时间 & 地点
+- 时间：公元 208 年
+- 地点：赤壁（今湖北赤壁市）
+
+## 参与人物
+- 曹魏：曹操
+- 孙刘联军：周瑜、鲁肃、诸葛亮、刘备、关羽
+
+## 经过
+曹操统一北方后南下，企图一举统一全国。孙权与刘备联合抗曹，周瑜用苦肉计、连环计，诸葛亮借东风，火烧赤壁，曹军大败。
+
+## 历史意义
+- 奠定三国鼎立格局
+- 以少胜多的经典战役`,
+"三国鼎立的关键战役"));
+
+    pages1.push(await insertPage(kb1Id, catEvent, "三顾茅庐",
+`# 三顾茅庐
+
+## 时间 & 地点
+- 时间：公元 207 年
+- 地点：隆中（今湖北襄阳）
+
+## 参与人物
+- [[刘备]]、关羽、张飞
+- [[诸葛亮]]
+
+## 经过
+刘备两次拜访诸葛亮未果，第三次终于相见。诸葛亮为刘备分析天下大势，提出"隆中对"战略。
+
+## 历史意义
+- 刘备从此有了战略规划
+- 诸葛亮出山辅佐刘备`,
+"刘备请诸葛亮出山的典故"));
+
+    // 地点页
+    pages1.push(await insertPage(kb1Id, catPlace, "隆中",
+`# 隆中
+
+## 位置
+今湖北省襄阳市西
+
+## 相关事件
+- [[三顾茅庐]]
+
+## 相关人物
+- [[诸葛亮]] — 隐居地
+- [[刘备]] — 三顾之地
+
+## 战略意义
+诸葛亮在此分析天下大势，提出"隆中对"，为蜀汉立国奠定战略基础。`,
+"诸葛亮隐居地，三顾茅庐发生地"));
+
+    // 双向链接
+    for (const p of pages1) {
+      const matches = (p.content.match(/\[\[(.+?)\]\]/g) || []).map(m => m.slice(2, -2));
+      for (const t of matches) {
+        await insertLink(kb1Id, p.id, t);
+      }
+    }
+
+    // ========== KB 2: 我的书单 ==========
+    const kb2Id = await insertKb("📖 我的书单", "booklist", "正在读、想读、读完的书 + 笔记", "📖");
+    const catReading = await insertCat(kb2Id, "正在读", "reading", 0,
+      "提取书名、作者、进度、金句、感悟",
+      "# {{title}}\n\n## 书籍信息\n- 作者：\n- 进度：\n\n## 金句\n\n## 感悟\n");
+    const catFinished = await insertCat(kb2Id, "读完", "finished", 1,
+      "提取书名、作者、读完日期、总体评分、推荐语",
+      "# {{title}}\n\n## 书籍信息\n- 作者：\n- 读完日期：\n- 评分：/5\n\n## 推荐语\n");
+    const catWishlist = await insertCat(kb2Id, "想读", "wishlist", 2,
+      "提取书名、作者、想读理由、来源",
+      "# {{title}}\n\n## 书籍信息\n- 作者：\n\n## 想读理由\n\n## 来源\n");
+
+    const pages2 = [];
+    pages2.push(await insertPage(kb2Id, catReading, "蛤蟆先生去看心理医生",
+`# 蛤蟆先生去看心理医生
+
+## 书籍信息
+- 作者：罗伯特·戴博德
+- 进度：142 / 208
+
+## 金句
+> 所谓活得真实，就是真诚地回应当下的需求。
+
+## 感悟
+用童话讲心理学，一点都不晦涩。蛤蟆先生其实就是我们每个人——有时候觉得自己不够好，有时候把情绪压着不说。`,
+"正在读 · 心理咨询入门"));
+
+    pages2.push(await insertPage(kb2Id, catReading, "人类简史",
+`# 人类简史
+
+## 书籍信息
+- 作者：尤瓦尔·赫拉利
+- 进度：60%
+
+## 金句
+> 虚构的故事让大批互不相识的陌生人，能够为了共同的目标而合作。
+
+## 感悟
+从认知革命到科学革命，把人类历史重新讲了一遍。"虚构故事"这个概念特别有意思——国家、公司、货币都是人类共同想象的产物。`,
+"正在读 · 宏大的人类故事"));
+
+    pages2.push(await insertPage(kb2Id, catFinished, "活着",
+`# 活着
+
+## 书籍信息
+- 作者：余华
+- 读完日期：2026-09-15
+- 评分：5/5
+
+## 推荐语
+一个人一生的苦难，写法却平静如水。福贵身边的人一个个走了，最后只剩他和一头老牛。读完沉默了很久。`,
+"读完 · 余华代表作"));
+
+    pages2.push(await insertPage(kb2Id, catFinished, "三体",
+`# 三体
+
+## 书籍信息
+- 作者：刘慈欣
+- 读完日期：2026-08-20
+- 评分：5/5
+
+## 推荐语
+中国科幻的天花板。黑暗森林法则、降维打击、光速飞船——每一个概念都让人头皮发麻。读完立刻去搜了第二部。`,
+"读完 · 中国科幻里程碑"));
+
+    pages2.push(await insertPage(kb2Id, catWishlist, "置身事内",
+`# 置身事内
+
+## 书籍信息
+- 作者：兰小欢
+
+## 想读理由
+讲中国经济运行的底层逻辑。朋友说读完对很多社会现象会有不一样的理解。
+
+## 来源
+推特上很多人推荐`,
+"想读 · 中国经济"));
+
+    console.log("[demo] 种子 Wiki 灌入完成，KBs=2, pages=", pages1.length + pages2.length);
+  } catch (e) {
+    console.error("[demo] Wiki 种子灌入失败:", e.message);
+  }
 }
