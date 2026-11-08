@@ -1030,7 +1030,6 @@ export async function inferMilestoneInfo(
       }
     }
 
-    console.log("[ai] inferMilestoneInfo 规则匹配:", ruleHit, "AI 原始:", JSON.stringify(r).slice(0, 200));
     return result;
   } catch (e) {
     console.warn("[ai] inferMilestoneInfo 解析失败:", e, "raw:", raw);

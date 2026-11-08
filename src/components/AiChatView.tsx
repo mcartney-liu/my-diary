@@ -360,11 +360,9 @@ export default function AiChatView() {
                 let createdCats: { name: string; template_key?: string }[] = [];
                 try {
                   const r = await wikiAIDesignCategories(newKb.title, newKb.description || kbDesc);
-                  console.log('[创建KB] AI设计分类返回:', r);
                   for (const c of r.categories) {
                     try {
-                      const result = await wikiAddCategory(newKb.id, { name: c.name, template_key: c.template_key || null, sort_order: c.sort_order });
-                      console.log('[创建KB] 分类创建结果:', c.name, result);
+                      await wikiAddCategory(newKb.id, { name: c.name, template_key: c.template_key || null, sort_order: c.sort_order });
                       createdCats.push({ name: c.name, template_key: c.template_key || undefined });
                     } catch (e) {
                       console.error('[创建KB] 单个分类创建失败:', c.name, e);
@@ -638,7 +636,6 @@ export default function AiChatView() {
           tplList.map((t: any) => ({ id: t.id, name: t.name, description: t.description }))
         );
         matchedTpl = tplDet.templateId;
-        console.log("[saveAiAnswerAsDiary] 模板匹配:", matchedTpl, tplDet.reason);
       } catch (e) {
         console.warn("[saveAiAnswerAsDiary] 模板匹配失败，默认 diary:", e);
       }
@@ -654,9 +651,7 @@ export default function AiChatView() {
         createdAt: now,
         updatedAt: now,
       };
-      console.log("[saveAiAnswerAsDiary] 发送:", JSON.stringify(diaryData));
-      const result = await upsertDiary(diaryData);
-      console.log("[saveAiAnswerAsDiary] 成功:", result);
+      await upsertDiary(diaryData);
 
       updateActive((s) => {
         const newMsgs = [...s.msgs];

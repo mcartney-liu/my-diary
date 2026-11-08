@@ -147,14 +147,14 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [offlineBanner, setOfflineBanner] = useState(false);
   const [demoBannerClosed, setDemoBannerClosed] = useState(() => {
-    try { return sessionStorage.getItem("mydiary:demoBannerClosed") === "1"; } catch { return false; }
+    try { return localStorage.getItem("mydiary:demoBannerClosed") === "1"; } catch { return false; }
   });
   const skipBackgroundSyncRef = useRef(false);
 
-  // 关闭演示横幅（本次会话内有效）
+  // 关闭演示横幅（持久化）
   const closeDemoBanner = () => {
     setDemoBannerClosed(true);
-    try { sessionStorage.setItem("mydiary:demoBannerClosed", "1"); } catch {}
+    try { localStorage.setItem("mydiary:demoBannerClosed", "1"); } catch {}
   };
 
   // 全局主题初始化（刷新后不丢失）

@@ -68,8 +68,13 @@ const DEMO_EMAIL = "demo@callmydiary.online";
 const DEMO_PASSWORD = "demodemo123";
 const DEMO_NICKNAME = "小麦🌾演示本";
 
-// 🔧 临时调试路由：POST /api/demo/reset 触发演示账号重置（调完可删）
+// POST /api/demo/reset — 演示账号重置（需内部 header 校验）
 async function handleDemoReset(request, env) {
+  const expected = env.DEMO_RESET_SECRET || "internal-demo-reset-v1";
+  const got = request.headers.get("x-demo-reset");
+  if (got !== expected) {
+    return new Response(JSON.stringify({ ok: false, error: "forbidden" }), { status: 403, headers: { "Content-Type": "application/json" } });
+  }
   try {
     await resetDemoAccount(env);
     return new Response(JSON.stringify({ ok: true }), { headers: { "Content-Type": "application/json" } });
