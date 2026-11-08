@@ -1604,7 +1604,6 @@ async function handleTranscribe(request, env) {
     const res = await env.AI.run('@cf/openai/whisper-large-v3-turbo', {
       audio: b64,
       task: 'transcribe',
-      language: 'zh',
     });
 
     const text = (res?.text || '').trim();

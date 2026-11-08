@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import type { Diary } from "../types";
@@ -123,13 +123,6 @@ export default function FinancePage({ diaries }: Props) {
   }, [items]);
 
   const maxDayExpense = Math.max(1, ...last14Days.map((d) => d.expense));
-
-  // 🛠️ DEBUG: 临时打印 items 和 last14Days 看为什么柱图空白
-  useEffect(() => {
-    console.log("[FinancePage DEBUG] items:", items.map(i => ({ date: i.date, direction: i.direction, value: i.value })));
-    console.log("[FinancePage DEBUG] last14Days:", last14Days);
-    console.log("[FinancePage DEBUG] maxDayExpense:", maxDayExpense);
-  }, [items, last14Days, maxDayExpense]);
 
   const hasData = items.length > 0;
 
