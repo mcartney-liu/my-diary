@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { User, PenLine, LibraryBig } from "lucide-react";
 import type { Diary } from "../types";
-import { getProfile } from "../api";
+import { getProfile, listPlans, listMilestones } from "../api";
 import { monthCells, moodById, fmtDate } from "../data";
 import { TEMPLATES } from "../templates";
 import StreakBadge from "./StreakBadge";
@@ -36,6 +36,24 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showTour, setShowTour] = useState(false);
   const [bootLoading, setBootLoading] = useState(true);
+  const [plansByDate, setPlansByDate] = useState<Map<string, number>>(new Map());
+  const [milestonesByDate, setMilestonesByDate] = useState<Map<string, number>>(new Map());
+
+  // 并行拉 plans + milestones，按 target_date 分组
+  useEffect(() => {
+    Promise.all([listPlans().catch(() => null), listMilestones().catch(() => null)]).then(([p, m]) => {
+      const pMap = new Map<string, number>();
+      const mMap = new Map<string, number>();
+      for (const pl of (p as any)?.plans ?? []) {
+        if (pl.target_date && !pl.status) pMap.set(pl.target_date, (pMap.get(pl.target_date) ?? 0) + 1);
+      }
+      for (const ms of (m as any)?.milestones ?? []) {
+        if (ms.target_date) mMap.set(ms.target_date, (mMap.get(ms.target_date) ?? 0) + 1);
+      }
+      setPlansByDate(pMap);
+      setMilestonesByDate(mMap);
+    });
+  }, []);
 
   // 拉用户信息，判断是否需要新手指引
   useEffect(() => {
@@ -453,6 +471,12 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
                   ) : capsuleCount > 0 ? (
                     <span className="text-[12px] mt-0.5">🔒</span>
                   ) : null}
+                  {plansByDate.get(ds) && (
+                    <span className="absolute top-0.5 right-1 text-[10px]" title="计划到期">🎯</span>
+                  )}
+                  {milestonesByDate.get(ds) && (
+                    <span className="absolute top-0.5 left-1 text-[10px]" title="纪念日">🎈</span>
+                  )}
                   {totalCount > 1 && (
                     <span className={[
                       "absolute bottom-0.5 right-1 text-[10px] leading-none rounded-full px-1 py-0.5",

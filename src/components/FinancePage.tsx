@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import type { Diary } from "../types";
 import { FINANCE_CATEGORIES, resolveCategory, categoryMeta } from "../categories";
 
@@ -137,7 +137,13 @@ export default function FinancePage({ diaries }: Props) {
             <ArrowLeft size={20} className="text-paper-ink" />
           </button>
           <h1 className="text-base text-paper-ink font-medium">💰 记账统计</h1>
-          <div className="ml-auto flex items-center gap-1">
+          <button
+            onClick={() => nav("/editor?template=finance")}
+            className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-full bg-paper-accent/15 text-paper-accent text-xs font-medium hover:bg-paper-accent/25 transition"
+          >
+            <Plus size={14} /> 记一笔
+          </button>
+          <div className="flex items-center gap-1">
             <button
               onClick={goPrevMonth}
               className="p-1 rounded-full hover:bg-paper-surface active:scale-95 text-paper-ink2"
@@ -182,9 +188,15 @@ export default function FinancePage({ diaries }: Props) {
           <div className="py-16 text-center">
             <div className="text-5xl mb-3">💰</div>
             <p className="text-paper-ink2">还没有记账哦</p>
-            <p className="text-xs text-paper-ink3 mt-1">
+            <p className="text-xs text-paper-ink3 mt-1 mb-5">
               写日记时选「记账」模板，就能在这里看到支出、收入和分类汇总
             </p>
+            <button
+              onClick={() => nav("/editor?template=finance")}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-paper-accent text-paper-card text-sm font-medium hover:opacity-90 transition active:scale-95"
+            >
+              <Plus size={16} /> ＋ 记一笔
+            </button>
           </div>
         ) : (
           <>
