@@ -677,6 +677,7 @@ export interface DetectResult {
   templateId: string;
   confidence: number;
   reason: string;
+  candidates?: { templateId: string; confidence: number }[];
 }
 
 export function quickRuleMatch(text: string): DetectResult | null {
@@ -781,15 +782,24 @@ export async function detectTemplate(
   let raw: string;
   try {
     raw = await callChatCompletion(p, [
-      { role: "system", content: `你是一个日记模板分类器。根据用户说的话，判断最适合的日记模板。
+      { role: "system", content: `你是一个日记模板分类器。根据用户说的话，选出最合适的 top 3 日记模板。
 可选模板:
 ═ 系统模板 ═
 ${systemTplList}
 ${userTplList}
 
-严格返回 JSON: {"templateId": "xxx", "confidence": 0.0-1.0, "reason": "一句话解释"}
+严格返回 JSON: {
+  "templateId": "最佳模板id",
+  "confidence": 0.0-1.0,
+  "reason": "一句话解释",
+  "candidates": [
+    {"templateId": "...", "confidence": 0.9},
+    {"templateId": "...", "confidence": 0.6},
+    {"templateId": "...", "confidence": 0.3}
+  ]
+}
 
-用户模板的 id 是类似 "tpl_abc123" 的字符串。如果没有合适的就返回 "diary"。` },
+candidates 里按置信度从高到低排前 3。如果没有合适的就返回 "diary"。` },
       { role: "user", content: rawText },
     ], 0.3);
   } catch (aiErr: any) {

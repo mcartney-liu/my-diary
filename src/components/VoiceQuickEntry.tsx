@@ -13,6 +13,7 @@ interface QuickResult {
   templateId: string;
   reason: string;
   transcript: string;
+  candidates?: { templateId: string; confidence: number }[];
 }
 
 interface Props {
@@ -476,17 +477,52 @@ export default function VoiceQuickEntry({ dockVariant = false, hintVariant = fal
                   <Sparkles size={16} className="text-paper-ink" />
                   <div className="font-medium text-paper-ink">为你推荐模板</div>
                 </div>
-                <div className="flex items-center gap-4">
+
+                {/* 主推荐 */}
+                <div className="flex items-center gap-4 p-3 rounded-xl border border-paper-accent/40 bg-paper-accent/5">
                   <div className="text-4xl">{matchedTemplate.icon}</div>
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className="font-semibold text-paper-ink text-lg">{matchedTemplate.name}</div>
-                    <div className="text-xs text-paper-ink2">{matchedTemplate.description}</div>
-                    {/* 🔑 reason: AI 自动推荐时显示，手动换的就不显示 AI 理由 */}
+                    <div className="text-xs text-paper-ink2 truncate">{matchedTemplate.description}</div>
                     {!result.reason.startsWith("你手动") && (
                       <div className="text-xs text-paper-ink mt-1">🤖 {result.reason}</div>
                     )}
                   </div>
                 </div>
+
+                {/* top 2-3 候选让用户选 */}
+                {result.candidates && result.candidates.length > 1 && (() => {
+                  const tplList: { id: string; name: string; icon: string }[] = [...TEMPLATES, ...userTemplates as any];
+                  const others: { c: { templateId: string; confidence: number }; tpl: { id: string; name: string; icon: string } }[] = result.candidates
+                    .filter((c) => c.templateId !== result.templateId)
+                    .slice(0, 2)
+                    .map((c) => ({ c, tpl: tplList.find((t) => t.id === c.templateId)! }))
+                    .filter((x) => x.tpl);
+                  if (!others.length) return null;
+                  return (
+                    <div>
+                      <div className="text-[11px] text-paper-ink3 mb-1.5">或者选别的：</div>
+                      <div className="flex gap-2">
+                        {others.map(({ c, tpl }) => (
+                          <button
+                            key={c.templateId}
+                            onClick={() => {
+                              setResult((prev) => prev && { ...prev, templateId: c.templateId, reason: `你手动选了 ${tpl.name}` });
+                            }}
+                            className={`shrink-0 flex items-center gap-1.5 h-9 px-3 rounded-xl border text-xs transition ${
+                              result.templateId === c.templateId
+                                ? "bg-paper-accent text-paper-card border-paper-accent"
+                                : "bg-paper-surface text-paper-ink2 border-paper-line hover:border-paper-ink3"
+                            }`}
+                          >
+                            <span className="text-base">{tpl.icon}</span>
+                            <span className="font-medium">{tpl.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* 🔑 文字可编辑 —— 改 AI 识别错的地方 */}
                 <div className="space-y-1">

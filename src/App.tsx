@@ -559,7 +559,7 @@ export default function App() {
         <Route path="/" element={<CalendarPage diaries={diaries} onSoftDelete={handleSoftDelete} />} />
         <Route path="/diaries" element={<DiaryListPage diaries={diaries} />} />
         <Route path="/trash" element={<TrashPage diaries={deletedDiaries} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onBatchRestore={handleBatchRestore} onBatchPermanentDelete={handleBatchPermanentDelete} />} />
-        <Route path="/tags" element={<TagsPage diaries={diaries} />} />
+        <Route path="/tags" element={<TagsPage diaries={allDiaries} onDiariesChange={setAllDiaries} />} />
         <Route path="/capsule" element={<CapsulePage diaries={diaries} />} />
         <Route path="/milestones" element={<MilestonesPage />} />
         <Route path="/plans" element={<PlanPage />} />

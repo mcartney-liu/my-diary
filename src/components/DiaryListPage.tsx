@@ -73,38 +73,41 @@ export default function DiaryListPage({ diaries }: Props) {
   const nav = useNavigate();
   const [search, setSearch] = useState("");
   const [moodFilter, setMoodFilter] = useState<string | null>(null);
+  const [templateFilter, setTemplateFilter] = useState<string | null>(null);
+  const [mediaFilter, setMediaFilter] = useState<"all" | "with-media">("all");
 
   const activeDiaries = useMemo(
     () => diaries.filter((d) => !d.deletedAt),
     [diaries]
   );
 
-  // 搜索 + 心情筛选
+  // 搜索 + 心情 + 模板 + 媒体筛选
   const filtered = useMemo(() => {
     let list = activeDiaries;
 
     if (moodFilter) list = list.filter((d) => (d.moodId ?? "neutral") === moodFilter);
+    if (templateFilter) list = list.filter((d) => (d.templateId ?? null) === templateFilter);
+    if (mediaFilter === "with-media") {
+      list = list.filter((d) => d.blocks.some((b) => b.kind === "image" || b.kind === "audio"));
+    }
 
     if (search.trim()) {
       const kw = search.trim().toLowerCase();
       list = list.filter((d) => {
-        // 标题
         if (d.title?.toLowerCase().includes(kw)) return true;
-        // 正文
         const text = d.blocks
           .filter((b) => b.kind === "text")
           .map((b) => b.content)
           .join(" ")
           .toLowerCase();
         if (text.includes(kw)) return true;
-        // 标签
         if (d.tags?.some((t) => t.toLowerCase().includes(kw))) return true;
         return false;
       });
     }
 
     return list;
-  }, [activeDiaries, moodFilter, search]);
+  }, [activeDiaries, moodFilter, templateFilter, mediaFilter, search]);
 
   const grouped = useMemo(() => groupByDate(filtered), [filtered]);
   const totalCount = activeDiaries.length;
@@ -205,6 +208,42 @@ export default function DiaryListPage({ diaries }: Props) {
             </button>
           );
         })}
+      </div>
+
+      {/* 模板 + 媒体筛选 chip 行 */}
+      <div className="flex gap-2 px-4 pt-2 overflow-x-auto no-scrollbar">
+        {[
+          { id: null, label: "全部模板" },
+          { id: "finance", label: "💰 记账" },
+          { id: "plan", label: "🎯 计划" },
+          { id: "milestone", label: "🎈 纪念日" },
+          { id: "books", label: "📚 读书笔记" },
+          { id: "calendar", label: "📅 倒计时" },
+          { id: "capsule", label: "🕰️ 时间胶囊" },
+        ].map((t) => (
+          <button
+            key={t.id ?? "all"}
+            onClick={() => setTemplateFilter(t.id)}
+            className={`shrink-0 h-7 px-2.5 text-[11px] font-medium rounded-full border transition ${
+              templateFilter === t.id
+                ? "bg-paper-accent text-paper-card border-paper-accent"
+                : "bg-paper-surface text-paper-ink2 border-paper-line hover:border-paper-ink3"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+        <div className="w-px bg-paper-line/60 shrink-0 mx-1" />
+        <button
+          onClick={() => setMediaFilter(mediaFilter === "with-media" ? "all" : "with-media")}
+          className={`shrink-0 h-7 px-2.5 text-[11px] font-medium rounded-full border transition ${
+            mediaFilter === "with-media"
+              ? "bg-paper-accent text-paper-card border-paper-accent"
+              : "bg-paper-surface text-paper-ink2 border-paper-line hover:border-paper-ink3"
+          }`}
+        >
+          📎 仅含图片/语音
+        </button>
       </div>
 
       {/* 日记列表 */}
