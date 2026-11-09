@@ -1890,15 +1890,14 @@ async function handleAsk(request, env, JWT_SECRET) {
       }
       msgs.push({ role: 'user', content: question });
       const answer = await callLLM(env, msgs, 500);
-      // 同步提取记忆（Workers AI 很快，5s timeout 够了）
+      // ⚡ 改成 fire-and-forget
       if (answer) {
-        try {
-          const cands = await Promise.race([
-            extractMemoryCandidates(env, question, answer),
-            new Promise(r => setTimeout(() => r([]), 5000)),
-          ]);
-          if (cands.length) await saveMemories(env, user.uid, cands);
-        } catch {}
+        Promise.race([
+          extractMemoryCandidates(env, question, answer),
+          new Promise(r => setTimeout(() => r([]), 5000)),
+        ]).then(cands => {
+          if (cands?.length) saveMemories(env, user.uid, cands).catch(() => {});
+        }).catch(() => {});
       }
       return json({ answer: answer || '让我想想～', sources: [] });
     } catch (e) { return json({ answer: '抱歉，我暂时答不上来这个问题' }); }
@@ -1976,15 +1975,14 @@ async function handleAsk(request, env, JWT_SECRET) {
     let answer;
     try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history, memoriesText, structuredFacts, !!web_search); }
     catch (e) { answer = 'LLM 错: ' + e.message; }
-    // 同步提取并保存记忆（Workers AI 很快，5s timeout 够了）
+    // ⚡ 记忆提取改成 fire-and-forget：先返回给用户，再后台 try。用户不用等这 1-5s
     if (answer) {
-      try {
-        const cands = await Promise.race([
-          extractMemoryCandidates(env, question, answer),
-          new Promise(r => setTimeout(() => r([]), 5000)),
-        ]);
-        if (cands.length) await saveMemories(env, user.uid, cands);
-      } catch {}
+      Promise.race([
+        extractMemoryCandidates(env, question, answer),
+        new Promise(r => setTimeout(() => r([]), 5000)),
+      ]).then(cands => {
+        if (cands?.length) saveMemories(env, user.uid, cands).catch(() => {});
+      }).catch(() => {});
     }
     return json({
       answer,
@@ -2038,27 +2036,30 @@ ${specialRules}
 async function handleWikiAskImport(env, user, question, kb, web_search) {
   try {
     // 1. check-match 预检（主题 low → 降级回正常 RAG，不中断）
-    //    用户在收集模式下问了不相关的话 → 让 AI 正常回答，不要硬走 import_mode 流程
+    //    但"帮我收集一些适合这个知识库的内容"是固定触发语，必然被判 LOW（它不是主题问题）→ 跳过
+    const TRIGGER_PHRASES = ['帮我收集一些适合这个知识库的内容', '帮我收集', '收集'];
+    const isFixedTrigger = TRIGGER_PHRASES.some(p => question.includes(p));
     let matchResult = { level: 'high', reason: '', suggested_category: null };
-    try {
-      const matchResp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-        messages: [{
-          role: 'user',
-          content: `判断这个问题和知识库「${kb.title}」的主题相关性：
+    if (!isFixedTrigger) {
+      try {
+        const matchResp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+          messages: [{
+            role: 'user',
+            content: `判断这个问题和知识库「${kb.title}」的主题相关性：
 问题：${question}
 
 只回答 HIGH / MEDIUM / LOW，然后一行理由。格式：HIGH
 理由：xxx`
-        }]
-      });
-      const text = matchResp?.response?.trim?.() || '';
-      if (text.startsWith('LOW')) matchResult.level = 'low';
-      else if (text.startsWith('MEDIUM')) matchResult.level = 'medium';
-    } catch {}
+          }]
+        });
+        const text = matchResp?.response?.trim?.() || '';
+        if (text.startsWith('LOW')) matchResult.level = 'low';
+        else if (text.startsWith('MEDIUM')) matchResult.level = 'medium';
+      } catch {}
 
-    if (matchResult.level === 'low') {
-      // 降级：不强制 import_mode，让正常 RAG 流程接手
-      return null;
+      if (matchResult.level === 'low') {
+        return null;  // 降级
+      }
     }
 
     // 2. 强制 web_search=true
@@ -2319,6 +2320,7 @@ ${contextBlock}
     catch (e) { answer = '抱歉，我暂时答不上来这个问题：' + (e.message || ''); }
 
     // 9. 返回（title 加兜底）
+    // ⚡ 普通 RAG 也带 can_save：用户问了问题，AI 的回答（不管是查知识库还是联网补充的）都可以一键汇入
     return json({
       answer,
       sources: finalTop.map(s => ({
@@ -2328,11 +2330,35 @@ ${contextBlock}
         score: Math.round((s.score || 0) * 1000) / 1000,
       })),
       kb_title: kb.title,
+      can_save: true,
     });
 
     } else {
-      // ===== 情况 3：KB 为空 + import_mode=false → 说空 =====
-      return json({ answer: `「${kb.title}」还是空的～先去添加资料并汇入吧！`, sources: [] });
+      // ===== 情况 3：KB 为空 + import_mode=false → 直接让 AI 回答（联网补）+ 给 can_save 让用户一键汇入 =====
+      // 空知识库用户问了问题 → 用联网知识回答 + 自动带 can_save=true 让用户决定要不要汇入
+      if (web_search) {
+        // 联网开 → 让 AI 自由回答
+        const sys = `你就是小麦，我的 AI 助手。我在「${kb.title}」知识库里问问题，但知识库还是空的。
+请根据你自己的知识回答用户的问题，内容尽可能详尽完整。
+回答完问题后，另起一行写 <<<SUGGEST>>>，然后下面写3个用户可能接着问的后续问题（每行一个，不要编号）。`;
+        const msgs = [{ role: 'system', content: sys }];
+        if (Array.isArray(history) && history.length) {
+          const recent = history.slice(-6);
+          for (const h of recent) {
+            if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
+              msgs.push({ role: h.role, content: String(h.content).slice(0, 200) });
+            }
+          }
+        }
+        msgs.push({ role: 'user', content: question });
+        let answer;
+        try { answer = await callLLM(env, msgs, 800); }
+        catch (e) { answer = '抱歉，我暂时答不上来：' + (e.message || ''); }
+        return json({ answer, sources: [], kb_title: kb.title, can_save: true });
+      } else {
+        // 联网关 → 先引导用户开联网或用收集模式
+        return json({ answer: `「${kb.title}」还是空的～要让我先帮你收集一些资料吗？\n\n📎 你可以点右下角的「🧠 帮我收集新知识」，或者开启联网查询让我用自己的知识回答 ✨`, sources: [] });
+      }
     }
   } catch (e) {
     return json({ answer: '知识库问答出错了：' + (e.message || 'unknown'), sources: [] });
