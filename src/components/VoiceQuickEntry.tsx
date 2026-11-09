@@ -328,8 +328,8 @@ export default function VoiceQuickEntry({ dockVariant = false, hintVariant = fal
            phase === "recording" ? <Mic size={18} /> :
            <Mic size={18} />}
         </button>
-      ) : (
-        // 默认：原底部导航栏按钮
+      ) : !hintVariant ? (
+        // 默认：原底部导航栏按钮（只在既不是 dockVariant 也不是 hintVariant 时渲染）
         <button
           onClick={() => {
             if (phase === "processing" || phase === "match") return;
@@ -345,7 +345,7 @@ export default function VoiceQuickEntry({ dockVariant = false, hintVariant = fal
            <Mic size={16} />}
           <span>{btnLabel}</span>
         </button>
-      )}
+      ) : null}
 
       {/* Portal：fixed 元素渲染到 body，突破 nav stacking context */}
       {createPortal(<>
