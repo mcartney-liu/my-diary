@@ -142,6 +142,9 @@ export default {
       ["POST",   "/api/chat/sessions",       handleChatUpsertSessions],
       ["DELETE", "/api/chat/sessions/:id",   handleChatDeleteSession],
 
+      // ====== AI 代理（key 永不离开 Worker）======
+      ["POST",   "/api/ai/chat",             handleAiChat],
+
       // ====== Wiki 知识库 v4 ======
       ["GET",    "/api/wiki/kbs",                              handleWikiListKbs],
       ["POST",   "/api/wiki/kbs",                              handleWikiAddKb],
@@ -1530,6 +1533,20 @@ async function handleChatDeleteSession(request, env, JWT_SECRET, params) {
   const id = params.id;
   await env.DB.prepare("DELETE FROM chat_sessions WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
   return json({ ok: true });
+}
+
+// AI 代理：前端传 messages，Worker 内部调用 Agnes（key 永不暴露）
+async function handleAiChat(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "invalid json" }, 400); }
+  const { messages, maxTokens = 512 } = body || {};
+  if (!Array.isArray(messages)) return json({ error: "messages required" }, 400);
+
+  const content = await callLLM(env, messages, maxTokens);
+  return json({ ok: true, content });
 }
 
 function float32ToJson(arr) { return JSON.stringify(Array.from(arr)); }

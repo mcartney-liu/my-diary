@@ -13,7 +13,7 @@
 
 import type { DiaryBlock, MoodId } from "./types";
 import { uid } from "./types";
-import { saveSummary } from "./api";
+import { saveSummary, API_BASE, getToken } from "./api";
 import { FINANCE_CATEGORIES } from "./categories";
 // 🔧 2026-10-06：日期统一用本地时区，避免东八区凌晨 0-8 点把日期算成前一天
 import { fmtDateLocal } from "./data";
@@ -45,12 +45,36 @@ export async function callChatCompletion(
   const timer = setTimeout(() => controller.abort(), 30000);
 
   try {
+    // 分支 A：默认走 Worker 代理（apiKey 空 → key 永不离开服务器）
+    if (!provider.apiKey) {
+      const token = getToken();
+      if (!token) throw new Error("未登录，AI 不可用");
+
+      const res = await fetch(`${API_BASE}/api/ai/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ messages, maxTokens: temperature < 0.5 ? 1500 : 800 }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const err = await res.text().catch(() => res.statusText);
+        throw new Error(`AI Worker ${res.status}: ${err.slice(0, 200)}`);
+      }
+      const data = await res.json();
+      if (!data?.ok) throw new Error(`AI Worker 错误: ${data?.error || "unknown"}`);
+      if (!data.content) throw new Error("AI 返回为空");
+      return data.content.trim();
+    }
+
+    // 分支 B：用户自己填了 apiKey → 直连（隐私，不经过我们服务器）
     const body: any = {
       model: provider.model,
       messages,
       temperature,
     };
-    // 🔑 只有需要 JSON 的 skill 才加 response_format
     if (responseFormat === "json_object") {
       body.response_format = { type: "json_object" };
     }
@@ -69,7 +93,6 @@ export async function callChatCompletion(
       throw new Error(`AI ${res.status}: ${err.slice(0, 200)}`);
     }
     const data = await res.json();
-    // 兼容 OpenAI / 豆包 / 通义 标准格式
     const text =
       data?.choices?.[0]?.message?.content ??
       data?.choices?.[0]?.delta?.content ??
@@ -88,12 +111,12 @@ export async function callChatCompletion(
 
 const STORAGE_KEY = "mydiary.ai.provider";
 
-// 内置默认 Provider，永不丢失
+// 内置默认 Provider — key 留空表示"走 Worker 代理"，key 永不离开服务器
 const DEFAULT_PROVIDER: AiProvider = {
   name: "Agnes",
-  endpoint: "https://api.agnes-ai.cn/v1/chat/completions",
+  endpoint: "",           // 空 → Worker 代理；用户自己填 endpoint 则直连
   model: "agnes-3.0-flash",
-  apiKey: "sk-vgf79jNxIWOstqrYhcU5FLBV3V67jpSfRaBnSHKDwNb2UOQ4",
+  apiKey: "",             // 空 → Worker 里的 env.AGNES_API_KEY；用户自己填则用自己的 key
 };
 
 export function getAiProvider(): AiProvider {

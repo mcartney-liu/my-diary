@@ -120,9 +120,7 @@ export const capabilities = {
   /**
    * 浏览器原生语音识别（Web Speech API）。
    * ⚠️ Android WebView **不支持** → App 里为 false。
-   *    这就是「语音快记在 App 里报 not-allowed」的根本原因。
-   *    EditorPage / ProfilePage 已做能力检测并自动降级；
-   *    VoiceQuickEntry 尚未做（待修）。
+   *    EditorPage / ProfilePage / VoiceQuickEntry 已做能力检测并自动降级。
    */
   speechRecognition:
     typeof window !== "undefined" &&

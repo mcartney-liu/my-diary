@@ -433,7 +433,7 @@ export function wikiAddSourceText(kbId: string, text: string, title?: string) {
   return request<{ source_id: string; ok: boolean }>('/api/wiki/kbs/' + kbId + '/sources/text', { method: 'POST', body: JSON.stringify({ text, title }) });
 }
 export async function wikiUploadSourceFile(kbId: string, file: File) {
-  const token = localStorage.getItem('token') || '';
+  const token = getToken() || '';
   const fd = new FormData();
   fd.append('file', file);
   const res = await fetch('/api/wiki/kbs/' + kbId + '/sources/file', {
