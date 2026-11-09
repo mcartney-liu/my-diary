@@ -26,9 +26,15 @@ const WEEK_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const nav = useNavigate();
   const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth());
-  const [selectedDate, setSelectedDate] = useState<string>(() => fmtDate(now));
+  // 支持 ?date=YYYY-MM-DD 深链进入（年度回顾月块下钻）
+  const initialDate = (() => {
+    const sp = new URLSearchParams(window.location.search);
+    const d = sp.get("date");
+    return (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) ? d : fmtDate(now);
+  })();
+  const [year, setYear] = useState(Number(initialDate.slice(0, 4)));
+  const [month, setMonth] = useState(Number(initialDate.slice(5, 7)) - 1);
+  const [selectedDate, setSelectedDate] = useState<string>(initialDate);
   const [view, setView] = useState<"monthly" | "yearly" | "ai" | "wiki">("monthly");
   const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
   const [avatarKey, setAvatarKey] = useState<string | null>(null);
@@ -45,7 +51,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
       const pMap = new Map<string, number>();
       const mMap = new Map<string, number>();
       for (const pl of (p as any)?.plans ?? []) {
-        if (pl.target_date && !pl.status) pMap.set(pl.target_date, (pMap.get(pl.target_date) ?? 0) + 1);
+        if (pl.target_date && pl.status !== "completed") pMap.set(pl.target_date, (pMap.get(pl.target_date) ?? 0) + 1);
       }
       for (const ms of (m as any)?.milestones ?? []) {
         if (ms.target_date) mMap.set(ms.target_date, (mMap.get(ms.target_date) ?? 0) + 1);
@@ -233,7 +239,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
       <div className="min-h-screen flex items-center justify-center bg-[#faf6ef]">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-paper-line border-amber-700/50 border-t-amber-700 rounded-full animate-spin" />
-          <p className="text-paper-muted text-sm">正在加载…</p>
+          <p className="text-paper-ink3 text-sm">正在加载…</p>
         </div>
       </div>
     );
@@ -499,16 +505,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           <DayList date={selectedDate} diaries={byDate.get(selectedDate) ?? []} onSoftDelete={onSoftDelete} />
         </section>
 
-        {/* 今天没写日记 → 温柔引导 */}
-        {selectedDate === todayStr && (byDate.get(todayStr)?.length ?? 0) === 0 && (
-          <div className="animate-fade-up" style={{ animationDelay: "200ms" }}>
-            <div className="rounded-xl border border-dashed border-paper-line bg-paper-surface/60 p-5 text-center">
-              <div className="text-2xl mb-2">🎙️</div>
-              <p className="text-sm text-paper-ink mb-3">今天还没写日记哦</p>
-              <VoiceQuickEntry hintVariant />
-            </div>
-          </div>
-        )}
+
           </>
         ) : view === "yearly" ? (
           <MoodHeatmap diaries={diaries} />

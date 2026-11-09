@@ -112,16 +112,35 @@ export default function DayList({ date, diaries, onSoftDelete }: Props) {
         </div>
       )}
 
-      {filtered.length === 0 ? (
-        <button
-          onClick={() => nav("/editor")}
-          className="w-full text-center py-8 rounded-xl border-2 border-dashed border-paper-line text-paper-ink2 hover:border-paper-accent hover:text-paper-accent transition-colors"
-        >
-          {isFiltered ? `这一天没有${templateById(activeFilter!)?.name ?? "该类型"}日记` : "这一天还没有写日记"} ✍️
-          <br />
-          <span className="text-xs">点击写第一篇</span>
-        </button>
-      ) : (
+      {filtered.length === 0 ? (() => {
+        const isToday = date === new Date().toISOString().slice(0, 10);
+        return (
+          <button
+            onClick={() => nav("/editor")}
+            className="w-full text-center p-6 rounded-2xl border-2 border-dashed border-paper-line bg-paper-surface/50 hover:bg-paper-surface hover:border-paper-accent/60 transition-all active:scale-[0.99]"
+          >
+            <div className="text-2xl mb-2">{isFiltered ? "📭" : "✍️"}</div>
+            <p className="text-sm text-paper-ink2 font-medium">
+              {isFiltered ? `这一天没有${templateById(activeFilter!)?.name ?? "该类型"}日记` : "这一天还没有写日记"}
+            </p>
+            <p className="text-[11px] text-paper-accent mt-1">点击写第一篇</p>
+
+            {isToday && !isFiltered && (
+              <div className="mt-4 pt-3 border-t border-dashed border-paper-line/40 text-left">
+                <p className="text-[11px] leading-relaxed text-paper-ink3 space-y-1">
+                  <span className="block">💡 随便记点什么都行——</span>
+                  <span className="block pl-3">今天最开心的一件小事</span>
+                  <span className="block pl-3">午饭吃了啥，味道怎么样</span>
+                  <span className="block pl-3">刚才散步看到了什么</span>
+                </p>
+                <p className="text-[11px] text-paper-ink3/70 mt-3 text-center">
+                  🎙️ 不想打字？点底栏话筒直接说话
+                </p>
+              </div>
+            )}
+          </button>
+        );
+      })() : (
         <ul className="space-y-3">
           {filtered.map((d, idx) => {
             const mood = moodById(d.moodId);

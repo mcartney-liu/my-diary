@@ -45,6 +45,9 @@ tunnel.out.log
 tunnel.err.log
 serve.cjs
 
+# 已归档的原型 / 废弃代码
+_archived/
+
 # ====== Android (Capacitor 套壳) ======
 # 说明：android/ 下的「源码」要保留（MainActivity.java、AndroidManifest.xml、
 #      build.gradle、res/ 等），换机器才能重建 APK；

@@ -495,38 +495,38 @@ export default function App() {
           <div className="bg-paper-surface rounded-2xl shadow-2xl border border-paper-line max-w-md w-full p-6 relative animate-[slide-up_0.3s]">
             <button
               onClick={closeDemoWelcome}
-              className="absolute top-3 right-3 w-7 h-7 rounded-full hover:bg-paper-hover text-paper-muted flex items-center justify-center transition"
+              className="absolute top-3 right-3 w-7 h-7 rounded-full hover:bg-paper-surface text-paper-ink3 flex items-center justify-center transition"
               aria-label="关闭"
             >×</button>
 
             <div className="text-center mb-5">
               <div className="text-4xl mb-2">🌾</div>
-              <h2 className="text-xl font-semibold text-ink-primary">欢迎来到「我的日记」</h2>
-              <p className="text-sm text-paper-muted mt-1">这是演示账号，让你 30 秒感受下产品灵魂</p>
+              <h2 className="text-xl font-semibold text-paper-ink">欢迎来到「我的日记」</h2>
+              <p className="text-sm text-paper-ink3 mt-1">这是演示账号，让你 30 秒感受下产品灵魂</p>
             </div>
 
             <div className="space-y-3">
               <div className="flex items-start gap-3 p-3 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100">
                 <div className="text-2xl leading-none mt-0.5">🎙️</div>
                 <div className="flex-1">
-                  <div className="font-medium text-sm text-ink-primary">说话就能写日记</div>
-                  <div className="text-xs text-paper-muted mt-0.5">点底栏中间的 🎙️ 语音快记，说几句小麦帮你整理成结构化日记</div>
+                  <div className="font-medium text-sm text-paper-ink">说话就能写日记</div>
+                  <div className="text-xs text-paper-ink3 mt-0.5">点底栏中间的 🎙️ 语音快记，说几句小麦帮你整理成结构化日记</div>
                 </div>
               </div>
 
               <div className="flex items-start gap-3 p-3 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100">
                 <div className="text-2xl leading-none mt-0.5">🌾</div>
                 <div className="flex-1">
-                  <div className="font-medium text-sm text-ink-primary">小麦帮你润色 / 起标题 / 写结尾</div>
-                  <div className="text-xs text-paper-muted mt-0.5">进任意一篇日记 → 点右下角 🌾 小麦助手 → 一键贴到日记里</div>
+                  <div className="font-medium text-sm text-paper-ink">小麦帮你润色 / 起标题 / 写结尾</div>
+                  <div className="text-xs text-paper-ink3 mt-0.5">进任意一篇日记 → 点右下角 🌾 小麦助手 → 一键贴到日记里</div>
                 </div>
               </div>
 
               <div className="flex items-start gap-3 p-3 rounded-xl bg-gradient-to-br from-violet-50 to-indigo-50 border border-violet-100">
                 <div className="text-2xl leading-none mt-0.5">🕸️</div>
                 <div className="flex-1">
-                  <div className="font-medium text-sm text-ink-primary">双向链接知识维基</div>
-                  <div className="text-xs text-paper-muted mt-0.5">小麦会自动发现日记里反复出现的人物和想法，帮你整理成互相链接的知识库</div>
+                  <div className="font-medium text-sm text-paper-ink">双向链接知识维基</div>
+                  <div className="text-xs text-paper-ink3 mt-0.5">小麦会自动发现日记里反复出现的人物和想法，帮你整理成互相链接的知识库</div>
                 </div>
               </div>
             </div>
@@ -538,7 +538,7 @@ export default function App() {
               好哒，让我试试 ✨
             </button>
 
-            <p className="text-center text-xs text-paper-muted mt-3">💡 演示数据每天中午 12 点重置一次</p>
+            <p className="text-center text-xs text-paper-ink3 mt-3">💡 演示数据每天中午 12 点重置一次</p>
           </div>
         </div>
       )}

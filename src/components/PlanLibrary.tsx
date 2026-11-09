@@ -69,7 +69,7 @@ export default function PlanLibrary() {
   };
 
   const toggleDone = async (p: Plan) => {
-    const nextStatus = p.status === "completed" ? undefined : "completed";
+    const nextStatus = p.status === "completed" ? "pending" : "completed";
     const optimistic: Plan[] = items.map((x) =>
       x.id === p.id ? { ...x, status: nextStatus as any } : x
     );

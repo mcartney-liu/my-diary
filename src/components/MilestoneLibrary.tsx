@@ -33,13 +33,20 @@ export default function MilestoneLibrary() {
   const handleCreate = async () => {
     if (!newTitle.trim()) return alert("请输入标题");
     if (!newDate) return alert("请选择日期");
+    // 按类型传对字段 — 同时填 target_date（列表和月历都读这个）
+    const [, m, d] = newDate.split("-").map(Number);
+    const mm = String(m).padStart(2, "0");
+    const dd = String(d).padStart(2, "0");
+    const payload = {
+      title: newTitle.trim(),
+      type: newType,
+      icon: TYPE_LABEL[newType].icon,
+      ...(newType === "fixed" ? { target_mm: m, target_dd: d, target_date: `${new Date().getFullYear()}-${mm}-${dd}` } :
+          newType === "start" ? { start_date: newDate, target_date: newDate } :
+          { target_date: newDate }),
+    };
     try {
-      await saveMilestone({
-        title: newTitle.trim(),
-        type: newType,
-        target_date: newDate,
-        icon: TYPE_LABEL[newType].icon,
-      });
+      await saveMilestone(payload);
       setNewTitle("");
       setNewDate("");
       setNewType("fixed");

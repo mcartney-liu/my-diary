@@ -714,9 +714,9 @@ async function handlePatchCapsule(request, env, JWT_SECRET) {
   const existing = await env.DB.prepare("SELECT id FROM diaries WHERE id = ? AND user_id = ?").bind(id, user.uid).first();
   if (!existing) return json({ error: "not found" }, 404);
   if (unlockAt === null) {
-    await env.DB.prepare("UPDATE diaries SET time_capsule_until = NULL WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+    await env.DB.prepare("UPDATE diaries SET capsule_unlock_at = NULL WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
   } else {
-    await env.DB.prepare("UPDATE diaries SET time_capsule_until = ? WHERE id = ? AND user_id = ?").bind(unlockAt, id, user.uid).run();
+    await env.DB.prepare("UPDATE diaries SET capsule_unlock_at = ? WHERE id = ? AND user_id = ?").bind(unlockAt, id, user.uid).run();
   }
   return json({ ok: true });
 }

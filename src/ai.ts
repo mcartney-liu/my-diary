@@ -819,7 +819,7 @@ candidates 里按置信度从高到低排前 3。如果没有合适的就返回 
     }
     const who = userTemplates?.some(t => t.id === r.templateId) ? "用户模板" : "系统模板";
     console.info(`[ai] 🎯 AI 匹配(${who}):`, r.templateId, r.reason);
-    return { templateId: r.templateId, confidence: r.confidence ?? 0.7, reason: r.reason ?? "" };
+    return { templateId: r.templateId, confidence: r.confidence ?? 0.7, reason: r.reason ?? "", candidates: r.candidates };
   } catch (e) {
     console.warn("[ai] detectTemplate 解析失败，默认 diary:", e);
     return { templateId: "diary", confidence: 0.3, reason: "AI 解析失败，默认日记" };

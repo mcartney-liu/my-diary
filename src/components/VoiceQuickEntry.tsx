@@ -167,7 +167,7 @@ export default function VoiceQuickEntry({ dockVariant = false, hintVariant = fal
       const det = await detectTemplate(text, undefined,
         userTemplates.map(t => ({ id: t.id, name: t.name, description: t.description }))
       );
-      setResult({ templateId: det.templateId, reason: det.reason, transcript: text });
+      setResult({ templateId: det.templateId, reason: det.reason, transcript: text, candidates: det.candidates });
       setPhase("match");
     } catch (e) {
       setError((e as Error).message || "分析失败");
