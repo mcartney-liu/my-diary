@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
-import { getProfile, patchProfile, submitFeedback, changePassword, type ProfileStats, listMemory, addMemory, deleteMemory } from "../api";
+import { getProfile, patchProfile, submitFeedback, changePassword, type ProfileStats, listMemory, addMemory, editMemory, deleteMemory } from "../api";
 import { polishFeedback, getAiProvider } from "../ai";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
@@ -94,6 +94,9 @@ export default function ProfilePage() {
   // 每日提醒
   const [remindEnabled, setRemindEnabled] = useState(false);
   const [remindTime, setRemindTime] = useState("21:00");
+  // 记忆编辑
+  const [editingMemoryId, setEditingMemoryId] = useState<number | null>(null);
+  const [editingContent, setEditingContent] = useState("");
   const [fbSubmitting, setFbSubmitting] = useState(false);
   const [fbSent, setFbSent] = useState(false);
   // 语音录入
@@ -620,8 +623,42 @@ export default function ProfilePage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {memories.map(m => (
+                {memories.map(m => {
+                  const isEditing = editingMemoryId === m.id;
+                  return (
                   <div key={m.id} className="border border-paper-line/60 rounded-xl p-3 hover:border-paper-ink/30 transition group">
+                    {isEditing ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={editingContent}
+                          onChange={e => setEditingContent(e.target.value)}
+                          rows={2}
+                          className="w-full px-2 py-1.5 rounded-lg border border-paper-line bg-paper-surface text-paper-ink text-sm focus:outline-none focus:border-paper-accent resize-none"
+                          autoFocus
+                        />
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() => setEditingMemoryId(null)}
+                            className="text-xs text-paper-ink3 hover:text-paper-ink transition px-2 py-1"
+                          >取消</button>
+                          <button
+                            onClick={async () => {
+                              if (!editingContent.trim()) return;
+                              try {
+                                await editMemory(m.id, editingContent.trim());
+                                setEditingMemoryId(null);
+                                setEditingContent("");
+                                // 刷新记忆列表
+                                const list = await listMemory();
+                                if (list) setMemories(list.memories);
+                              } catch (e) { alert("保存失败：" + (e as Error).message); }
+                            }}
+                            className="text-xs text-paper-card bg-paper-accent hover:opacity-90 transition px-3 py-1 rounded-md"
+                          >保存</button>
+                        </div>
+                      </div>
+                    ) : (
+                    <>
                     <div className="flex items-start gap-2">
                       <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-medium shrink-0 ${
                         m.type === "preference" ? "bg-paper-surface text-amber-700" :
@@ -633,17 +670,27 @@ export default function ProfilePage() {
                         {m.type === "preference" ? "偏好" : m.type === "profile" ? "个人" : m.type === "task" ? "待办" : m.type === "interest" ? "兴趣" : "事实"}
                       </span>
                       <span className="flex-1 text-sm text-paper-ink leading-relaxed">{m.content}</span>
-                      <button
-                        onClick={() => handleDeleteMemory(m.id)}
-                        className="text-paper-ink3 hover:text-red-500 text-xs opacity-0 group-hover:opacity-100 transition"
-                        title="删除这条记忆"
-                      >删除</button>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                        <button
+                          onClick={() => { setEditingMemoryId(m.id); setEditingContent(m.content); }}
+                          className="text-paper-ink3 hover:text-paper-accent text-xs transition"
+                          title="编辑这条记忆"
+                        >✏️</button>
+                        <button
+                          onClick={() => handleDeleteMemory(m.id)}
+                          className="text-paper-ink3 hover:text-red-500 text-xs transition"
+                          title="删除这条记忆"
+                        >🗑️</button>
+                      </div>
                     </div>
                     <div className="mt-1.5 text-[10px] text-paper-ink3">
                       置信度 {Math.round(m.confidence * 100)}% · {new Date(m.created_at).toLocaleDateString()}
                     </div>
+                    </>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </section>
@@ -1324,8 +1371,8 @@ export default function ProfilePage() {
             </div>
             <div className="p-5 space-y-4">
               <p className="text-xs text-paper-ink2 leading-relaxed">
-                到了设定时间，浏览器会弹个小通知提醒你写日记。
-                需要浏览器允许通知权限，关掉页面也能收到。
+                设置你习惯的写日记时间。
+                <span className="text-amber-600">功能正在开发中：当前会保存你的偏好，等通知能力接通后自动生效。</span>
               </p>
               <div className="flex items-center justify-between p-3 rounded-lg border border-paper-line bg-paper-card">
                 <div>

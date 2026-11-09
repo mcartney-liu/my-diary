@@ -327,6 +327,17 @@ function MonthlyOverview({ diaries, year }: { diaries: Diary[]; year: number }) 
                   );
                 })}
             </div>
+            {(() => {
+              // 算该月第一天，跳日历页定位
+              const month = (showMonthDetail ?? 0) + 1;
+              const firstDay = `${year}-${String(month).padStart(2, "0")}-01`;
+              return (
+                <button
+                  onClick={() => { window.location.href = `/?date=${firstDay}`; }}
+                  className="mt-3 w-full py-2 rounded-lg bg-paper-accent/90 text-paper-card text-sm font-medium hover:bg-paper-accent transition"
+                >📅 去 {clickedMonth!.label} 月历看</button>
+              );
+            })()}
           </div>
         </div>
       )}

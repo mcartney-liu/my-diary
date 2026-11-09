@@ -149,12 +149,25 @@ export default function App() {
   const [demoBannerClosed, setDemoBannerClosed] = useState(() => {
     try { return localStorage.getItem("mydiary:demoBannerClosed") === "1"; } catch { return false; }
   });
+  const [showDemoWelcome, setShowDemoWelcome] = useState(() => {
+    // demo 账号每次登录都弹（数据每天重置），用 sessionStorage 避免刷新反复弹
+    try { return sessionStorage.getItem("mydiary:demoWelcomeSeen") !== "1"; } catch { return true; }
+  });
   const skipBackgroundSyncRef = useRef(false);
+
+  // 删除撤销 Snackbar
+  const pendingDeleteRef = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const [undoSnack, setUndoSnack] = useState<{ id: string; title: string } | null>(null);
 
   // 关闭演示横幅（持久化）
   const closeDemoBanner = () => {
     setDemoBannerClosed(true);
     try { localStorage.setItem("mydiary:demoBannerClosed", "1"); } catch {}
+  };
+
+  const closeDemoWelcome = () => {
+    setShowDemoWelcome(false);
+    try { sessionStorage.setItem("mydiary:demoWelcomeSeen", "1"); } catch {}
   };
 
   // 全局主题初始化（刷新后不丢失）
@@ -333,9 +346,19 @@ export default function App() {
     });
   };
 
-  // 软删（加 deletedAt 时间戳，不立刻从列表消失）
+  // 软删（本地标记 + 延迟 5 秒云端真删，给用户撤销机会）
   const handleSoftDelete = (id: string) => {
+    // 如果之前有未撤销的删除，先真删它（用户没点撤销 = 确认删除）
+    if (pendingDeleteRef.current) {
+      clearTimeout(pendingDeleteRef.current.timer);
+      apiDelete(pendingDeleteRef.current.id).catch(() => {});
+      pendingDeleteRef.current = null;
+    }
+
     skipBackgroundSyncRef.current = true;
+    const deletedDiary = allDiaries.find((x) => x.id === id);
+    const title = deletedDiary?.title || "无题";
+
     setAllDiaries((prev) => {
       const target = prev.find((x) => x.id === id);
       if (!target) return prev;
@@ -344,8 +367,35 @@ export default function App() {
       saveLocal(next);
       return next;
     });
-    // 云端真删
-    apiDelete(id).catch(() => { /* offline */ });
+
+    // 显示撤销 Snackbar
+    setUndoSnack({ id, title });
+
+    // 5 秒后真删
+    const timer = setTimeout(() => {
+      apiDelete(id).catch(() => { /* offline */ });
+      pendingDeleteRef.current = null;
+      setUndoSnack(null);
+    }, 5000);
+    pendingDeleteRef.current = { id, timer };
+  };
+
+  // 撤销软删
+  const handleUndoDelete = () => {
+    if (!pendingDeleteRef.current) return;
+    const { id, timer } = pendingDeleteRef.current;
+    clearTimeout(timer);
+    pendingDeleteRef.current = null;
+    setUndoSnack(null);
+    setAllDiaries((prev) => {
+      const target = prev.find((x) => x.id === id);
+      if (!target) return prev;
+      const restored: Diary = { ...target, deletedAt: undefined };
+      const next = upsertLocal(prev, restored);
+      saveLocal(next);
+      apiUpsert(restored).catch(() => {});
+      return next;
+    });
   };
 
   // 从回收站恢复
@@ -436,6 +486,72 @@ export default function App() {
             className="text-amber-600 hover:text-amber-900 transition ml-1"
             aria-label="关闭演示提示"
           >×</button>
+        </div>
+      )}
+
+      {/* Demo 专属引导 Modal — 登录后弹一次，告诉用户核心 AI 能力 */}
+      {auth.isDemo && showDemoWelcome && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm animate-[fade-in_0.3s]">
+          <div className="bg-paper-surface rounded-2xl shadow-2xl border border-paper-line max-w-md w-full p-6 relative animate-[slide-up_0.3s]">
+            <button
+              onClick={closeDemoWelcome}
+              className="absolute top-3 right-3 w-7 h-7 rounded-full hover:bg-paper-hover text-paper-muted flex items-center justify-center transition"
+              aria-label="关闭"
+            >×</button>
+
+            <div className="text-center mb-5">
+              <div className="text-4xl mb-2">🌾</div>
+              <h2 className="text-xl font-semibold text-ink-primary">欢迎来到「我的日记」</h2>
+              <p className="text-sm text-paper-muted mt-1">这是演示账号，让你 30 秒感受下产品灵魂</p>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100">
+                <div className="text-2xl leading-none mt-0.5">🎙️</div>
+                <div className="flex-1">
+                  <div className="font-medium text-sm text-ink-primary">说话就能写日记</div>
+                  <div className="text-xs text-paper-muted mt-0.5">点底栏中间的 🎙️ 语音快记，说几句小麦帮你整理成结构化日记</div>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100">
+                <div className="text-2xl leading-none mt-0.5">🌾</div>
+                <div className="flex-1">
+                  <div className="font-medium text-sm text-ink-primary">小麦帮你润色 / 起标题 / 写结尾</div>
+                  <div className="text-xs text-paper-muted mt-0.5">进任意一篇日记 → 点右下角 🌾 小麦助手 → 一键贴到日记里</div>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3 p-3 rounded-xl bg-gradient-to-br from-violet-50 to-indigo-50 border border-violet-100">
+                <div className="text-2xl leading-none mt-0.5">🕸️</div>
+                <div className="flex-1">
+                  <div className="font-medium text-sm text-ink-primary">双向链接知识维基</div>
+                  <div className="text-xs text-paper-muted mt-0.5">小麦会自动发现日记里反复出现的人物和想法，帮你整理成互相链接的知识库</div>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={closeDemoWelcome}
+              className="mt-5 w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-orange-400 text-white font-medium text-sm hover:from-amber-500 hover:to-orange-500 transition shadow-sm"
+            >
+              好哒，让我试试 ✨
+            </button>
+
+            <p className="text-center text-xs text-paper-muted mt-3">💡 演示数据每天中午 12 点重置一次</p>
+          </div>
+        </div>
+      )}
+
+      {/* 删除撤销 Snackbar — 底部 fixed，5 秒自动消失 */}
+      {undoSnack && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-full bg-paper-ink text-paper-card shadow-lg text-sm animate-[fade-in_0.2s]">
+          <span>已删除「{undoSnack.title}」</span>
+          <button
+            onClick={handleUndoDelete}
+            className="px-2.5 py-0.5 rounded-md bg-white/20 hover:bg-white/30 font-medium transition"
+          >撤销</button>
+          <span className="text-xs text-white/50">5s</span>
         </div>
       )}
 

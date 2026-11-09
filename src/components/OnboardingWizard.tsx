@@ -180,6 +180,15 @@ export default function OnboardingWizard({ nickname, onComplete, onSkip }: Props
                   </div>
                 </div>
               )}
+              <div className="flex gap-3 p-3 rounded-xl bg-gradient-to-br from-violet-50 to-indigo-50 border border-violet-100">
+                <span className="text-xl">🕸️</span>
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-paper-ink">双向链接知识库</div>
+                  <div className="text-[12px] text-paper-ink3 mt-0.5">
+                    小麦会帮你把日记里反复出现的人物、地点、想法整理成互相链接的知识页——这是普通日记没有的
+                  </div>
+                </div>
+              </div>
             </div>
 
             <p className="text-[11px] text-paper-ink3 text-center mt-4">

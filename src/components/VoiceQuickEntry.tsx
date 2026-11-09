@@ -17,9 +17,10 @@ interface QuickResult {
 
 interface Props {
   dockVariant?: boolean;
+  hintVariant?: boolean;  // 空日历引导里的小按钮变体
 }
 
-export default function VoiceQuickEntry({ dockVariant = false }: Props) {
+export default function VoiceQuickEntry({ dockVariant = false, hintVariant = false }: Props) {
   const nav = useNavigate();
   const [phase, setPhase] = useState<Phase>("idle");
   const [transcript, setTranscript] = useState("");
@@ -287,6 +288,26 @@ export default function VoiceQuickEntry({ dockVariant = false }: Props) {
 
   return (
     <>
+      {/* hintVariant：空日历引导里的大按钮 */}
+      {hintVariant && (phase === "idle" || phase === "menu") ? (
+        <button
+          onClick={() => { setPhase("menu"); }}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 text-white font-medium text-sm hover:from-amber-500 hover:to-orange-500 transition active:scale-95 shadow-sm"
+        >
+          <Mic size={16} />
+          试试语音快记
+        </button>
+      ) : hintVariant ? (
+        // hintVariant 录音中/处理中：显示对应 UI
+        <button
+          onClick={() => { if (phase === "recording") stopRecording(); }}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-paper-surface border border-paper-line text-paper-ink text-sm transition"
+        >
+          {phase === "recording" ? <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" /> : <Loader2 size={14} className="animate-spin" />}
+          {phase === "recording" ? "点击停止" : "正在处理..."}
+        </button>
+      ) : null}
+
       {/* 底部导航栏按钮 — 留在 nav 原位 */}
       {dockVariant ? (
         // 🫧 悬浮胶囊坞：中心强调圆钮

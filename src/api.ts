@@ -383,6 +383,20 @@ export function addMemory(type: string, content: string, confidence = 0.7) {
 export function deleteMemory(id: number) {
   return request<{ ok: boolean }>(`/api/memory?id=${id}`, { method: 'DELETE' });
 }
+export function editMemory(id: number, content: string) {
+  return request<{ ok: boolean }>(`/api/memory?id=${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+}
+export function patchCapsule(id: string, unlockAt: number | null) {
+  return request<{ ok: boolean }>(`/api/diary-capsule?id=${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ unlockAt }),
+  });
+}
 export function extractMemory(text: string) {
   return request<{ memories: { type: string; content: string; confidence: number }[] }>('/api/memory/extract', {
     method: 'POST',

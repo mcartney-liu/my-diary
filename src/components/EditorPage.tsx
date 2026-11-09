@@ -3,7 +3,7 @@ import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, File
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS, fmtDateLocal } from "../data";
-import { transcribeAudio, listTemplates, saveTemplate, updateTemplate, deleteTemplate, listPapers, type UserTemplate, type UserPaper } from "../api";
+import { transcribeAudio, listTemplates, saveTemplate, updateTemplate, deleteTemplate, listPapers, patchCapsule, type UserTemplate, type UserPaper } from "../api";
 import { polishTranscript, recommendBooks, kickoffBookNote, inferMilestoneInfo, quickRuleMatch, getAiProvider, type BookRecommendation } from "../ai";
 import { fetchWeather, fetchLocation, fetchLocationAuto, type LocationResult } from "../weather";
 import { fetchNearbyPois, type Poi } from "../services/poi";
@@ -329,6 +329,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmSwitchTpl, setConfirmSwitchTpl] = useState(false);
   const [aiBubbleOpen, setAiBubbleOpen] = useState(false);
+  const [aiHintDismissed, setAiHintDismissed] = useState(false);
   // 暂存切换模板时选中的目标模板
   const pendingTplRef = useRef<string | undefined>(undefined);
   const pendingCustomTplRef = useRef<UserTemplate | undefined>(undefined);
@@ -1664,6 +1665,38 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
             </div>
             <div className="text-xs text-amber-600/70 mt-1">
               再加 {hoursLeft} 小时 · 解锁于 {new Date(initialDiary.capsuleUnlockAt!).toLocaleDateString("zh-CN")}
+            </div>
+          </div>
+          {/* 管理胶囊：改期 / 取消封存 */}
+          <div className="w-full max-w-xs space-y-2">
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  const unlockStr = new Date(initialDiary.capsuleUnlockAt!).toLocaleDateString("zh-CN");
+                  const msg = `当前解锁于 ${unlockStr}。延长多少天？`;
+                  const answer = window.prompt(msg, "30");
+                  if (!answer) return;
+                  const d = parseInt(answer, 10);
+                  if (!d || d < 1) return alert("请输入有效天数");
+                  try {
+                    await patchCapsule(initialDiary.id, Date.now() + d * 86400000);
+                    alert(`已改为 ${d} 天后解锁`);
+                    window.location.reload();
+                  } catch (e) { alert("改期失败：" + (e as Error).message); }
+                }}
+                className="flex-1 py-2 rounded-lg text-amber-800 text-sm border border-amber-300 hover:bg-amber-50 transition"
+              >📅 改期</button>
+              <button
+                onClick={async () => {
+                  if (!window.confirm("确定取消封存吗？取消后立即可以编辑这篇日记。")) return;
+                  try {
+                    await patchCapsule(initialDiary.id, null);
+                    alert("已取消封存，现在可以编辑了");
+                    window.location.reload();
+                  } catch (e) { alert("操作失败：" + (e as Error).message); }
+                }}
+                className="flex-1 py-2 rounded-lg text-red-600 text-sm border border-red-200 hover:bg-red-50 transition"
+              >🔓 取消封存</button>
             </div>
           </div>
           <button
@@ -3178,6 +3211,25 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
             </div>
           </div>
         )}
+
+      {/* 小麦 AI 辅助提示条 — 写了 3 段以上就弹，引导用户发现 AI */}
+      {blocks.length >= 3 && !aiHintDismissed && !aiBubbleOpen && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-30 animate-[fade-in_0.3s]">
+          <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-full shadow-lg px-4 py-2 flex items-center gap-2 text-sm">
+            <span className="text-base">🌾</span>
+            <span className="text-amber-900">小麦可以帮你润色 / 起标题 / 写结尾</span>
+            <button
+              onClick={() => setAiBubbleOpen(true)}
+              className="px-3 py-0.5 bg-amber-400 hover:bg-amber-500 text-white rounded-full text-xs font-medium transition"
+            >试试</button>
+            <button
+              onClick={() => setAiHintDismissed(true)}
+              className="text-amber-600 hover:text-amber-800 text-xs transition"
+              aria-label="关闭小麦提示"
+            >×</button>
+          </div>
+        </div>
+      )}
 
       {/* 小麦 AI 辅助 — 面板浮在工具栏上方 */}
       <MiniAiBubble

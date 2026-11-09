@@ -70,7 +70,10 @@ const DEMO_NICKNAME = "小麦🌾演示本";
 
 // POST /api/demo/reset — 演示账号重置（需内部 header 校验）
 async function handleDemoReset(request, env) {
-  const expected = env.DEMO_RESET_SECRET || "internal-demo-reset-v1";
+  const expected = env.DEMO_RESET_SECRET;
+  if (!expected) {
+    return new Response(JSON.stringify({ ok: false, error: "demo reset not configured" }), { status: 503, headers: { "Content-Type": "application/json" } });
+  }
   const got = request.headers.get("x-demo-reset");
   if (got !== expected) {
     return new Response(JSON.stringify({ ok: false, error: "forbidden" }), { status: 403, headers: { "Content-Type": "application/json" } });
@@ -108,6 +111,7 @@ export default {
       ["GET",    "/api/diaries",        handleListDiaries],
       ["POST",   "/api/diaries",        handleSaveDiary],
       ["DELETE", "/api/diaries",        handleDeleteDiary],
+      ["PATCH",  "/api/diary-capsule",  handlePatchCapsule],
       ["GET",    "/api/profile",        handleGetProfile],
       ["PATCH",  "/api/profile",        handlePatchProfile],
       ["POST",   "/api/feedback",       handleSubmitFeedback],
@@ -135,6 +139,7 @@ export default {
       ["POST",   "/api/ai/reindex",      handleReindex],
       ["GET",    "/api/memory",          handleListMemory],
       ["POST",   "/api/memory",          handleAddMemory],
+      ["PUT",    "/api/memory",          handleEditMemory],
       ["DELETE", "/api/memory",          handleDeleteMemory],
 
       // ====== Chat Sessions 云端持久化 ======
@@ -690,6 +695,29 @@ async function handleDeleteDiary(request, env, JWT_SECRET) {
     await env.DB.prepare("UPDATE diaries SET deleted_at = ? WHERE id = ? AND user_id = ?").bind(Date.now(), id, user.uid).run();
   }
   try { await logActivity(env, user.uid, "delete_diary", { id, force }); } catch {}
+  return json({ ok: true });
+}
+
+async function handlePatchCapsule(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const url = new URL(request.url);
+  const id = url.searchParams.get("id");
+  if (!id) return json({ error: "id required" }, 400);
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "invalid json" }, 400); }
+  const { unlockAt } = body || {};
+  if (unlockAt !== null && (typeof unlockAt !== "number" || unlockAt <= Date.now())) {
+    return json({ error: "unlockAt must be null (cancel) or future timestamp" }, 400);
+  }
+  // 确认日记属于该用户
+  const existing = await env.DB.prepare("SELECT id FROM diaries WHERE id = ? AND user_id = ?").bind(id, user.uid).first();
+  if (!existing) return json({ error: "not found" }, 404);
+  if (unlockAt === null) {
+    await env.DB.prepare("UPDATE diaries SET time_capsule_until = NULL WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+  } else {
+    await env.DB.prepare("UPDATE diaries SET time_capsule_until = ? WHERE id = ? AND user_id = ?").bind(unlockAt, id, user.uid).run();
+  }
   return json({ ok: true });
 }
 
@@ -1474,6 +1502,20 @@ async function handleAddMemory(request, env, JWT_SECRET) {
   return json({ ok: true, id: r.lastRowId });
 }
 
+async function handleEditMemory(request, env, JWT_SECRET) {
+  const user = await authUser(request, JWT_SECRET);
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const url = new URL(request.url);
+  const id = url.searchParams.get('id');
+  if (!id) return json({ error: 'missing id' }, 400);
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+  const { content } = body || {};
+  if (!content || typeof content !== 'string') return json({ error: 'content required' }, 400);
+  await env.DB.prepare("UPDATE user_memory SET content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?").bind(content.trim(), id, user.uid).run();
+  return json({ ok: true });
+}
+
 async function handleDeleteMemory(request, env, JWT_SECRET) {
   const user = await authUser(request, JWT_SECRET);
   if (!user) return json({ error: 'unauthorized' }, 401);
@@ -1538,7 +1580,7 @@ async function handleChatDeleteSession(request, env, JWT_SECRET, params) {
 // AI 代理：前端传 messages，Worker 内部调用 Agnes（key 永不暴露）
 async function handleAiChat(request, env, JWT_SECRET) {
   const user = await authUser(request, JWT_SECRET);
-  if (!user) return json({ error: "unauthorized" }, 401);
+  if (!user) return json({ error: "请重新登录" }, 401);
 
   let body;
   try { body = await request.json(); } catch { return json({ error: "invalid json" }, 400); }
@@ -1546,6 +1588,7 @@ async function handleAiChat(request, env, JWT_SECRET) {
   if (!Array.isArray(messages)) return json({ error: "messages required" }, 400);
 
   const content = await callLLM(env, messages, maxTokens);
+  if (!content) return json({ ok: false, error: "AI 暂时不可用，请稍后再试" }, 503);
   return json({ ok: true, content });
 }
 
@@ -2352,9 +2395,11 @@ async function resetDemoAccount(env) {
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
   const blocks = (kind, content, extra = {}) => ({ id: crypto.randomUUID(), kind, content, ...extra });
+  // 种子分散到不同日期，日历看起来真实有人在用
+  const daysAgo = (n) => { const d = new Date(today); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); };
 
   const seeds = [
-    // ① 倒计时里程碑（plan 模板）
+    // ① 倒计时里程碑（plan 模板）— 今天
     {
       date: todayStr, template_id: "plan", title: "五一回老家倒计时",
       mood_id: "calm", tags: ["旅行", "家人"],
@@ -2369,9 +2414,9 @@ async function resetDemoAccount(env) {
         blocks("checkbox", "请 3 天年假", { checked: true }),
       ],
     },
-    // ② 记账（finance 模板）⚠️ category key 必须跟 categories.ts 对齐！
+    // ② 记账（finance 模板）⚠️ category key 必须跟 categories.ts 对齐！— 昨天
     {
-      date: todayStr, template_id: "finance", title: "2026 年 10 月消费",
+      date: daysAgo(1), template_id: "finance", title: "2026 年 10 月消费",
       mood_id: "calm", tags: ["记账", "月度"],
       wallpaper: "/papers/mist-mountain.jpg", show_lines: false,
       blocks: [
@@ -2386,9 +2431,9 @@ async function resetDemoAccount(env) {
         blocks("text", "小麦🌾帮我把这些自动整理好了，之前要自己一条条算。"),
       ],
     },
-    // ③ 心情日记（普通 diary）
+    // ③ 心情日记（普通 diary）— 前天
     {
-      date: todayStr, template_id: "diary", title: "今天阳光很好",
+      date: daysAgo(2), template_id: "diary", title: "今天阳光很好",
       mood_id: "happy", tags: ["日常", "心情"],
       wallpaper: "/papers/mist-mountain.jpg", show_lines: false,
       blocks: [
@@ -2397,9 +2442,9 @@ async function resetDemoAccount(env) {
         blocks("text", "今天心情 ☀️ ☀️ ☀️"),
       ],
     },
-    // ④ 读书笔记（reading 模板）
+    // ④ 读书笔记（reading 模板）— 4 天前
     {
-      date: todayStr, template_id: "reading", title: "《蛤蟆先生去看心理医生》",
+      date: daysAgo(4), template_id: "reading", title: "《蛤蟆先生去看心理医生》",
       mood_id: "calm", tags: ["读书", "心理学"],
       wallpaper: "/papers/sage-journal.jpg", show_lines: false,
       blocks: [
@@ -2410,9 +2455,9 @@ async function resetDemoAccount(env) {
         blocks("text", "最触动的是「你要不要为自己的人生负责」这个问题。"),
       ],
     },
-    // ⑤ 感恩日记（gratitude 模板）
+    // ⑤ 感恩日记（gratitude 模板）— 6 天前
     {
-      date: todayStr, template_id: "gratitude", title: "感恩三件事",
+      date: daysAgo(6), template_id: "gratitude", title: "感恩三件事",
       mood_id: "calm", tags: ["感恩", "每日"],
       wallpaper: "/papers/vintage-rose.jpg", show_lines: false,
       blocks: [

@@ -474,6 +474,17 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
         <section className="animate-fade-up" style={{ animationDelay: "100ms" }}>
           <DayList date={selectedDate} diaries={byDate.get(selectedDate) ?? []} onSoftDelete={onSoftDelete} />
         </section>
+
+        {/* 今天没写日记 → 温柔引导 */}
+        {selectedDate === todayStr && (byDate.get(todayStr)?.length ?? 0) === 0 && (
+          <div className="animate-fade-up" style={{ animationDelay: "200ms" }}>
+            <div className="rounded-xl border border-dashed border-paper-line bg-paper-surface/60 p-5 text-center">
+              <div className="text-2xl mb-2">🎙️</div>
+              <p className="text-sm text-paper-ink mb-3">今天还没写日记哦</p>
+              <VoiceQuickEntry hintVariant />
+            </div>
+          </div>
+        )}
           </>
         ) : view === "yearly" ? (
           <MoodHeatmap diaries={diaries} />
