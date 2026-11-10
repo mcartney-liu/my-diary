@@ -1516,7 +1516,7 @@ async function saveMemories(env, uid, candidates) {
        updated_at = datetime('now','localtime')`
   );
   const batch = candidates.map(c => stmt.bind(uid, c.type, c.content, c.confidence));
-  try { await env.DB.batch(batch); } catch { return 0; }
+  try { await env.DB.batch(batch); } catch (e) { console.error('[memory] batch failed:', e.message); return 0; }
   return candidates.length;
 }
 
