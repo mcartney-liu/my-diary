@@ -103,7 +103,7 @@ mydiary-web/
 │   │   ├── index.js              # Worker 主路由
 │   │   └── auth.js               # PBKDF2 + JWT
 │   ├── migrations/
-│   │   └── 0001 ~ 0018_*.sql           # D1 迁移（手动 execute 跑，不用 migrations apply）
+│   │   └── 0001 ~ 0026_*.sql           # D1 迁移（手动 execute 跑；0010~0026 已在 prod/dev 标记为已应用，不重跑 migrations apply）
 │   └── wrangler.toml             # ⭐ prod (默认) + [env.dev] 双环境
 │
 ├── worker/                       # 后端 Worker (TypeScript + AI) — 开发中/并行
