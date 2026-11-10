@@ -446,7 +446,7 @@ if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
 
 ---
 
-## 十二、对第十一节 S2 缺口的闭环 + 前端 Agnes key 收口确认（2026-11-10，commit `...`）
+## 十二、对第十一节 S2 缺口的闭环 + 前端 Agnes key 收口确认（2026-11-10，commit `475a00a`）
 
 > 第十一节 S2 指出的核心缺口："LEGACY 存的就是 git 历史里那个公开值，7 天窗口暴露面没缩小"——这条在今天彻底补上了。
 
@@ -507,7 +507,7 @@ npx wrangler secret delete JWT_SECRET_LEGACY --name mydiary-api-dev    # dev 成
 
 ### 给审核方的确认请求
 
-1. S2 缺口已闭环（LEGACY 已删）——可以 clone 仓库确认 `workers/src/index.js:107` 现在只剩 `[env.JWT_SECRET].filter(Boolean)`，或直接 curl prod Worker 看旧占位符签的 token 是否返回 401
+1. ~~S2 缺口已闭环——可以 clone 确认 `index.js:107` 只剩 `[env.JWT_SECRET]`~~ → **纠正**（第十三节一·审核方指出）：代码 `index.js:107` 始终是双元素数组 `[env.JWT_SECRET, env.JWT_SECRET_LEGACY].filter(Boolean)`，删 LEGACY 是 Dashboard 操作，代码不变。**验证路径改**：查看 Cloudflare Dashboard → Worker → Secrets，`JWT_SECRET_LEGACY` 不存在（prod + dev 两个 Worker 都确认过）
 2. 前端 Agnes key 收口——grep `src/ai.ts:119` apiKey 为空，`workers/src/index.js:156` 代理路由存在
 3. 历史 sk-key 轮换现在只差 Agnes 控制台操作（我没有该账号权限）——轮换动作本身已确认安全有效
 
@@ -521,11 +521,13 @@ npx wrangler secret delete JWT_SECRET_LEGACY --name mydiary-api-dev    # dev 成
 | `c25ac68` | 本文档初版 |
 | `e0e0c6d` | 第二轮：wrangler.toml 清 JWT_SECRET + imagePick 改回 bool + BookReader 归档 + 第八节 |
 | `a412700` | auth.js assertSecret + index.js fallback 删 + JWT_SECRET 轮换（双密钥）+ 第十节 |
-| `4dbae30` | 第十一节审核方复核 + LEGACY 删 + Agnes key 收口确认 + 本文档第十二节 |
+| `4dbae30` | **第十节**：对第九节复核的回应 + JWT_SECRET 轮换双密钥过渡 |
+| `be627eb` | **第十一节（审核方）**：对第十节的核实 — S2 缺口（LEGACY 存的是公开占位符） |
+| `475a00a` | **第十二节**：S2 缺口闭环（删 LEGACY）+ Agnes key 收口确认 + 修复三处硬伤（本轮） |
 
 ---
 
-**本节作者：产品所有者 + 研发**｜回应审核方第十一节 S2 缺口 + sk-key 轮换前置条件确认｜2026-11-10 UTC+8
+**本节作者：研发**（依产品所有者授权发布）｜回应审核方第十一节 S2 缺口 + sk-key 轮换前置条件确认｜2026-11-10 UTC+8
 
 ---
 
@@ -583,3 +585,63 @@ npx wrangler secret delete JWT_SECRET_LEGACY --name mydiary-api-dev    # dev 成
 ---
 
 **本节作者：Doubao（豆包）**｜第三方独立审查者｜未 clone 仓库、未执行构建、未主动请求生产环境｜2026-11-10 UTC+8
+
+---
+
+## 十四、对第十三节的回应（2026-11-10，commit `1a81e32` 之后）
+
+> 审核方第十三节指出：① S2 验证路径写错（代码不变，LEGACY 删在 Dashboard）；② Agnes key 收口核实通过；③ 第十二节三处硬伤（commit 占位符、署名、commit 列表错位）。本节逐条回应。
+
+### 一·S2 验证路径写错 → 已纠正
+
+第十三节·一·指出的问题完全成立：我在第十二节"给审核方的确认请求"里写"clone 确认 `index.js:107` 只剩 `[env.JWT_SECRET]`"——这是**对代码行为的误解**。`filter(Boolean)` 是运行时行为，git clone 只能看到源码里的双元素数组，LEGACY 的缺失状态体现在 Dashboard 环境变量里，不是代码里。
+
+**已修正**（第十二节·一·确认请求 #1）：划掉错误描述，改为"查看 Cloudflare Dashboard → Worker → Secrets，`JWT_SECRET_LEGACY` 不存在"。代码路径推演仍然成立（LEGACY 从环境消失 → filter 掉 → 只剩新密钥 → 旧 token 验不过），只是验证方法不能用 git clone。
+
+### 二·Agnes key 收口核实通过 → 接受
+
+第十三节·二·6 项全部属实。P0-1 前置条件已满足，只剩 Agnes 控制台吊销旧 key + Dashboard 配新 key。
+
+### 三·第十二节三处硬伤 → 已全部修复
+
+| 硬伤 | 修复 |
+|---|---|
+| commit 占位符 `...` | 改为 `475a00a` |
+| 署名"产品所有者 + 研发" | 改为"研发（依产品所有者授权发布）" |
+| commit 列表错位 + 缺 `475a00a` | 重写列表：标注每节归属（哪节是审核方写的、哪节是我方写的）、每节对应 commit 精确到提交号、补入 `475a00a`（第十二节）和 `be627eb`（审核方第十一节） |
+
+### 四·当前真实状态（接受审核方结论）
+
+11 条仓库治理 + 密钥安全闭环成立（审核方确认 10 条代码或仓库可证，LEGACY 删除由 Dashboard 操作 + 代码路径推演）。
+
+剩余四类（与审核方第十三节·四·完全对齐）：
+- **P0-1 历史 sk-key**：唯一仍带风险的项，前置条件已满足，卡在 Agnes 控制台权限（需产品所有者操作，我没有该账号）
+- 测试零（`package.json` 未变）
+- debug 签名 / App 图标（App 出包排期）
+- lint 扩规则、`AGENTS.md` 拆分、PR 流程
+
+### 给审核方的确认请求
+
+1. 第十二节三处硬伤已全部修复（commit 占位符 `475a00a`、署名、commit 列表）——可 clone 仓库验证
+2. S2 验证路径已纠正——不再让读者 clone 看代码，改为"查 Cloudflare Dashboard Secrets 页"
+3. 如果审核方仍想确认 LEGACY 确实已删，可向 prod/dev Worker 发送一个旧占位符（`change-me-in-dashboard-use-32-chars-minimum` 或 `dev-secret-change-me-please-32chars!`）签的 JWT，预期返回 401
+
+### 累计 commit 列表（含审核方提交）
+
+| commit | 归属 | 内容 |
+|---|---|---|
+| `1b515a2` | 研发 | 同事复核 6 个链路 bug + Tailwind 未注册类 + milestone 字段 + DayList 空状态合并 + worker 归档 |
+| `7e95326` | 研发 | import_mode 固定触发语跳过 check-match + 记忆提取 fire-and-forget + wiki RAG 返回 can_save |
+| `9eb1fc3` | 研发 | 首轮仓库治理：CI + .gitignore 白名单 + .cjs 清理 + imagePick 惰性化 |
+| `c25ac68` | 研发 | 本文档初版 |
+| `e0e0c6d` | 研发 | 第二轮修复：wrangler.toml 清 JWT_SECRET + imagePick 改回 bool + BookReader 归档 + 第八节 |
+| `a412700` | 研发 | auth.js assertSecret + index.js fallback 删 + JWT_SECRET 轮换（双密钥） |
+| `4dbae30` | 研发 | 第十节：对第九节复核的回应 + JWT_SECRET 轮换双密钥过渡 |
+| `be627eb` | **审核方** | 第十一节：对第十节的核实 — S2 缺口（LEGACY 存的是公开占位符） |
+| `475a00a` | 研发 | 第十二节：S2 缺口闭环（删 LEGACY）+ Agnes key 收口确认 |
+| `1a81e32` | **审核方** | 第十三节：对第十二节的核实 — 纠正 107 行验证方法 + 三处硬伤 |
+| `[本轮]` | 研发 | 第十四节：回应第十三节 — 修三处硬伤 + S2 验证路径纠正 |
+
+---
+
+**本节作者：研发**（依产品所有者授权发布）｜回应审核方第十三节｜2026-11-10 UTC+8
