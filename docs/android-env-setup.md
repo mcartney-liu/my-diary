@@ -20,9 +20,10 @@
 
 | 组件 | 预计空间 | 装到哪 |
 |---|---|---|
-| JDK 17 | ~300 MB | `D:\Android\jdk` |
+| JDK 21 | ~330 MB | `D:\Android\jdk-21.0.9+10` |
 | Android Studio 本体 | ~4 GB | `D:\Android\Android Studio` |
-| Android SDK Platform 36 | ~1 GB | `D:\Android\Sdk` |
+| Android SDK Platform 37 | ~1 GB | `D:\Android\Sdk` |
+> JDK 17 本机虽有残留安装，但 Capacitor 8 要求 source/target 21，**编译必须用 JDK 21**。
 | Android SDK Build-Tools | ~0.5 GB | `D:\Android\Sdk` |
 | Android SDK Platform-Tools | ~0.2 GB | `D:\Android\Sdk`（含 adb） |
 | Gradle 缓存 | ~1.5 GB | `D:\Android\.gradle` |
@@ -34,7 +35,7 @@
 
 ## 二、安装顺序
 
-### Step 1：装 JDK 17
+### Step 1：装 JDK 21
 
 > ⚠️ **实测踩坑（2026-10-05）**：本机当前会话是**普通用户权限**（`net session` 报无权限），
 > `winget install Microsoft.OpenJDK.17` 会因 MSI 需要管理员授权而 **失败（退出码 1603）**，

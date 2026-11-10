@@ -57,8 +57,8 @@ function RememberButton({ content }: { content: string }) {
         setSaved(true);
         setTimeout(() => { setSaved(false); setMemContent(""); }, 3000);
       }
-    } catch {
-      // 静默失败
+    } catch (e) {
+      console.error('[memory] remember failed:', e);
     } finally {
       setSaving(false);
     }

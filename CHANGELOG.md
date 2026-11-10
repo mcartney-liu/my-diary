@@ -20,7 +20,7 @@
 
 - 每天 UTC 04:00（北京时间 12:00）清空 demo 账号的所有业务表 → 重新灌入种子数据
 - 防止多位评委互相覆盖写脏；Cron 挂在 Worker 上，零运维成本
-- wrangler.toml 加 `[triggers] crons = ["0 4 * * *"]`，Dev 和 Prod 都配了
+- wrangler.toml 加 `[triggers] crons = ["0 4 * * *"]`（仅 prod 生效；dev 环境无 cron）
 
 **4. 演示态顶部横幅**
 

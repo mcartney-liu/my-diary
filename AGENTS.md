@@ -50,7 +50,7 @@ git diff src/<目标文件>
 | 组件 | 位置 |
 |---|---|
 | JDK 21.0.9 | `D:\Android\jdk-21.0.9+10`（**必须用 21**，Capacitor 8 要求） |
-| JDK 17.0.20.1 | `D:\Android\jdk-17.0.20.1+1`（Android Studio 自带用） |
+| JDK 17.0.20.1（残留，不用） | `D:\Android\jdk-17.0.20.1+1`（本机有残留安装，编译**不要用**） |
 | Android Studio | `D:\Android\Android Studio`（Rabbit 1 \| 2026.2.1） |
 | Android SDK | `D:\Android\Sdk`（platform 36/37、build-tools 36+37、platform-tools 37.0.1） |
 | Gradle 缓存 | `D:\Android\.gradle`（`GRADLE_USER_HOME` 已设） |

@@ -121,7 +121,7 @@ getAiProvider() 读取；无配置时返回 DEFAULT_PROVIDER（model = agnes-3.0
 - 会**清洗脏缓存**：命中 `badPatterns`（含 `reason` / `error` / 各模板标题复述）或长度 < 8 一律重算
 - 这解释了 `ProfilePage.tsx:957` 记录的历史坑：「每日一句永远走兜底 —— `callChatCompletion` 写死 `json_object` 强制返回 JSON → 每次命中错误兜底」
 
-⚠️ **用户没配 API Key 时，这 10 个功能全部失效。**
+⚠️ **用户没配个人 API Key 时，请求自动走 Worker 端代理（服务端统一 Key），功能不失效；配了则直连用户所选 endpoint。**
 
 ### ❌ 不调模型的（纯本地规则，别误判）
 

@@ -20,7 +20,7 @@
 
 | 编号 | 问题 | 证据 | 修复状态 |
 |---|---|---|---|
-| P0-2 | `wrangler.toml` 把 JWT_SECRET 占位符公开 | `workers/wrangler.toml:12` 写死 `"change-me-in-dashboard-use-32-chars-minimum"`，dev 环境是 `"dev-secret-change-me-please-32chars!"` | 未修复（见下文"待定"） |
+| P0-2 | `wrangler.toml` 把 JWT_SECRET 占位符公开 | `workers/wrangler.toml:12` 写死 `"change-me-in-dashboard-use-32-chars-minimum"`，dev 环境是 `"[旧值·已失效]"` | 未修复（见下文"待定"） |
 | P0-3 | 仓库 public | `gh repo view` 确认为 public | 用户决策，暂不转 private |
 | P0-4 | 无 CI | `.github/workflows/` 不存在，`package.json` 无 `test` 脚本 | ✅ **已修**（见第三节） |
 | P1-1 | `.gitignore` 黑名单式 | 只排除 `.env` / `.env.local` / `.env.*.local` | ✅ **已修**（白名单） |
@@ -231,7 +231,7 @@ prod Pages 和 Worker 无需重新部署（Worker 完全没改，前端只改了
 
 | 编号 | 同事复核指出的问题 | 本轮修复 | 证据 |
 |---|---|---|---|
-| **R1** | `wrangler.toml` JWT_SECRET 明文在仓库里公开暴露（prod：`"change-me-in-dashboard-use-32-chars-minimum"`，dev：`"dev-secret-change-me-please-32chars!"`），是唯一一条"密钥形态已被公开"的止血动作却排在表最后 | ✅ **已修**。从 prod `[vars]` 和 dev `[env.dev.vars]` 里全部删除，同名值用 `wrangler secret put JWT_SECRET` 存进 Cloudflare Dashboard secret（值不变，所有现存 token 不受影响）。顺序：删 toml → deploy Worker 移除旧 binding → secret put → 完成。prod deploy 版本 `deb9b22c`，dev `41b2dbd8` | `workers/wrangler.toml` 现在只剩注释："已移除，改由 Dashboard secret 下发" |
+| **R1** | `wrangler.toml` JWT_SECRET 明文在仓库里公开暴露（prod：`"change-me-in-dashboard-use-32-chars-minimum"`，dev：`"[旧值·已失效]"`），是唯一一条"密钥形态已被公开"的止血动作却排在表最后 | ✅ **已修**。从 prod `[vars]` 和 dev `[env.dev.vars]` 里全部删除，同名值用 `wrangler secret put JWT_SECRET` 存进 Cloudflare Dashboard secret（值不变，所有现存 token 不受影响）。顺序：删 toml → deploy Worker 移除旧 binding → secret put → 完成。prod deploy 版本 `deb9b22c`，dev `41b2dbd8` | `workers/wrangler.toml` 现在只剩注释："已移除，改由 Dashboard secret 下发" |
 | **R2** | `imagePick` 改成惰性函数破了 `capabilities` 的契约——其他 12 个成员全是 bool，imagePick 变成唯一函数。以后谁写 `if (platform.capabilities.imagePick)` 会恒为真（JS 函数是 truthy 的） | ✅ **已修**。改回 `imagePick: true`。正确理由：两端的 `<input type="file">` 都正常工作，直接声明 true 即可。不要用 `querySelector` 检测——模块加载时 DOM 还没渲染任何 file input，而且会破契约。全库 0 处引用 imagePick，零影响 | `src/platform.ts:136-140` |
 | **R3** | 根目录两份 BookReader（另一个产品）交接文档未清，属于"漏项" | ✅ **已修**。挪进 `_archived/bookreader-handoff-2025/`，根目录现在只剩 MyDiary 相关内容 | 根目录 `Get-ChildItem -Name \| ? BookReader` 为空 |
 
@@ -357,8 +357,8 @@ if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
 
 | 编号 | 第九节指出的问题 | 本轮修复 | 证据 |
 |---|---|---|---|
-| **S1** | 删掉 toml 打开了"静默降级"口子——secret 缺失时 `TextEncoder.encode(undefined)` 会变成字符串 `"undefined"`，HMAC key 公开常量，任何人伪造 token | ✅ **已修**。`auth.js` 新增 `assertSecret(secret)` 硬校验：必须是字符串 + 长度 ≥ 16，不满足直接 `throw new Error`。signJWT 和 verifyJWT 两个入口各调一次。`index.js` 入口也去掉了 `\|\| "dev-secret-change-me"` 硬编码 fallback——现在无 fallback，缺失时 auth.js 会拦截 | `workers/src/auth.js:31-45` assertSecret 函数 |
-| **S2** | 第八节 R1 判"半修"——值没换，暴露面没缩小 | ✅ **已修**。完成 JWT_SECRET 轮换（双密钥过渡，不踢掉现有登录）<br>• prod: JWT_SECRET = `[已按安全惯例打码]`（64 字符 hex），JWT_SECRET_LEGACY = 旧明文 `change-me-in-dashboard-use-32-chars-minimum`<br>• dev: JWT_SECRET = `[已按安全惯例打码]`，JWT_SECRET_LEGACY = 旧明文 `dev-secret-change-me-please-32chars!`<br>• signJWT 只用新密钥签，authUser 用 `[新密钥, LEGACY]` 双密钥验<br>• 所有 `JWT_SECRET_LEGACY` 7 天 TTL 到期后（2026-11-17 起）旧 token 自然失效，届时可删 LEGACY secret | `workers/src/index.js:102-107` 双密钥定义 |
+| **S1** | 删掉 toml 打开了"静默降级"口子——secret 缺失时 `TextEncoder.encode(undefined)` 会变成字符串 `"undefined"`，HMAC key 公开常量，任何人伪造 token | ✅ **已修**。`auth.js` 新增 `assertSecret(secret)` 硬校验：必须是字符串 + 长度 ≥ 16，不满足直接 `throw new Error`。signJWT 和 verifyJWT 两个入口各调一次。`index.js` 入口也去掉了 `\|\| "[旧值·已失效]"` 硬编码 fallback——现在无 fallback，缺失时 auth.js 会拦截 | `workers/src/auth.js:31-45` assertSecret 函数 |
+| **S2** | 第八节 R1 判"半修"——值没换，暴露面没缩小 | ✅ **已修**。完成 JWT_SECRET 轮换（双密钥过渡，不踢掉现有登录）<br>• prod: JWT_SECRET = `[已按安全惯例打码]`（64 字符 hex），JWT_SECRET_LEGACY = 旧明文 `change-me-in-dashboard-use-32-chars-minimum`<br>• dev: JWT_SECRET = `[已按安全惯例打码]`，JWT_SECRET_LEGACY = 旧明文 `[旧值·已失效]`<br>• signJWT 只用新密钥签，authUser 用 `[新密钥, LEGACY]` 双密钥验<br>• 所有 `JWT_SECRET_LEGACY` 7 天 TTL 到期后（2026-11-17 起）旧 token 自然失效，届时可删 LEGACY secret | `workers/src/index.js:102-107` 双密钥定义 |
 | **S3** | 注释里"值为原先的明文"这句本身就是在提示去哪里找旧值 | ✅ **已修**。wrangler.toml 注释重写，不再提旧值是什么 | `workers/wrangler.toml:11-14` |
 
 ### 修复后状态对比
@@ -366,7 +366,7 @@ if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
 | 维度 | 第九节复核后 | 本轮修复后 |
 |---|---|---|
 | auth.js secret 校验 | 无，undefined → `"undefined"` HMAC key | ✅ assertSecret 硬拦截，不满足直接 throw |
-| index.js fallback | `env.JWT_SECRET \|\| "dev-secret-change-me"` | ✅ 无 fallback，缺失即失败 |
+| index.js fallback | `env.JWT_SECRET \|\| "[旧值·已失效]"` | ✅ 无 fallback，缺失即失败 |
 | JWT_SECRET 值 | 旧明文值（与 git 历史相同） | ✅ 已轮换为新 64 字符随机值，git 历史里的旧值现在是 LEGACY（过渡 7 天） |
 | verifyJWT 多密钥 | 不支持 | ✅ 支持数组 `[new, legacy]` 逐个尝试 |
 | wrangler.toml 注释 | 含旧值描述 | ✅ 已清理 |
@@ -405,7 +405,7 @@ if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
 | 声明 | 核实过程 | 判定 |
 |---|---|---|
 | **S1** `auth.js` 加硬校验 | `auth.js:38-45` 的 `assertSecret` 存在：非字符串或长度小于 16 直接 `throw`，报错信息指明去 Dashboard 配置；`signJWT`（49 行）与 `verifyJWT`（68 行）各调用一次 | **真修** ✅ |
-| **S1 附带** 去掉硬编码 fallback | `index.js:106` 为 `const JWT_SECRET = env.JWT_SECRET;`；全文检索已无 `dev-secret-change-me`、`change-me-in-dashboard` 两个字符串；39 处鉴权全部传双密钥数组 `JWT_SECRETS`，0 处仍传单值 | **真修** ✅ |
+| **S1 附带** 去掉硬编码 fallback | `index.js:106` 为 `const JWT_SECRET = env.JWT_SECRET;`；全文检索已无 `[旧值·已失效]`、`change-me-in-dashboard` 两个字符串；39 处鉴权全部传双密钥数组 `JWT_SECRETS`，0 处仍传单值 | **真修** ✅ |
 | **S2** 密钥轮换 | `index.js:107` 为 `[env.JWT_SECRET, env.JWT_SECRET_LEGACY].filter(Boolean)`；`signJWT` 仅用新密钥签发（410、430 两处）；`verifyJWT` 支持数组逐个尝试，任一通过即放行 | 代码**属实**，效果**未闭合**（见下） |
 | **S3** 注释清理 | `workers/wrangler.toml` 注释已重写，不再出现旧值的任何形态 | **真修** ✅ |
 
@@ -428,7 +428,7 @@ if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
 
 ### 一处可以不返工但值得记下
 
-`assertSecret` 的阈值是 16 字符，实际值是 64 字符，安全上没有问题；这道闸的主要职责是挡住 `undefined` 与非字符串。若要更稳，可提到 32，并把两个已公开的占位串（`change-me-in-dashboard-use-32-chars-minimum`、`dev-secret-change-me-please-32chars!`）列入拒绝名单——用已公开的串当密钥，等于没有密钥。不构成阻断项。
+`assertSecret` 的阈值是 16 字符，实际值是 64 字符，安全上没有问题；这道闸的主要职责是挡住 `undefined` 与非字符串。若要更稳，可提到 32，并把两个已公开的占位串（`change-me-in-dashboard-use-32-chars-minimum`、`[旧值·已失效]`）列入拒绝名单——用已公开的串当密钥，等于没有密钥。不构成阻断项。
 
 ### 本轮仍然是零的三项
 
@@ -624,7 +624,7 @@ npx wrangler secret delete JWT_SECRET_LEGACY --name mydiary-api-dev    # dev 成
 
 1. 第十二节三处硬伤已全部修复（commit 占位符 `475a00a`、署名、commit 列表）——可 clone 仓库验证
 2. S2 验证路径已纠正——不再让读者 clone 看代码，改为"查 Cloudflare Dashboard Secrets 页"
-3. 如果审核方仍想确认 LEGACY 确实已删，可向 prod/dev Worker 发送一个旧占位符（`change-me-in-dashboard-use-32-chars-minimum` 或 `dev-secret-change-me-please-32chars!`）签的 JWT，预期返回 401
+3. 如果审核方仍想确认 LEGACY 确实已删，可向 prod/dev Worker 发送一个旧占位符（`change-me-in-dashboard-use-32-chars-minimum` 或 `[旧值·已失效]`）签的 JWT，预期返回 401
 
 ### 累计 commit 列表（含审核方提交）
 
@@ -640,7 +640,7 @@ npx wrangler secret delete JWT_SECRET_LEGACY --name mydiary-api-dev    # dev 成
 | `be627eb` | **审核方** | 第十一节：对第十节的核实 — S2 缺口（LEGACY 存的是公开占位符） |
 | `475a00a` | 研发 | 第十二节：S2 缺口闭环（删 LEGACY）+ Agnes key 收口确认 |
 | `1a81e32` | **审核方** | 第十三节：对第十二节的核实 — 纠正 107 行验证方法 + 三处硬伤 |
-| `[本轮]` | 研发 | 第十四节：回应第十三节 — 修三处硬伤 + S2 验证路径纠正 |
+| `5b3e644` | 研发 | 第十四节：回应第十三节 — 修三处硬伤 + S2 验证路径纠正 |
 
 ---
 

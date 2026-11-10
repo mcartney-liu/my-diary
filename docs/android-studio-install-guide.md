@@ -47,7 +47,7 @@ https://androidstudio.com.cn/download.html
 | 勾选 | 说明 |
 |---|---|
 | ✅ **Android Studio** | 必选 |
-| ✅ **Android SDK** | 必选（后面要装 Platform 36） |
+| ✅ **Android SDK** | 必选（后面要装 Platform 37） |
 | ✅ **Android Virtual Device** | 可以不勾，我们用真机测，不开模拟器（省 2GB） |
 | ❌ Performance enhancements (Intel) | **不勾**，这是模拟器加速相关，用真机不需要 |
 
@@ -109,14 +109,14 @@ D:\Android\Android Studio
 ### 4.1 SDK Platforms 标签
 
 勾选：
-- ✅ **Android 16.0 (API 36)** ← **必须！** 你的项目 `targetSdk = 36`
+- ✅ **Android 17.0 (API 37)** ← **必须！** 你的项目 `targetSdk = 37`
 
-> ⚠️ 如果列表里没有 API 36，勾右上角 **Show package details** 才会显示。
+> ⚠️ 如果列表里没有 API 37，勾右上角 **Show package details** 才会显示。
 
 ### 4.2 SDK Tools 标签
 
 勾选：
-- ✅ **Android SDK Build-Tools**（选最新的 36.x）
+- ✅ **Android SDK Build-Tools**（选最新的 37.x）
 - ✅ **Android SDK Platform-Tools**（含 adb，必须）
 - ✅ **Android SDK Command-line Tools (latest)**（如没自动勾上，手动勾）
 
@@ -176,7 +176,7 @@ A: 右键 `.exe` → **「以管理员身份运行」**。
 A: 说明 Step 2.2 改路径没改成功。卸载重装，**这次一定在第 2 屏改路径**。
 另外下载的 1.5GB 安装包也记得删掉。
 
-**Q3: SDK 列表里找不到 API 36**
+**Q3: SDK 列表里找不到 API 37**
 A: 勾选 **Show package details** 才会显示预览版/新版本。
 
 **Q4: 装完 D 盘空间不够**

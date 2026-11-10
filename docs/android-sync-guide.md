@@ -75,14 +75,16 @@ ls -la android/app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
-## 三、⚠️ 关键风险：.env.production 不在 Git 里
+## 三、.env.production 在 Git 里但只有注释；注入生产地址的是 .env.app
 
-`.gitignore` 里有 `.env*` 规则？**检查一下** —— 如果 `.env.production` 被 git 忽略，那么：
-- `git pull` 不会覆盖它 ✅ 安全
-- 但**新克隆的副本会缺失这个文件**，导致 App 全 404
+`.env.production` 在 Git 仓库里，全文只有注释（`VITE_API_BASE` 是注释掉的）。真正注入生产地址的是 **`.env.app`**（含 `VITE_API_BASE=https://app.callmydiary.online`），它被 `.gitignore` 排除，不会被覆盖。
+
+`.gitignore` 里有 `.env*` 规则？**检查一下** —— `.env.production` 是注释文件在 Git 里安全，`.env.app` 被 git ignore：
+- `git pull` 不会覆盖 `.env.app` ✅ 安全
+- 但**新克隆的副本会缺失 `.env.app`**，导致 App 全 404
 
 **保障措施**：
-1. 本副本的 `.env.production` 已存在，缺了就把内容写回去（内容见该文件注释）
+1. 本副本的 `.env.app` 已存在，缺了就把内容写回去（`VITE_API_BASE=https://app.callmydiary.online`）
 2. 若哪天真删了副本，重建步骤见第四节
 
 ---

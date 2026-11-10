@@ -120,7 +120,7 @@ const startRecording = () => {
 
 ### 📌 INFO-002：前端 10 个 AI 功能依赖用户自填 API
 
-`src/ai.ts` 有 10 个 `async` 函数走 `getAiProvider()` 读用户设置页填的 endpoint/model/apiKey。**用户不填 Key，这 10 个功能全部失效**（含润色、纠错、荐书、读书笔记开场、模板识别、纪念日推断等）。
+`src/ai.ts` 有 10 个 `async` 函数走 `getAiProvider()` 读用户设置页填的 endpoint/model/apiKey。**用户没配个人 API Key 时，请求自动走 Worker 端代理（服务端统一 Key），功能不失效；配了则直连用户所选 endpoint**（含润色、纠错、荐书、读书笔记开场、模板识别、纪念日推断等）。
 
 后端 5 个场景（每日总结、知识库问答、记忆提取）是开箱即用的，不受此影响。
 
