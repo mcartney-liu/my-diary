@@ -1943,8 +1943,8 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
           extractMemoryCandidates(env, question, answer),
           new Promise(r => setTimeout(() => r([]), 5000)),
         ]).then(cands => {
-          if (cands?.length) saveMemories(env, user.uid, cands).catch(() => {});
-        }).catch(() => {}));
+          if (cands?.length) saveMemories(env, user.uid, cands).catch(e => console.error('[memory] save failed:', e.message));
+        }).catch(e => console.error('[memory] extract failed:', e.message)));
       }
       return json({ answer: answer || '让我想想～', sources: [] });
     } catch (e) { return json({ answer: '抱歉，我暂时答不上来这个问题' }); }
@@ -2028,8 +2028,8 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
         extractMemoryCandidates(env, question, answer),
         new Promise(r => setTimeout(() => r([]), 5000)),
       ]).then(cands => {
-        if (cands?.length) saveMemories(env, user.uid, cands).catch(() => {});
-      }).catch(() => {}));
+        if (cands?.length) saveMemories(env, user.uid, cands).catch(e => console.error('[memory] save failed:', e.message));
+      }).catch(e => console.error('[memory] extract failed:', e.message)));
     }
     return json({
       answer,

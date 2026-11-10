@@ -304,6 +304,47 @@ foreach ($env in @("mydiary-db-dev","mydiary-db")) {
 
 ---
 
+### 4.3 已知结构漂移（2026-11-10 第六轮整改）
+
+迁移链是**设计稿**，prod/dev 是各自独立手工建的**运行时结构**。三者互不相同。
+判断任何环境的真实结构，**只能查 PRAGMA**，不要相信 migration 文件。
+
+#### 典型案例：user_memory 表
+
+| 项目 | 迁移版（0027） | prod 实际 | dev 实际 |
+|---|---|---|---|
+| 外键 | `REFERENCES users(id) ON DELETE CASCADE` | ❌ 没有 | ❌ 没有 |
+| confidence DEFAULT | **0.7** | **0.5** | **0.5** |
+| created_at DEFAULT | `DEFAULT CURRENT_TIMESTAMP` | ❌ 没有 | `DEFAULT (datetime('now','localtime'))` |
+| updated_at DEFAULT | `DEFAULT CURRENT_TIMESTAMP` | ❌ 没有 | `DEFAULT (datetime('now','localtime'))` |
+| CHECK(type) | ❌ 没有 | ❌ 没有 | `CHECK(type IN (...))` |
+| CHECK(status) | ❌ 没有 | ❌ 没有 | `CHECK(status IN (...))` |
+| UNIQUE(user_id, content) | ✅ CREATE TABLE 内定义 | ❌ 没有（第六轮手工建唯一索引补上） | ✅ CREATE TABLE 内定义 |
+
+**后果**：prod 缺 UNIQUE 约束 → 代码用的 `INSERT ... ON CONFLICT(user_id, content) DO UPDATE`（UPSERT）**静默失败**，每一次记忆写入都报错，但外层 `.catch(() => {})` 吞了。生产上所有用户的记忆提取和手动新增一直是死的，直到第六轮修复。
+
+#### wiki_knowledge_bases 表漂移
+
+| 项目 | 迁移版（0011） | prod/dev 实际 |
+|---|---|---|
+| 列数 | 5 列 | 8 列 |
+| slug / is_official / description | ❌ 没有 | ✅ 手工 ALTER TABLE 加的 |
+
+#### 判断真实结构的唯一方法
+
+```bash
+# 看某张表的列定义（含类型、DEFAULT、NOT NULL）
+wrangler d1 execute <db> --remote --command "PRAGMA table_info(<table>)"
+
+# 看某张表的完整 DDL（含 UNIQUE / CHECK / 外键）
+wrangler d1 execute <db> --remote --command "SELECT sql FROM sqlite_master WHERE name='<table>'"
+
+# 看唯一索引（SQLite UPSERT 认这个）
+wrangler d1 execute <db> --remote --command "PRAGMA index_list(<table>)"
+```
+
+---
+
 ## 🔑 wrangler.toml 详解
 
 文件：`workers/wrangler.toml`
