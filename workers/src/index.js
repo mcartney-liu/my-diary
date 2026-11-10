@@ -228,7 +228,7 @@ export default {
         const params = matchRoute(path, p);
         if (params !== null) {
           try {
-            return await handler(request, env, JWT_SECRET, params);
+            return await handler(request, env, JWT_SECRET, params, ctx);
           } catch (e) {
             console.error("[FATAL]", method, p, e);
             dblog(env, 'fatal', method + ' ' + p, { msg: e.message, stack: (e.stack || '').slice(0, 500) });
@@ -507,7 +507,7 @@ async function handleListDiaries(request, env, JWT_SECRET) {
   return json({ diaries: out });
 }
 
-async function handleSaveDiary(request, env, JWT_SECRET) {
+async function handleSaveDiary(request, env, JWT_SECRET, _params, ctx) {
   try {
     const user = await authUser(request, jwtSecrets(env));
     if (!user) return json({ error: "unauthorized" }, 401);
@@ -672,12 +672,12 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
       }
     }
 
-    // 异步 embedding（不阻塞主流程）
-    embedDiaryInBackground(env, diaryId, user.uid);
+    // 异步 embedding（不阻塞主流程，ctx.waitUntil 托住防 GC）
+    ctx.waitUntil(embedDiaryInBackground(env, diaryId, user.uid));
     // 日记存入 wiki_sources（史料），等用户触发汇入
-    saveDiaryToWikiSources(env, diaryId, user.uid).catch(e =>
+    ctx.waitUntil(saveDiaryToWikiSources(env, diaryId, user.uid).catch(e =>
       console.error('[wiki] diary source save fail', e.message)
-    );
+    ));
 
     try { await logActivity(env, user.uid, "save_diary", { id: diaryId, template_id: tplId }); } catch {}
     return json({ id: diaryId, ok: true });
@@ -1806,7 +1806,7 @@ function findLastUserQuestion(history) {
   return null;
 }
 
-async function handleAsk(request, env, JWT_SECRET) {
+async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
   const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
   const body = await request.json();
@@ -1901,14 +1901,14 @@ async function handleAsk(request, env, JWT_SECRET) {
       }
       msgs.push({ role: 'user', content: question });
       const answer = await callLLM(env, msgs, 500);
-      // ⚡ 改成 fire-and-forget
+      // ⚡ fire-and-forget + ctx.waitUntil 托住防 GC
       if (answer) {
-        Promise.race([
+        ctx.waitUntil(Promise.race([
           extractMemoryCandidates(env, question, answer),
           new Promise(r => setTimeout(() => r([]), 5000)),
         ]).then(cands => {
           if (cands?.length) saveMemories(env, user.uid, cands).catch(() => {});
-        }).catch(() => {});
+        }).catch(() => {}));
       }
       return json({ answer: answer || '让我想想～', sources: [] });
     } catch (e) { return json({ answer: '抱歉，我暂时答不上来这个问题' }); }
@@ -1986,14 +1986,14 @@ async function handleAsk(request, env, JWT_SECRET) {
     let answer;
     try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history, memoriesText, structuredFacts, !!web_search); }
     catch (e) { answer = 'LLM 错: ' + e.message; }
-    // ⚡ 记忆提取改成 fire-and-forget：先返回给用户，再后台 try。用户不用等这 1-5s
+    // ⚡ 记忆提取 fire-and-forget + ctx.waitUntil 托住防 GC
     if (answer) {
-      Promise.race([
+      ctx.waitUntil(Promise.race([
         extractMemoryCandidates(env, question, answer),
         new Promise(r => setTimeout(() => r([]), 5000)),
       ]).then(cands => {
         if (cands?.length) saveMemories(env, user.uid, cands).catch(() => {});
-      }).catch(() => {});
+      }).catch(() => {}));
     }
     return json({
       answer,
