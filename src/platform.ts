@@ -55,6 +55,22 @@ export const isNativeApp: boolean = (() => {
 
 export const isWeb: boolean = !isNativeApp;
 
+/**
+ * 是否为 iOS 浏览器（iPhone / iPad + Safari）。
+ * 仅用于浏览器端麦克风权限提示等场景；原生 App 走 Capacitor 权限。
+ */
+export const isIOSBrowser: boolean = (() => {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /iPhone|iPad/.test(ua) && /Safari/.test(ua);
+})();
+
+/** 是否为 Android 浏览器（含 WebView）。 */
+export const isAndroidBrowser: boolean = (() => {
+  if (typeof navigator === "undefined") return false;
+  return /Android/.test(navigator.userAgent);
+})();
+
 /** 平台标识：'android' | 'ios' | 'web' */
 export const platformName: "android" | "ios" | "web" = (() => {
   if (!isNativeApp) return "web";

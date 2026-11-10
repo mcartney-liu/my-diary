@@ -13,6 +13,7 @@ import AudioBlock from "./AudioBlock";
 import { PRESET_PAPERS, matchPreset } from "../presetPapers";
 import { TEMPLATES, templateById } from "../templates";
 import { categoriesByDir, resolveCategory } from "../categories";
+import { isIOSBrowser, isAndroidBrowser } from "../platform";
 import GridSnap from "./GridSnap";
 import ConfirmDialog from "./ConfirmDialog";
 import MiniAiBubble from "./MiniAiBubble";
@@ -1211,11 +1212,10 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       const name = e?.name || "";
       const msg = e?.message || String(e);
       if (name === "NotAllowedError") {
-        const ua = navigator.userAgent;
         let tip = "";
-        if (/iPhone|iPad/.test(ua) && /Safari/.test(ua)) {
+        if (isIOSBrowser) {
           tip = "iPhone：设置 → Safari → 麦克风 → 允许";
-        } else if (/Android/.test(ua)) {
+        } else if (isAndroidBrowser) {
           tip = "安卓：地址栏 🔒 → 网站设置 → 麦克风 → 允许";
         } else {
           tip = "点地址栏左边的 🔒 → 网站设置 → 麦克风 → 允许";

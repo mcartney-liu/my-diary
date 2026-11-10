@@ -112,7 +112,7 @@ D:\Android\Android Studio
 - ✅ **Android 16.0 (API 36)** ← **必须！** 你的项目 `compileSdkVersion = 36`（`android/variables.gradle`）
 
 > ⚠️ 如果列表里没有 API 36，勾右上角 **Show package details** 才会显示。
-> ⚠️ 本机也装了 37.0（非必需），首次编译会自动补下缺失的 platform。
+> ⚠️ 若首次编译提示缺 platform 36，到 SDK Manager 勾选并接受许可，或手动安装（AGP 自动下载需要 android.builder.sdkDownload 开启且许可已接受，未接受会直接失败）。
 
 ### 4.2 SDK Tools 标签
 

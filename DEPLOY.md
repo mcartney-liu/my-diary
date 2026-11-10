@@ -343,6 +343,24 @@ wrangler d1 execute <db> --remote --command "SELECT sql FROM sqlite_master WHERE
 wrangler d1 execute <db> --remote --command "PRAGMA index_list(<table>)"
 ```
 
+#### profiles.streak_start 死列
+
+`profiles.streak_start` 现存但**代码零引用**（连续打卡无起始日逻辑），排查相关问题时勿据此推断。删除需走 DDL 迁移，当前迁移链已有三套漂移，暂不动。
+
+### 4.4 无前端 UI 的运维接口
+
+以下接口仅运维使用，Web / App 前端均不发起调用：
+
+| 路由 | 用途 | 备注 |
+|---|---|---|
+| `GET  /api/admin/feedbacks` | 查看所有用户反馈 | **无 UI**，需 ADMIN_KEY |
+| `POST /api/ai/reindex` | 触发知识库重新 Embedding | **无 UI**，需 ADMIN_KEY |
+| `POST /api/demo/reset` | 重置演示账号数据 | **无 UI**，需 DEMO_RESET_SECRET |
+| `GET  /api/wiki/debug-log` | 查看 Wiki 调试日志 | **无 UI**，需 ADMIN_KEY |
+| `*    /api/wiki/kbs/:kb_id/templates` | 按 KB 操作模板 | 与 `/api/wiki/templates` **两套路由同一能力**，前端只走后者；本接口保留给 MCP / 外部调用方 |
+
+> 不要删除这些路由——`kb-open-ecosystem-mcp.md` 里写的外部调用方会直接 404。
+
 ---
 
 ## 🔑 wrangler.toml 详解

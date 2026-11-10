@@ -68,9 +68,9 @@ function RememberButton({ content }: { content: string }) {
       onClick={handleSave}
       disabled={saved || saving}
       className="mt-1.5 text-[11px] text-paper-bg/70 hover:text-paper-bg transition opacity-60 hover:opacity-100"
-      title="小麦 会把这句话解析成简洁记忆存下来"
+      title="把这句话原样存进小麦的记忆"
     >
-      {saved ? `💾 已记住：${memContent || ""} 🌟` : saving ? "解析并保存中…" : "💾 记住这句话"}
+      {saved ? `💾 已记住：${memContent || ""} 🌟` : saving ? "保存中…" : "💾 记住这句话"}
     </button>
   );
 }

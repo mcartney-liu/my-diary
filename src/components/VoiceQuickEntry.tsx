@@ -6,6 +6,7 @@ import { detectTemplate, polishTranscript } from "../ai";
 import { transcribeAudio } from "../api";
 import { TEMPLATES } from "../templates";
 import { listTemplates, type UserTemplate } from "../api";
+import { isIOSBrowser, isAndroidBrowser } from "../platform";
 
 type Phase = "idle" | "menu" | "recording" | "transcribing" | "input" | "processing" | "match";
 
@@ -68,11 +69,10 @@ export default function VoiceQuickEntry({ dockVariant = false, hintVariant = fal
       const msg = e?.message || String(e);
       if (name === "NotAllowedError" || msg.includes('Permission') || msg.includes('denied')) {
         // 用户之前拒绝过 → 浏览器记住了，不会再弹框
-        const ua = navigator.userAgent;
         let tip = "";
-        if (/iPhone|iPad/.test(ua) && /Safari/.test(ua)) {
+        if (isIOSBrowser) {
           tip = "iPhone：设置 → Safari → 麦克风 → 允许 callmydiary.online";
-        } else if (/Android/.test(ua)) {
+        } else if (isAndroidBrowser) {
           tip = "安卓：地址栏左边的 🔒 → 网站设置 → 麦克风 → 允许";
         } else {
           tip = "点地址栏左边的 🔒 → 网站设置 → 麦克风 → 允许";

@@ -2454,15 +2454,19 @@ async function resetDemoAccount(env) {
   // 2. 清空该用户所有业务表数据（保留 users 记录）
   const tables = ["diaries", "milestones", "plans", "daily_summaries", "diary_embeddings", "memory", "chat_sessions", "templates", "papers", "feedback"];
   for (const t of tables) {
-    try { await env.DB.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(uid).run(); } catch { /* 表不存在或无 user_id 列，忽略 */ }
+    try { await env.DB.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(uid).run(); }
+    catch { console.warn('[demo] 跳过清空表:', t, '(表不存在或无 user_id 列)'); }
   }
   // wiki 相关表也清
   const wikiTables = ["wiki_pages", "wiki_links", "wiki_sources", "wiki_embeddings"];
   for (const t of wikiTables) {
-    try { await env.DB.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(uid).run(); } catch {}
+    try { await env.DB.prepare(`DELETE FROM ${t} WHERE user_id = ?`).bind(uid).run(); }
+    catch { console.warn('[demo] 跳过清空表:', t, '(表不存在或无 user_id 列)'); }
   }
-  try { await env.DB.prepare(`DELETE FROM wiki_categories WHERE kb_id IN (SELECT id FROM wiki_kbs WHERE user_id = ?)`).bind(uid).run(); } catch {}
-  try { await env.DB.prepare(`DELETE FROM wiki_kbs WHERE user_id = ?`).bind(uid).run(); } catch {}
+  try { await env.DB.prepare(`DELETE FROM wiki_categories WHERE kb_id IN (SELECT id FROM wiki_kbs WHERE user_id = ?)`).bind(uid).run(); }
+  catch { console.warn('[demo] 跳过清空 wiki_categories'); }
+  try { await env.DB.prepare(`DELETE FROM wiki_kbs WHERE user_id = ?`).bind(uid).run(); }
+  catch { console.warn('[demo] 跳过清空 wiki_kbs'); }
   console.log("[demo] 清空完成");
 
   // 3. 灌种子日记（今天 + 过去 5 天）

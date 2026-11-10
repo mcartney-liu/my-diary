@@ -503,7 +503,10 @@ export async function saveDiaryToWikiSources(env, diaryId, userId) {
     try {
       const blocks = JSON.parse(diary.blocks || '[]');
       rawText = blocks.filter(b => b.kind === 'text').map(b => b.content).join('\n');
-    } catch { rawText = diary.blocks || ''; }
+    } catch {
+      console.warn('[wiki] diary blocks JSON parse failed, skipping source:', diaryId);
+      return;
+    }
     if (!rawText.trim()) return;
 
     const now = Date.now();

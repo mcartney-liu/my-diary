@@ -58,13 +58,22 @@
 
 ---
 
-## 四、⚠️ 关键：`.env.production` 不在 Git 里
+## 四、关键：`.env.production` 在 Git 里（白名单放行）
 
-`.gitignore` 含 `.env` 规则，`.env.production` 会被忽略。含义：
-- `git pull` **不会覆盖它** ✅ 安全
-- 但**新克隆的副本会缺这个文件** → App 所有请求 404
+`.gitignore` 的规则是"先全禁、再放行"：
 
-**若哪天真删了本副本**，重建步骤（详细版见 `docs/android-sync-guide.md` 第四节）：
+```
+.env*
+!.env.app
+!.env.production
+!.env.example
+```
+
+所以 `.env.production` **在 Git 里**（全文只有注释，`VITE_API_BASE` 是注释掉的，不注入任何东西）。任何副本 clone / pull 下来自动就有，**不存在"新克隆缺这个文件导致 App 404"这回事**。
+
+> `capacitor.config.ts` 是 App 副本的套壳文件，被 `.gitignore` 排除，重建 App 副本时需手动恢复。
+
+**若哪天真删了 App 副本**，重建步骤（详细版见 `docs/android-sync-guide.md` 第四节）：
 
 ```bash
 cd C:\Users\haizhi\WorkBuddy\2026-09-23-11-40-59
@@ -72,8 +81,8 @@ git clone https://github.com/mcartney-liu/my-diary.git mydiary-android
 cd mydiary-android
 npm install
 npm install --save-dev @capacitor/core@^8.5.2 @capacitor/cli@^8.5.2 @capacitor/android@^8.5.2
-# 复制本副本的这几个文件过去：capacitor.config.ts / .env.production /
-#   docs/android-*.md / .gitignore 的 Android 段 / README 开头说明
+# 复制本副本的这几个文件过去：capacitor.config.ts /
+#   docs/android-*.md / README 开头说明
 npx cap add android
 # 再照 docs/android-app-guide.md 补权限、改 versionName
 npm run cap:sync
