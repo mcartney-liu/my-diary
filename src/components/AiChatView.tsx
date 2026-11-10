@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { askDiary, askWiki, extractMemory, upsertDiary, listTemplates, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, chatListSessions, chatUpsertSessions, chatDeleteSession, wikiAddSourceText, wikiIngestAll, wikiGetPage, type WikiKB, type WikiPage } from "../api";
+import { askDiary, askWiki, addMemory, upsertDiary, listTemplates, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, chatListSessions, chatUpsertSessions, chatDeleteSession, wikiAddSourceText, wikiIngestAll, wikiGetPage, type WikiKB, type WikiPage } from "../api";
 import Modal from "./Modal";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -51,15 +51,11 @@ function RememberButton({ content }: { content: string }) {
     if (saving || saved) return;
     setSaving(true);
     try {
-      // 让后端 LLM 从原话里解析出简洁的记忆（自动存 DB）
-      const res = await extractMemory(content);
-      const mems = res?.memories || [];
-      if (mems.length > 0) {
-        setMemContent(mems[0].content);
+      const res = await addMemory('fact', content.trim());
+      if (res?.ok) {
+        setMemContent(content.trim());
         setSaved(true);
         setTimeout(() => { setSaved(false); setMemContent(""); }, 3000);
-      } else {
-        // LLM 没提取到，静默跳过
       }
     } catch {
       // 静默失败

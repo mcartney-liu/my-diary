@@ -399,12 +399,6 @@ export function patchCapsule(id: string, unlockAt: number | null) {
     body: JSON.stringify({ unlockAt }),
   });
 }
-export function extractMemory(text: string) {
-  return request<{ memories: { type: string; content: string; confidence: number }[] }>('/api/memory/extract', {
-    method: 'POST',
-    body: JSON.stringify({ text }),
-  });
-}
 
 // ====== Wiki 知识库 v4 ======
 export interface WikiKB { id: string; slug?: string; title: string; description?: string; is_official?: number; created_at: number; updated_at: number; }
