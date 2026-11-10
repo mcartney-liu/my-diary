@@ -75,17 +75,25 @@ ls -la android/app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
-## 三、.env.production 在 Git 里但只有注释；注入生产地址的是 .env.app
+## 三、两个 env 文件都在 Git 里（`.gitignore` 白名单放行）
 
-`.env.production` 在 Git 仓库里，全文只有注释（`VITE_API_BASE` 是注释掉的）。真正注入生产地址的是 **`.env.app`**（含 `VITE_API_BASE=https://app.callmydiary.online`），它被 `.gitignore` 排除，不会被覆盖。
+`.gitignore` 的规则是"先全禁、再放行"：
 
-`.gitignore` 里有 `.env*` 规则？**检查一下** —— `.env.production` 是注释文件在 Git 里安全，`.env.app` 被 git ignore：
-- `git pull` 不会覆盖 `.env.app` ✅ 安全
-- 但**新克隆的副本会缺失 `.env.app`**，导致 App 全 404
+```
+.env*
+!.env.app
+!.env.production
+!.env.example
+```
 
-**保障措施**：
-1. 本副本的 `.env.app` 已存在，缺了就把内容写回去（`VITE_API_BASE=https://app.callmydiary.online`）
-2. 若哪天真删了副本，重建步骤见第四节
+所以 `.env.app` 与 `.env.production` **都在 Git 里**，任何副本 clone / pull 下来自动就有，
+不存在"新克隆缺 .env.app 导致 App 全 404"这回事。
+
+- `.env.app`：`VITE_API_BASE=https://app.callmydiary.online`（App 构建注入，`vite build --mode app`）
+- `.env.production`：全文只有注释，`VITE_API_BASE` 是注释掉的，**不注入任何东西**
+
+真正的风险只剩一条：**新增的第三个 env 文件（如 `.env.staging`）会被 `.env*` 静默吞掉**，
+需要时往白名单里加一行。
 
 ---
 

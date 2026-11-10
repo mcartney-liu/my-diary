@@ -151,8 +151,9 @@ export async function handleWikiUpdateKb(request, env, JWT_SECRET, params) {
   if (sets.length === 0) return json({ ok: true });
   sets.push('updated_at=?');
   args.push(now, params.kb_id, user.uid);
-  await env.DB.prepare(`UPDATE wiki_knowledge_bases SET ${sets.join(', ')} WHERE id=? AND user_id=?`)
+  const r = await env.DB.prepare(`UPDATE wiki_knowledge_bases SET ${sets.join(', ')} WHERE id=? AND user_id=?`)
     .bind(...args).run();
+  if (!r.meta.changes) return json({ error: "not found" }, 404);
   return json({ ok: true });
 }
 
@@ -407,8 +408,9 @@ export async function handleWikiUploadSourceFile(request, env, JWT_SECRET, param
 export async function handleWikiDeleteSource(request, env, JWT_SECRET, params) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
-  await env.DB.prepare("DELETE FROM wiki_sources WHERE id=? AND kb_id=? AND user_id=?")
+  const r = await env.DB.prepare("DELETE FROM wiki_sources WHERE id=? AND kb_id=? AND user_id=?")
     .bind(params.source_id, params.kb_id, user.uid).run();
+  if (!r.meta.changes) return json({ error: "not found" }, 404);
   return json({ ok: true });
 }
 
@@ -467,8 +469,9 @@ export async function handleWikiGlobalAddSource(request, env, JWT_SECRET) {
 export async function handleWikiGlobalDeleteSource(request, env, JWT_SECRET, params) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
-  await env.DB.prepare("DELETE FROM wiki_sources WHERE id=? AND user_id=?")
+  const r = await env.DB.prepare("DELETE FROM wiki_sources WHERE id=? AND user_id=?")
     .bind(params.source_id, user.uid).run();
+  if (!r.meta.changes) return json({ error: "not found" }, 404);
   return json({ ok: true });
 }
 
@@ -478,8 +481,9 @@ export async function handleWikiUpdateSourceTags(request, env, JWT_SECRET, param
   if (!user) return json({ error: "unauthorized" }, 401);
   const { tags } = await readBody(request);
   const tagsStr = JSON.stringify(Array.isArray(tags) ? tags : []);
-  await env.DB.prepare("UPDATE wiki_sources SET tags=? WHERE id=? AND user_id=?")
+  const r = await env.DB.prepare("UPDATE wiki_sources SET tags=? WHERE id=? AND user_id=?")
     .bind(tagsStr, params.source_id, user.uid).run();
+  if (!r.meta.changes) return json({ error: "not found" }, 404);
   return json({ ok: true });
 }
 

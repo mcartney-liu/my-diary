@@ -1616,7 +1616,8 @@ async function handleChatDeleteSession(request, env, JWT_SECRET, params) {
   const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
   const id = params.id;
-  await env.DB.prepare("DELETE FROM chat_sessions WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+  const r = await env.DB.prepare("DELETE FROM chat_sessions WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+  if (!r.meta.changes) return json({ error: "not found" }, 404);
   return json({ ok: true });
 }
 

@@ -396,21 +396,23 @@ wrangler d1 execute mydiary-db-dev --remote --command="SELECT * FROM users"  # �
 
 # === Worker Secrets（prod）===
 wrangler secret put JWT_SECRET          # 缺失：所有登录态失效，全站 401
-wrangler secret put JWT_SECRET_LEGACY   # 缺失：密钥轮换时全体用户被登出
 wrangler secret put RESEND_API_KEY      # 缺失：注册验证码发不出
 wrangler secret put DEMO_RESET_SECRET   # 缺失：demo reset 503
 wrangler secret put ADMIN_KEY           # 缺失：debug-log 与后台反馈 503
 wrangler secret put DEEPSEEK_API_KEY    # 缺失：AI 对话全线不可用
 wrangler secret put AGNES_API_KEY       # 缺失：绘图/图片模型不可用
+wrangler secret put FROM_EMAIL          # 缺失：回落默认 noreply@callmydiary.online（RESEND 未验证域名时发信失败）
+wrangler secret put MEMORY_ENABLED      # 缺失：记忆自动提取默认关闭。**必须显式设成 'true' 才开启**（index.js:1377）
 
 # === Worker Secrets（dev）===
 wrangler secret put JWT_SECRET --env dev
-wrangler secret put JWT_SECRET_LEGACY --env dev
 wrangler secret put RESEND_API_KEY --env dev
 wrangler secret put DEMO_RESET_SECRET --env dev
 wrangler secret put ADMIN_KEY --env dev
 wrangler secret put DEEPSEEK_API_KEY --env dev
 wrangler secret put AGNES_API_KEY --env dev
+wrangler secret put FROM_EMAIL --env dev
+wrangler secret put MEMORY_ENABLED --env dev
 
 # === Git ===
 git status
