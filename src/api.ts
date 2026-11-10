@@ -120,7 +120,9 @@ export function healthCheck() {
 
 // Whisper 语音转文字（本地 → 云端 fallback）
 export async function transcribeAudio(blob: Blob): Promise<string> {
-  const headers = { "Content-Type": "application/octet-stream" };
+  const token = getToken();
+  const headers: Record<string, string> = { "Content-Type": "application/octet-stream" };
+  if (token) headers["Authorization"] = "Bearer " + token;
   try {
     const res = await fetch("/api/transcribe", { method: "POST", body: blob, headers });
     if (res.ok) {
