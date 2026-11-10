@@ -293,7 +293,7 @@ foreach ($env in @("mydiary-db-dev","mydiary-db")) {
 | 段 | 编号 | 实际执行方式 | d1_migrations 记录 | 结构影响 |
 |---|---|---|---|---|
 | **真执行** | 0001 ~ 0009 | 首次建库时 migrations apply 真正跑了 SQL | ✅ 有 9 条 | 建了 users/diaries/templates/feedback 等核心表 |
-| **标记** | 0010 ~ 0026 | 没跑 migrations apply——0011 会 DROP 六张 wiki 表（数据丢失风险），所以手动 INSERT 进 d1_migrations 表做标记 | ✅ 有 17 条（0010~0023 + 0026） | wiki_* 表由代码运行时 CREATE TABLE 落地，不是 migration 跑的；users.identity 等列由代码运行时 ALTER TABLE 补的 |
+| **标记** | 0010 ~ 0026 | 没跑 migrations apply——0011 会 DROP 六张 wiki 表（数据丢失风险），所以手动 INSERT 进 d1_migrations 表做标记 | ✅ 有 17 条（0010~0023 + 0026） | 结构是手工建的，来源不可考（代码里搜 CREATE TABLE / ALTER TABLE 全仓 0 命中，git 历史里也没有）。因此迁移链复现不出生产结构，今后一律走新编号迁移，不再手工改库 |
 | **真执行（新）** | 0027 ~ | 用新编号，migrations apply 真跑 | ✅ 0027 已进 | user_memory 表正式纳入迁移链 |
 
 **关键约束**：

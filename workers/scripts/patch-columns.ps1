@@ -10,7 +10,7 @@ param(
   [string]$Env = ""   # "" = prod (top-level env), "dev" = dev env
 )
 
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Stop"
 
 $db = "mydiary-db"
 if ($Env -eq "dev") { $db = "mydiary-db-dev" }
@@ -22,14 +22,22 @@ $plan = @{
   wiki_links           = @{ from_page_id="TEXT"; to_page_id="TEXT" }
 }
 
-$envSuffix = ""
-if ($Env -eq "dev") { $envSuffix = " --env dev" }
+# Array form is safe: PowerShell splatting handles --env dev as two args,
+# unlike string concat which wrangler interprets as a single token.
+$envArgs = @()
+if ($Env -eq "dev") { $envArgs = @("--env", "dev") }
 
 Write-Host "==> Target DB: $db  Env: $(if($Env -eq ''){'prod'}else{$Env})  Execute: $($Execute.IsPresent)" -ForegroundColor Cyan
 Write-Host ""
 
 foreach ($t in $plan.Keys) {
-  $raw = Invoke-Expression "npx.cmd wrangler d1 execute $db$envSuffix --remote --json --command `"PRAGMA table_info($t)`"" 2>$null
+  # --env dev must come BEFORE --remote for wrangler to recognize it
+  # Temporarily relax EAP because wrangler emits dev-env warnings to stderr
+  # which PowerShell treats as errors under Stop
+  $prevEAP = $ErrorActionPreference
+  $ErrorActionPreference = "SilentlyContinue"
+  $raw = & npx.cmd wrangler d1 execute $db @envArgs --remote --json --command "PRAGMA table_info($t)" 2>$null
+  $ErrorActionPreference = $prevEAP
   $cols = ($raw | ConvertFrom-Json)[0].results | ForEach-Object { $_.name }
   Write-Host "Table [$t] columns: $($cols -join ', ')"
   foreach ($c in $plan[$t].Keys) {
@@ -37,7 +45,10 @@ foreach ($t in $plan.Keys) {
       $sql = "ALTER TABLE $t ADD COLUMN $c $($plan[$t][$c]);"
       if ($Execute) {
         Write-Host "  [EXECUTE] $sql" -ForegroundColor Yellow
-        Invoke-Expression "npx.cmd wrangler d1 execute $db$envSuffix --remote --command `"$sql`"" 2>$null | Out-Null
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = "SilentlyContinue"
+        & npx.cmd wrangler d1 execute $db @envArgs --remote --command $sql 2>$null | Out-Null
+        $ErrorActionPreference = $prevEAP
         if ($LASTEXITCODE -eq 0) { Write-Host "  OK" -ForegroundColor Green }
         else { Write-Host "  FAIL exit=$LASTEXITCODE" -ForegroundColor Red }
       } else {
