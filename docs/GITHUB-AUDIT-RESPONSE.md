@@ -274,3 +274,75 @@ prod Pages 和 Worker 无需重新部署（Worker 完全没改，前端只改了
 | `9eb1fc3` | 首轮仓库治理：CI + .gitignore 白名单 + .cjs 清理 + imagePick 惰性化 |
 | `c25ac68` | 本文档 `GITHUB-AUDIT-RESPONSE.md` 初版 |
 | `e0e0c6d` | 第二轮修复：wrangler.toml 清 JWT_SECRET + imagePick 改回 bool + BookReader 归档 + 本文档第八节 |
+
+---
+
+## 九、第三轮复核确认（审核方，2026-11-10）
+
+> 本节由审核方追加，第八节原文一字未改。核验方式：直接读取 `main` 当前内容逐项比对，未 clone 仓库、未执行 `tsc`/`build`/`lint`、未进入 Cloudflare 后台。
+
+### 三项声明的核实结果
+
+| 声明 | 核实过程 | 判定 |
+|---|---|---|
+| **R1** `wrangler.toml` 零密钥明文 | `workers/wrangler.toml`（blob `f16ed0d5…`）的 `[vars]` 与 `[env.dev.vars]` 中已无 `JWT_SECRET`，只余注释。字面陈述为真 | **半修**：明文移出了 HEAD，**值没有更换** |
+| **R2** `imagePick` 改回 bool | `src/platform.ts`（blob `e42c3cd8…`）已为 `imagePick: true`，与 `capabilities` 其余成员同为 bool；并把"为何不能用 querySelector"写进了注释 | **真修** ✅ |
+| **R3** 根目录只剩 MyDiary 内容 | 根目录清单无任何 `BookReader*`、无 `.cjs` 残留，与其陈述一致 | **真修** ✅ |
+
+### R1 为什么判"半修"而不是"已修"
+
+第八节的证据栏自己写着：
+
+> 值为原先的明文（值不变，只换存放地点）
+
+这句话决定了性质。被删掉的是仓库 HEAD 里的那行字符串，不是那把钥匙。本仓库是 public，任何人 `git show <旧提交>:workers/wrangler.toml` 即可完整取出旧值；而生产环境仍在用同一值。因此：
+
+- **暴露面没有缩小**，只是从"打开文件就能看见"移到"翻历史才能看见"；
+- **发现难度反而升高**：维护者看 HEAD 已经干净，不会再想起这件事；
+- **攻击者手上的副本从未受影响**。
+
+后果比 API key 更重：`JWT_SECRET` 是 HS256 的 HMAC key（`workers/src/auth.js` 的 `signJWT` 直接拿它签名）。持有者可自行签发任意用户、任意 `sub` 的 token，不经登录直接读写全部日记数据。API key 泄露烧的是额度，这个泄的是全站数据。
+
+`值不变` 是"不让现网用户掉线"的取舍，可以理解，但代价必须记账：**为了让现存 token 不失效，保留了一把已经被公开过的钥匙。**
+
+### 本轮新增发现：删掉 toml 打开了"静默降级"的口子
+
+`workers/src/auth.js`（blob `9c584ad8…`）中 `signJWT(payload, secret)` 对 `secret` 无任何存在性校验。原先写死在 `[vars]`，永不缺失；改为 Dashboard 下发后，**任何未配置该 secret 的环境**（新建 Worker、preview 环境、CI、他人 fork 自部署）都会传入 `undefined`，而 `TextEncoder.encode(undefined)` 会编码成字符串 `"undefined"`。
+
+后果是 HMAC key 变成公开常量 `"undefined"`：服务不报错、照常签发与校验，**任何人都能伪造 token**。这是删除 toml 引入的新故障面，需要在入口收紧：
+
+```js
+if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
+  throw new Error("JWT_SECRET missing or too short");
+}
+```
+
+`workers/src/index.js`（128KB）本轮未通读，调用处是否已有校验请自行确认；`auth.js` 这一层确认没有。
+
+### 第八节未覆盖、仍然成立的三项
+
+| 项 | 依据 | 状态 |
+|---|---|---|
+| 测试仍为零 | `package.json` blob 仍为 `93a34a92…`，无 `test` 脚本，devDependencies 无 vitest / jest | 未修 |
+| CI 只挡编译不过 | `npx tsc -b --noEmit` 与 `build` 首段 `tsc -b` 重复，无测试步骤 | 未修 |
+| debug 签名 / App 图标 | 第八节自述"未动"，属漏项 | 未修 |
+
+### 建议动作顺序（修订第八节排期）
+
+1. **先给 secret 缺失加硬保护并部署**——这一步必须优先于轮换，否则轮换后的新密钥在别的环境里仍会退化成 `"undefined"`；
+2. **轮换 `JWT_SECRET`**：双密钥过渡（新密钥签发、旧密钥继续校验至 TTL 到期），确认全员能正常登录后再撤旧密钥；
+3. 轮换历史 `sk-` key（顺序不变：先确认前端是否仍直出 → 收口到 Worker → 再轮换）；
+4. 装 vitest + 5 个纯函数用例，CI 增加 `vitest run`；
+5. `wrangler.toml` 注释里"值为原先的明文"这句建议删掉——它本身就在提示读者去哪里找旧值；
+6. 其余（lint 扩规则、`AGENTS.md` 拆分、PR 流程、debug 签名 / App 图标）照原排期。
+
+### 本轮证据边界
+
+- **已核**：`workers/wrangler.toml`、`src/platform.ts`、`workers/src/auth.js`、`package.json`、根目录清单，均为 `main` 当前内容，blob 逐一可查。
+- **未核**：Cloudflare Dashboard 中 prod/dev 是否已存在 `JWT_SECRET`、其值是否与旧 toml 相同；第八节所述部署版本 `deb9b22c` / `41b2dbd8`；GitHub Actions 是否实际执行过 CI。
+- 第 2 条属用户 / 同事侧后台事实，本审核无法取得，列为**待确认**，不作为本轮判定依据。
+- 另：`search_code` 返回 `incomplete_results: true`，因此"未搜到 `index.js` 中的 `JWT_SECRET` 引用"不能当作"不存在"的证据。
+
+---
+
+**本节作者：Doubao（豆包）**｜第三方独立审查者｜未 clone 仓库、未执行构建、未做任何仓库写操作以外的动作｜2026-11-10 UTC+8
