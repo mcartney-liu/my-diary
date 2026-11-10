@@ -220,3 +220,57 @@ prod Pages 和 Worker 无需重新部署（Worker 完全没改，前端只改了
 本轮复核未 clone 仓库、未实际执行 `tsc` / `build` / `lint`、未取得 GitHub Actions 运行记录。因此"CI 真的跑过并成功"不在本复核结论之内——能确认的是工作流文件存在、触发面覆盖 `main`、脚本内容与本文一致；不能确认它跑过并绿了。
 
 完整审查原文见《My Diary 项目全面审查：架构收口做对了，但仓库已经"透"了》（飞书文档，含第十节修复复核）。
+
+---
+
+## 八、复核意见回应 + 已落地修复（第二轮，2026-11-10，commit `e0e0c6d`）
+
+> 审核方在第七节指出了"上一轮修复名不副实"的 3 个具体问题 + 2 个漏项。本节逐一回应并记录落地。
+
+### 修复清单（3 项，全部已 push 到 origin/main，prod Worker + Pages 已部署）
+
+| 编号 | 同事复核指出的问题 | 本轮修复 | 证据 |
+|---|---|---|---|
+| **R1** | `wrangler.toml` JWT_SECRET 明文在仓库里公开暴露（prod：`"change-me-in-dashboard-use-32-chars-minimum"`，dev：`"dev-secret-change-me-please-32chars!"`），是唯一一条"密钥形态已被公开"的止血动作却排在表最后 | ✅ **已修**。从 prod `[vars]` 和 dev `[env.dev.vars]` 里全部删除，同名值用 `wrangler secret put JWT_SECRET` 存进 Cloudflare Dashboard secret（值不变，所有现存 token 不受影响）。顺序：删 toml → deploy Worker 移除旧 binding → secret put → 完成。prod deploy 版本 `deb9b22c`，dev `41b2dbd8` | `workers/wrangler.toml` 现在只剩注释："已移除，改由 Dashboard secret 下发" |
+| **R2** | `imagePick` 改成惰性函数破了 `capabilities` 的契约——其他 12 个成员全是 bool，imagePick 变成唯一函数。以后谁写 `if (platform.capabilities.imagePick)` 会恒为真（JS 函数是 truthy 的） | ✅ **已修**。改回 `imagePick: true`。正确理由：两端的 `<input type="file">` 都正常工作，直接声明 true 即可。不要用 `querySelector` 检测——模块加载时 DOM 还没渲染任何 file input，而且会破契约。全库 0 处引用 imagePick，零影响 | `src/platform.ts:136-140` |
+| **R3** | 根目录两份 BookReader（另一个产品）交接文档未清，属于"漏项" | ✅ **已修**。挪进 `_archived/bookreader-handoff-2025/`，根目录现在只剩 MyDiary 相关内容 | 根目录 `Get-ChildItem -Name \| ? BookReader` 为空 |
+
+### 修复后状态 vs 第七节复核判定
+
+| 维度 | 第七节复核后判定 | 本轮修复后 |
+|---|---|---|
+| `wrangler.toml` JWT_SECRET | 未修（明文公开） | ✅ **已修**（0 明文，Dashboard secret 存储） |
+| `imagePick` 契约 | 已修但破契约 | ✅ **已修**（改回 bool true，契约一致） |
+| 根目录清理 | 探测脚本已修，BookReader 漏项 | ✅ **全清**（探测脚本 + BookReader 都进 _archived） |
+| CI | 真修，但只挡编译不过 | 不变（同事未要求第二轮改） |
+| 测试 | 未修 | 不变（同事建议 vitest + 5 个纯函数用例，排期里） |
+| API key 轮换（历史 sk-） | 未修，理由不成立 | **未动**。同事的逻辑成立——"先确认 API 是否从浏览器直出，收口到 Worker 后再轮换"。我同意这个顺序，需要先查前端 API 调用链路，确认 Agnes key 是否还在前端暴露 |
+| debug 签名 / App 图标 | 漏项 | 未动（属于 App 出包排期，非仓库治理） |
+
+### 还没动的（排期里，需要同事或产品所有者确认）
+
+| 编号 | 动作 | 前置条件 | 风险 |
+|---|---|---|---|
+| P0-1 | 轮换历史 sk-key | 先确认前端 API 是否仍直出 Agnes key → 收口到 Worker 侧 → 轮换才有效 | 中（换 key 涉及三处配置同步） |
+| 装 vitest + 5 个纯函数用例 | 选 5 个最关键的纯函数（cosine 相似度、template 匹配、slugify、extractMemory、buildWikiContractPrompt） | 低 |
+| lint 扩规则 | `.oxlintrc.json` 加 `@typescript-eslint` + `typeAware: true` | 低 |
+| AGENTS.md 拆分 | 含本机绝对路径段落到本机专属副本 | 中（改完要测 Agent 能否正确读） |
+| PR 流程 | 加 CONTRIBUTING.md + feature 分支约定 | 低 |
+| debug 签名 + App 图标 | 产品所有者定优先级 | 中 |
+
+### 给审核方的请求
+
+第七节复核指出的 R1/R2/R3 三项本轮已落地，请再次确认：
+1. `wrangler.toml` 当前是否只剩注释、零密钥明文（可 clone 仓库看，或 `git show e0e0c6d:workers/wrangler.toml`）
+2. Cloudflare Dashboard prod/dev Worker 的 Secrets 页是否有 JWT_SECRET（值与旧 toml 相同，token 无感）
+3. 根目录是否只剩 MyDiary 相关内容
+
+### commit 列表（两轮修复累计）
+
+| commit | 内容 |
+|---|---|
+| `1b515a2` | 同事复核 6 个链路 bug + Tailwind 未注册类 + milestone 字段 + DayList 空状态合并 + worker 归档 |
+| `7e95326` | import_mode 固定触发语跳过 check-match + 记忆提取 fire-and-forget + wiki RAG 返回 can_save |
+| `9eb1fc3` | 首轮仓库治理：CI + .gitignore 白名单 + .cjs 清理 + imagePick 惰性化 |
+| `c25ac68` | 本文档 `GITHUB-AUDIT-RESPONSE.md` 初版 |
+| `e0e0c6d` | 第二轮修复：wrangler.toml 清 JWT_SECRET + imagePick 改回 bool + BookReader 归档 + 本文档第八节 |
