@@ -9,9 +9,9 @@ invocation_logs = true
 head_sampling_rate = 1
 
 [vars]
-# JWT_SECRET 已移除：改由 Cloudflare Dashboard → Workers & Pages → Settings →
-# Variables and Secrets → Secrets 下发，值为原先的明文（值不变，只换存放地点）
-# 原因：[vars] 会被 commit 进公开仓库，密钥形态暴露在 git 历史里
+# JWT_SECRET 已移除：改由 Cloudflare Dashboard → Workers → Secrets 下发。
+# 轮换过渡期间还需配 JWT_SECRET_LEGACY（旧密钥），7 天 TTL 到期后可删。
+# 原因：[vars] 会被 commit 进公开仓库，密钥形态暴露在 git 历史里。
 
 # ====== 生产环境（默认） ======
 [[d1_databases]]

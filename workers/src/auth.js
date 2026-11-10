@@ -28,8 +28,25 @@ export function genSalt() {
   return bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
 }
 
+/** 校验 JWT secret：必须是非空、至少 16 字符的字符串。
+ * 为什么要在这里硬校验？
+ * - 之前写死在 wrangler.toml [vars] 里，永不缺失；改由 Dashboard secret 下发后，
+ *   任何未配置该 secret 的环境（preview、CI、他人 fork 自部署）都会传入 undefined，
+ *   而 TextEncoder.encode(undefined) 会编码成字符串 "undefined"，
+ *   HMAC key 变成公开常量，任何人都能伪造 token。
+ * - 这个校验是 signJWT / verifyJWT 两层共用的第一道闸。 */
+function assertSecret(secret) {
+  if (typeof secret !== "string" || secret.length < 16) {
+    throw new Error(
+      `[auth.js] JWT secret missing or too short (${typeof secret === "string" ? secret.length : "undefined"} chars). ` +
+      `Configure JWT_SECRET in Cloudflare Dashboard → Workers → Secrets.`
+    );
+  }
+}
+
 /** JWT HS256 签名 */
 export async function signJWT(payload, secret, expSec = 7 * 24 * 3600) {
+  assertSecret(secret);
   const header = { alg: "HS256", typ: "JWT" };
   const body = { ...payload, iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + expSec };
   const h = btoa(JSON.stringify(header)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
@@ -42,19 +59,28 @@ export async function signJWT(payload, secret, expSec = 7 * 24 * 3600) {
   return `${h}.${p}.${s}`;
 }
 
-/** 验证 JWT 并返回 payload */
+/** 验证 JWT 并返回 payload。
+ * secret 可以是单个字符串，也可以是字符串数组——数组场景用于密钥轮换过渡：
+ * signJWT 只用新密钥签发，verifyJWT 用新旧密钥逐个尝试。
+ * 只要其中一个密钥能通过校验就返回 payload。 */
 export async function verifyJWT(token, secret) {
-  try {
-    const [h, p, s] = token.split(".");
-    const key = await crypto.subtle.importKey(
-      "raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
-    );
-    const ok = await crypto.subtle.verify("HMAC", key, base64UrlDecode(s), encoder.encode(`${h}.${p}`));
-    if (!ok) return null;
-    const payload = JSON.parse(decoder.decode(base64UrlDecode(p)));
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
-    return payload;
-  } catch { return null; }
+  const secrets = Array.isArray(secret) ? secret.filter(Boolean) : [secret];
+  for (const s of secrets) assertSecret(s);
+
+  for (const s of secrets) {
+    try {
+      const [h, p, sig] = token.split(".");
+      const key = await crypto.subtle.importKey(
+        "raw", encoder.encode(s), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
+      );
+      const ok = await crypto.subtle.verify("HMAC", key, base64UrlDecode(sig), encoder.encode(`${h}.${p}`));
+      if (!ok) continue;
+      const payload = JSON.parse(decoder.decode(base64UrlDecode(p)));
+      if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+      return payload;
+    } catch { /* 换下一个密钥试 */ }
+  }
+  return null;
 }
 
 /** 从 Authorization header 提取用户（中间件） */
