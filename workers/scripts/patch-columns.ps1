@@ -10,7 +10,7 @@ param(
   [string]$Env = ""   # "" = prod (top-level env), "dev" = dev env
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 $db = "mydiary-db"
 if ($Env -eq "dev") { $db = "mydiary-db-dev" }
@@ -22,14 +22,14 @@ $plan = @{
   wiki_links           = @{ from_page_id="TEXT"; to_page_id="TEXT" }
 }
 
-$envFlag = ""
-if ($Env -eq "dev") { $envFlag = " --env dev" }
+$envSuffix = ""
+if ($Env -eq "dev") { $envSuffix = " --env dev" }
 
 Write-Host "==> Target DB: $db  Env: $(if($Env -eq ''){'prod'}else{$Env})  Execute: $($Execute.IsPresent)" -ForegroundColor Cyan
 Write-Host ""
 
 foreach ($t in $plan.Keys) {
-  $raw = & npx.cmd wrangler d1 execute $db --remote --json --command "PRAGMA table_info($t)" 2>$null
+  $raw = Invoke-Expression "npx.cmd wrangler d1 execute $db$envSuffix --remote --json --command `"PRAGMA table_info($t)`"" 2>$null
   $cols = ($raw | ConvertFrom-Json)[0].results | ForEach-Object { $_.name }
   Write-Host "Table [$t] columns: $($cols -join ', ')"
   foreach ($c in $plan[$t].Keys) {
@@ -37,7 +37,7 @@ foreach ($t in $plan.Keys) {
       $sql = "ALTER TABLE $t ADD COLUMN $c $($plan[$t][$c]);"
       if ($Execute) {
         Write-Host "  [EXECUTE] $sql" -ForegroundColor Yellow
-        & npx.cmd wrangler d1 execute $db --remote --command $sql $envFlag 2>$null | Out-Null
+        Invoke-Expression "npx.cmd wrangler d1 execute $db$envSuffix --remote --command `"$sql`"" 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) { Write-Host "  OK" -ForegroundColor Green }
         else { Write-Host "  FAIL exit=$LASTEXITCODE" -ForegroundColor Red }
       } else {

@@ -103,7 +103,7 @@ mydiary-web/
 │   │   ├── index.js              # Worker 主路由
 │   │   └── auth.js               # PBKDF2 + JWT
 │   ├── migrations/
-│   │   └── 0001 ~ 0026_*.sql           # D1 迁移（手动 execute 跑；0010~0026 已在 prod/dev 标记为已应用，不重跑 migrations apply）
+│   │   └── 0001 ~ 0027_*.sql           # D1 迁移；0001~0009 真执行、0010~0026 标记、0027 起真执行（详见 4.2 节）
 │   └── wrangler.toml             # ⭐ prod (默认) + [env.dev] 双环境
 │
 ├── worker/                       # 后端 Worker (TypeScript + AI) — 开发中/并行
@@ -283,6 +283,24 @@ foreach ($env in @("mydiary-db-dev","mydiary-db")) {
 | 2026-09-29 | prod wiki_sources.kb_id NOT NULL（dev 已改可空） | 重建 wiki_sources 表，kb_id 改为 TEXT 无约束；2 条数据无损保留 |
 | 2026-09-29 | prod wiki_templates 只有 12 个官方模板（dev 40 个） | Node 脚本从 dev 导出 40 条 → INSERT OR IGNORE 到 prod |
 | 2026-09-29 | prod 美食菜谱库缺菜谱+食材分类（模板之前缺失被跳过） | 手动 INSERT 2 条 wiki_categories，extract_hints/page_format 从 wiki_templates 子查询取 |
+
+---
+
+### 4.2 迁移链现状（2026-11-10 修订，第三轮整改后）
+
+**迁移链分两段**：
+
+| 段 | 编号 | 实际执行方式 | d1_migrations 记录 | 结构影响 |
+|---|---|---|---|---|
+| **真执行** | 0001 ~ 0009 | 首次建库时 migrations apply 真正跑了 SQL | ✅ 有 9 条 | 建了 users/diaries/templates/feedback 等核心表 |
+| **标记** | 0010 ~ 0026 | 没跑 migrations apply——0011 会 DROP 六张 wiki 表（数据丢失风险），所以手动 INSERT 进 d1_migrations 表做标记 | ✅ 有 17 条（0010~0023 + 0026） | wiki_* 表由代码运行时 CREATE TABLE 落地，不是 migration 跑的；users.identity 等列由代码运行时 ALTER TABLE 补的 |
+| **真执行（新）** | 0027 ~ | 用新编号，migrations apply 真跑 | ✅ 0027 已进 | user_memory 表正式纳入迁移链 |
+
+**关键约束**：
+
+1. **不要用 `d1_migrations` 判断结构是否存在**——0010~0026 只是标记，它们的 SQL 没真跑。**必须用 `PRAGMA table_info` / `sqlite_master` 直接查表/列**。
+2. **之后所有结构变更一律走新编号迁移**——不再手工改库、不再手动标记。
+3. **`0026_missing_schema.sql` 仅限空库**——已在文件顶部声明。存量库用 `workers/scripts/patch-columns.ps1` 补列（默认 dry-run，加 `-Execute` 才执行，`-Env dev` 切 dev）。
 
 ---
 
