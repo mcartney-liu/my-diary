@@ -526,3 +526,60 @@ npx wrangler secret delete JWT_SECRET_LEGACY --name mydiary-api-dev    # dev 成
 ---
 
 **本节作者：产品所有者 + 研发**｜回应审核方第十一节 S2 缺口 + sk-key 轮换前置条件确认｜2026-11-10 UTC+8
+
+---
+
+## 十三、对第十二节的核实（2026-11-10，审核方）
+
+> 本节由审核方追加。核验方式：读取 `main` 当前 `workers/src/index.js`（129341 字节）、`workers/src/auth.js`、`src/ai.ts`（62311 字节）并逐行检查；未 clone 仓库、未执行构建、未登录 Cloudflare 后台、未向生产环境发送任何请求。
+
+### 一、S2 缺口：结论成立，但验证方法写错了
+
+代码侧核实：`index.js:107` 仍是 `const JWT_SECRETS = [env.JWT_SECRET, env.JWT_SECRET_LEGACY].filter(Boolean);`，与 `a412700` 版本完全一致，**并没有变成“只剩 `[env.JWT_SECRET]`”**。
+
+但结论仍然成立：Dashboard 删除 `JWT_SECRET_LEGACY` 后，该变量为 undefined，`filter(Boolean)` 把它丢掉，数组只剩新密钥，旧密钥签名的 token 一律验不过。代码保留数组结构是对的，未来再轮换可直接复用。
+
+需要纠正的是验证路径本身。第十二节让读者“clone 确认 107 行现在只剩 `[env.JWT_SECRET].filter(Boolean)`”，照做的人会看到双元素数组，从而误判为“没修”。同一行代码既可能是修复后的正确状态，也可能是修复前的状态，区别在 Dashboard 而不在代码。这条不改，会在文档里制造一次假阴性。
+
+本审核也未采用“curl prod 看旧 token 是否返回 401”的方式自证：那需要先用公开旧密钥伪造一个 token 再打生产，属于主动伪造身份验证，不做。上述结论由代码路径推演得出——LEGACY 从环境消失，数组少一项，验签失败。
+
+### 二、前端 Agnes key 收口：核实通过
+
+| 声明 | 核实结果 |
+|---|---|
+| `src/ai.ts:119` `apiKey: ""` | 属实，默认 provider 不带密钥 |
+| `src/ai.ts:49` 空 key 走 Worker 代理 | 属实，`if (!provider.apiKey)` 分支请求 `${API_BASE}/api/ai/chat` |
+| `src/ai.ts:86` 用户自填才直连 | 属实，直连分支只出现在用户 key 非空的路径，用的是用户自己的凭据，不构成我方密钥暴露 |
+| 全文无 `sk-` | 属实，`src/ai.ts` 中 `sk-` 出现 0 次 |
+| `workers/src/index.js:156` 代理路由 | 属实，`["POST", "/api/ai/chat", handleAiChat]` |
+| `index.js:1611` 从 Dashboard 取 key | 属实，`String(env.AGNES_API_KEY || '')`，并做了 BOM 清理 |
+
+因此 P0-1 的前置条件已满足，可以进入吊销与轮换。**这一步仍卡在 Agnes 控制台权限，需产品所有者操作**，本审核无法代做。
+
+### 三、第十二节的三处硬伤
+
+1. 标题写 `commit \`...\``，占位符未填。该节对应提交为 `475a00a`。
+2. 文末署名“本节作者：产品所有者 + 研发”，实际仍由同一 GitHub 账号撰写。写“依 PO 授权发布”可以成立，写“PO 是作者”不成立——这是代他人发言，与我在另一项目里记录的 R-01 属同类问题。
+3. 累计 commit 列表错位：`4dbae30` 被标为“第十一节审核方复核 + LEGACY 删”，该提交实际是“追加第十节”；审核方的第十一节是 `be627eb`；第十二节本身为 `475a00a`，且未入表。
+
+### 四、当前真实状态
+
+11 条闭环成立，其中 10 条由代码或仓库内容直接证实；第 11 条（LEGACY 已删）依赖 Dashboard 事实，只能由代码路径间接推演。
+
+剩余四类：
+- **P0-1 历史 sk-key**：唯一仍带风险的项，前置条件已满足，卡在 Agnes 控制台权限；
+- 测试仍为零（`package.json` 未变）；
+- debug 签名 / App 图标；
+- lint 扩规则、`AGENTS.md` 拆分、PR 流程。
+
+一句话：治理线已接近干净，剩下的真风险只剩一把还没吊销的钥匙。
+
+### 五、本轮证据边界
+
+- **已核**：`workers/src/index.js`、`workers/src/auth.js`、`src/ai.ts`、`workers/wrangler.toml` 的当前内容。
+- **未核**：Dashboard 中 `JWT_SECRET` 是否存在、`JWT_SECRET_LEGACY` 是否已删、`AGNES_API_KEY` 取值；两条 `wrangler secret delete` 的执行输出；部署版本号。
+- **未做**：未向 prod / dev Worker 发送任何请求。
+
+---
+
+**本节作者：Doubao（豆包）**｜第三方独立审查者｜未 clone 仓库、未执行构建、未主动请求生产环境｜2026-11-10 UTC+8
