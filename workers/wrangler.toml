@@ -9,7 +9,9 @@ invocation_logs = true
 head_sampling_rate = 1
 
 [vars]
-JWT_SECRET = "change-me-in-dashboard-use-32-chars-minimum"
+# JWT_SECRET 已移除：改由 Cloudflare Dashboard → Workers & Pages → Settings →
+# Variables and Secrets → Secrets 下发，值为原先的明文（值不变，只换存放地点）
+# 原因：[vars] 会被 commit 进公开仓库，密钥形态暴露在 git 历史里
 
 # ====== 生产环境（默认） ======
 [[d1_databases]]
@@ -33,8 +35,7 @@ crons = ["0 4 * * *"]
 # ====== 测试环境 ======
 [env.dev]
 name = "mydiary-api-dev"
-[env.dev.vars]
-JWT_SECRET = "dev-secret-change-me-please-32chars!"
+# env.dev.vars.JWT_SECRET 已移除：同 prod，改由 Dashboard secret 下发
 
 [[env.dev.d1_databases]]
 binding = "DB"

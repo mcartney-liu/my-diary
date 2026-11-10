@@ -133,11 +133,11 @@ export const capabilities = {
     typeof window !== "undefined" &&
     typeof (window as any).MediaRecorder !== "undefined",
 
-  /** 相机/相册选图（<input type="file">）。两边都支持 ✅
-   * 注意：必须惰性——模块加载时 DOM 还没渲染任何 file input，直接 querySelector 恒为 false */
-  imagePick: () =>
-    typeof document !== "undefined" &&
-    Boolean(document.querySelector('input[type="file"]')),
+  /** 相机/相册选图（<input type="file">）。两端都支持 ✅
+   * 注意：这里声明 true 是因为两端的 <input type="file"> 都正常工作。
+   * 不要改成 querySelector('input[type="file"]') 检测——模块加载时 DOM 还没渲染任何 file input，
+   * 而且会把 capabilities 里唯一的 bool 成员变成函数，破契约。 */
+  imagePick: true,
 
   /** 原生分享（待接入 Capacitor Share 插件） */
   nativeShare: false,
