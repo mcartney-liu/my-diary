@@ -196,6 +196,10 @@ git add -A && git commit -m "feat: xxx (frontend + worker)" && git push
 ```bash
 cd workers
 
+# 0. 先备份 prod D1（⚠️ DDL 不可逆！）
+wrangler d1 export mydiary-db --remote --output backup-$(Get-Date -Format 'yyyy-MM-dd').sql
+#    → 备份只放本地临时目录，绝对不许 commit（.gitignore 已排除 workers/backup-*.sql）
+
 # 1. 改 dev D1（随便玩，坏了就删）
 wrangler d1 execute mydiary-db-dev --remote --file migrations/xxxx.sql
 
@@ -331,6 +335,24 @@ wrangler d1 execute mydiary-db-dev --remote --file=xxx.sql   # dev D1 跑 SQL
 wrangler d1 execute mydiary-db --remote --file=xxx.sql      # prod D1 跑 SQL
 wrangler d1 execute mydiary-db-dev --remote --command="SELECT * FROM users"  # 直接跑一行 SQL
 
+# === Worker Secrets（prod）===
+wrangler secret put JWT_SECRET          # 缺失：所有登录态失效，全站 401
+wrangler secret put JWT_SECRET_LEGACY   # 缺失：密钥轮换时全体用户被登出
+wrangler secret put RESEND_API_KEY      # 缺失：注册验证码发不出
+wrangler secret put DEMO_RESET_SECRET   # 缺失：demo reset 503
+wrangler secret put ADMIN_KEY           # 缺失：debug-log 与后台反馈 503
+wrangler secret put DEEPSEEK_API_KEY    # 缺失：AI 对话全线不可用
+wrangler secret put AGNES_API_KEY       # 缺失：绘图/图片模型不可用
+
+# === Worker Secrets（dev）===
+wrangler secret put JWT_SECRET --env dev
+wrangler secret put JWT_SECRET_LEGACY --env dev
+wrangler secret put RESEND_API_KEY --env dev
+wrangler secret put DEMO_RESET_SECRET --env dev
+wrangler secret put ADMIN_KEY --env dev
+wrangler secret put DEEPSEEK_API_KEY --env dev
+wrangler secret put AGNES_API_KEY --env dev
+
 # === Git ===
 git status
 git add -A && git commit -m "xxx"
@@ -355,6 +377,7 @@ npm run dev                                             # localhost:5173 (Vite)
 | 在 Cloudflare Dashboard 里手动改配置 | 所有改动走代码 + wrangler，保证可回滚 |
 | **修改已发布的旧版本 changelog** | **旧版本内容永远不动，只在顶部新增当前版本** |
 | **用 PowerShell `Set-Content` 写 JSON/TS 文件** | **会加 UTF-8 BOM，PostCSS/Node 读炸。用 `[System.IO.File]::WriteAllText($path, $c, (New-Object Text.UTF8Encoding $false))`** |
+| **把 `wrangler d1 export` 产物放进仓库** | **备份含真实用户数据。只放本地临时目录（如 `workers/backup-*.sql` 已被 .gitignore 排除），绝对不许 commit** |
 
 ### 📝 Changelog 维护铁律（v0.2.1 踩过的坑）
 

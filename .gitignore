@@ -1,8 +1,77 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+dist-ok/
+build/
+.output/
+
+# Dev server
+.vite/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Wrangler / Cloudflare
+.wrangler/
+.wrangler-home/
+.dev.vars
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Env — 先全排除，再显式放行允许入库的两个
+#       规则顺序重要：先排除后放行，防止未来新造 .env.staging / .env.backup 被静默入库
+.env*
+!.env.app
+!.env.production
+!.env.example
+
+# Misc
+*.bak
+*.tmp
+tunnel.out.log
+tunnel.err.log
+serve.cjs
+
+# 已归档的原型 / 废弃代码
+_archived/
+
+# ====== Android (Capacitor 套壳) ======
+# 说明：android/ 下的「源码」要保留（MainActivity.java、AndroidManifest.xml、
+#      build.gradle、res/ 等），换机器才能重建 APK；
+#      但「构建产物」必须排除，否则 13MB+ 会把 git 仓库撑爆。
+
+# Gradle 缓存与构建产物
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+
+# cap sync 注入的打包资源（与 dist/ 重复，无需入库）
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+
+# 出包产物
+*.apk
+*.aab
+*.keystore
+*.jks
+
 # D1 生产/测试备份（含真实用户数据，绝对不许入库）
 workers/backup-*.sql
-
-# wrangler 本地状态
-.wrangler/
-
-# node_modules
-node_modules/
