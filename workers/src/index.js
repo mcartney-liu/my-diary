@@ -227,6 +227,18 @@ export default {
       if (request.method === method) {
         const params = matchRoute(path, p);
         if (params !== null) {
+          // ====== 限流闸门（fetch 分发前，IP 维度） ======
+          const ip = getClientIp(request);
+          const RL = {
+            "/api/auth/send-code":  { w: 3600_000, n: 5 },    // 5 次/时
+            "/api/auth/login":      { w: 60_000,   n: 20 },   // 20 次/分
+            "/api/transcribe":      { w: 60_000,   n: 10 },   // 10 次/分
+          };
+          const rl = RL[p];
+          if (rl && !checkRateLimit(`rl:${p}:${ip}`, rl.w, rl.n)) {
+            return json({ error: "rate_limit_exceeded", detail: `${p} 超过限流 ${rl.n}/${rl.w === 60000 ? '分' : '时'}` }, 429);
+          }
+
           try {
             return await handler(request, env, JWT_SECRET, params, ctx);
           } catch (e) {
@@ -241,6 +253,26 @@ export default {
     return json({ error: "not found" }, 404);
   },
 };
+
+// ====== 内存限流（Worker isolate 内滑动窗口，重启即清空） ======
+const _rlBuckets = new Map();
+function checkRateLimit(bucket, windowMs, maxCount) {
+  const now = Date.now();
+  const cutoff = now - windowMs;
+  const arr = (_rlBuckets.get(bucket) || []).filter(t => t > cutoff);
+  if (arr.length >= maxCount) {
+    _rlBuckets.set(bucket, arr);
+    return false;
+  }
+  arr.push(now);
+  _rlBuckets.set(bucket, arr);
+  return true;
+}
+function getClientIp(request) {
+  return request.headers.get('cf-connecting-ip')
+    || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || 'unknown';
+}
 
 // ====== helpers ======
 function json(obj, status = 200) {
@@ -1653,6 +1685,10 @@ async function embedText(env, text) {
 // ========== ASR：语音转文字（Workers AI Whisper） ==========
 // 前端用 MediaRecorder 录音 → Blob → POST /api/transcribe（application/octet-stream）
 async function handleTranscribe(request, env) {
+  // 必须登录才能用 Whisper 转写——防匿名滥用 Workers AI 额度
+  const user = await authUser(request, jwtSecrets(env));
+  if (!user) return json({ error: "unauthorized" }, 401);
+
   // 前端发的是 application/octet-stream 直接 body blob（不是 FormData）
   const buf = await request.arrayBuffer();
   if (!buf || buf.byteLength === 0) {
