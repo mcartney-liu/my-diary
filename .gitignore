@@ -33,10 +33,12 @@ Desktop.ini
 *.swp
 *.swo
 
-# Env
-.env
-.env.local
-.env.*.local
+# Env — 先全排除，再显式放行允许入库的两个
+#       规则顺序重要：先排除后放行，防止未来新造 .env.staging / .env.backup 被静默入库
+.env*
+!.env.app
+!.env.production
+!.env.example
 
 # Misc
 *.bak

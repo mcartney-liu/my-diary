@@ -133,8 +133,9 @@ export const capabilities = {
     typeof window !== "undefined" &&
     typeof (window as any).MediaRecorder !== "undefined",
 
-  /** 相机/相册选图（<input type="file">）。两边都支持 ✅ */
-  imagePick:
+  /** 相机/相册选图（<input type="file">）。两边都支持 ✅
+   * 注意：必须惰性——模块加载时 DOM 还没渲染任何 file input，直接 querySelector 恒为 false */
+  imagePick: () =>
     typeof document !== "undefined" &&
     Boolean(document.querySelector('input[type="file"]')),
 
