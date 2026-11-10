@@ -71,7 +71,8 @@
 
 所以 `.env.production` **在 Git 里**（全文只有注释，`VITE_API_BASE` 是注释掉的，不注入任何东西）。任何副本 clone / pull 下来自动就有，**不存在"新克隆缺这个文件导致 App 404"这回事**。
 
-> `capacitor.config.ts` 是 App 副本的套壳文件，被 `.gitignore` 排除，重建 App 副本时需手动恢复。
+> `capacitor.config.ts` **在 Git 里**（`git ls-files` 可查），任何副本 clone 下来自动就有，不需要手动恢复。
+> 只有构建产物（`android/app/build/`、`android/app/src/main/assets/public/`）和 `android/local.properties` 不在仓库跟踪中。
 
 **若哪天真删了 App 副本**，重建步骤（详细版见 `docs/android-sync-guide.md` 第四节）：
 

@@ -37,7 +37,12 @@ npm run cap:apk
 adb install -r android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-> `git pull` 只会更新 `src/`、`public/` 等 Web 代码，**不会动** `android/`、`capacitor.config.ts`、`.env.production`（这几个在本地，且 android/ 的构建产物已被 .gitignore 排除）。
+> `git pull` 会同步 **`src/`、`public/`、`android/`（58 个源码文件）、`capacitor.config.ts`、`.env.app`、`.env.production`** ——
+> 它们**都在 Git 里**（`.gitignore` 是全禁 + 白名单放行，`android/` 源码按 `.gitignore:54` 的约定保留）。
+>
+> **不会被 pull 覆盖的只有构建产物**：`android/app/build/`、`android/app/src/main/assets/public/`、`android/local.properties`（`android/.gitignore` 排除）。
+>
+> ⚠️ 反过来说：**本地改过 `android/` 下的文件，pull 时可能冲突**，用 `git status` 看、`git checkout -- <file>` 放弃本地改。
 
 ### ⏱️ 实测耗时（2026-10-05，机器：普通办公本）
 
@@ -143,7 +148,8 @@ cd "<Web生产副本路径>" && git log --oneline -1
 ## 六、常见问题
 
 **Q: git pull 会不会把 android/ 删了？**
-A: 不会。`android/` 源码在本地未提交（pull 不动未跟踪文件），且构建产物被 .gitignore 排除。
+A: 不会删除，但**会更新**——`android/` 的源码（58 个文件）在 Git 里，pull 会覆盖本地改动版本。
+   只有构建产物和 `local.properties` 不受影响。本地改过 `android/` 就先 `git status` 确认，需要保留的改动先 commit 或 stash。
 
 **Q: pull 冲突了怎么办？**
 A: App 副本应该很少改 `src/`，冲突概率极低。若真冲突，`git status` 看状态，`git checkout -- <file>` 放弃本地改（以 GitHub 为准），再重做套壳。
