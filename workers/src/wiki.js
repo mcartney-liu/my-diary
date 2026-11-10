@@ -1306,6 +1306,10 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
 
 // ====== Debug 日志接口（tail 连不上时的替代通路） ======
 export async function handleWikiDebugLog(request, env) {
+  const key = request.headers.get('x-admin-key');
+  if (!env.ADMIN_KEY) return json({ error: "admin_key_not_configured" }, 503);
+  if (key !== env.ADMIN_KEY) return json({ error: "forbidden" }, 403);
+
   const url = new URL(request.url);
   const clear = url.searchParams.get('clear');
   if (clear === '1') {
