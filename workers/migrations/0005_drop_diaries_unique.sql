@@ -1,5 +1,5 @@
 -- 去掉 diaries 表的 UNIQUE(user_id, date) 约束
--- Cloudflare D1 不支持 BEGIN TRANSACTION，直接执行
+-- Cloudflare D1 不支持事务，直接执行
 
 CREATE TABLE diaries_new (
   id           TEXT PRIMARY KEY,
