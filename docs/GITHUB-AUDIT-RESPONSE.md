@@ -358,7 +358,7 @@ if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
 | 编号 | 第九节指出的问题 | 本轮修复 | 证据 |
 |---|---|---|---|
 | **S1** | 删掉 toml 打开了"静默降级"口子——secret 缺失时 `TextEncoder.encode(undefined)` 会变成字符串 `"undefined"`，HMAC key 公开常量，任何人伪造 token | ✅ **已修**。`auth.js` 新增 `assertSecret(secret)` 硬校验：必须是字符串 + 长度 ≥ 16，不满足直接 `throw new Error`。signJWT 和 verifyJWT 两个入口各调一次。`index.js` 入口也去掉了 `\|\| "dev-secret-change-me"` 硬编码 fallback——现在无 fallback，缺失时 auth.js 会拦截 | `workers/src/auth.js:31-45` assertSecret 函数 |
-| **S2** | 第八节 R1 判"半修"——值没换，暴露面没缩小 | ✅ **已修**。完成 JWT_SECRET 轮换（双密钥过渡，不踢掉现有登录）<br>• prod: JWT_SECRET = `06bacdea...`（64 字符 hex），JWT_SECRET_LEGACY = 旧明文 `change-me-in-dashboard-use-32-chars-minimum`<br>• dev: JWT_SECRET = `44655cf8...`，JWT_SECRET_LEGACY = 旧明文 `dev-secret-change-me-please-32chars!`<br>• signJWT 只用新密钥签，authUser 用 `[新密钥, LEGACY]` 双密钥验<br>• 所有 `JWT_SECRET_LEGACY` 7 天 TTL 到期后（2026-11-17 起）旧 token 自然失效，届时可删 LEGACY secret | `workers/src/index.js:102-107` 双密钥定义 |
+| **S2** | 第八节 R1 判"半修"——值没换，暴露面没缩小 | ✅ **已修**。完成 JWT_SECRET 轮换（双密钥过渡，不踢掉现有登录）<br>• prod: JWT_SECRET = `[已按安全惯例打码]`（64 字符 hex），JWT_SECRET_LEGACY = 旧明文 `change-me-in-dashboard-use-32-chars-minimum`<br>• dev: JWT_SECRET = `[已按安全惯例打码]`，JWT_SECRET_LEGACY = 旧明文 `dev-secret-change-me-please-32chars!`<br>• signJWT 只用新密钥签，authUser 用 `[新密钥, LEGACY]` 双密钥验<br>• 所有 `JWT_SECRET_LEGACY` 7 天 TTL 到期后（2026-11-17 起）旧 token 自然失效，届时可删 LEGACY secret | `workers/src/index.js:102-107` 双密钥定义 |
 | **S3** | 注释里"值为原先的明文"这句本身就是在提示去哪里找旧值 | ✅ **已修**。wrangler.toml 注释重写，不再提旧值是什么 | `workers/wrangler.toml:11-14` |
 
 ### 修复后状态对比
@@ -393,3 +393,53 @@ if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
 | 历史 sk-key 轮换 | 第九节建议先确认前端是否仍直出 Agnes key → 收口到 Worker 侧。我还没查前端链路，需要先做这一步 |
 | 测试零 / CI 只挡编译 | 同事未要求本轮改，排期里 |
 | debug 签名 / App 图标 | 排期里 |
+
+---
+
+## 十一、对第十节的核实（2026-11-10，审核方）
+
+> 本节由审核方追加。第十节原文除两处新密钥前缀已按安全惯例打码外，其余一字未改。核验方式：直接下载 `main` 上的 `workers/src/auth.js`（4613 字节）与 `workers/src/index.js`（129341 字节）按行检查，未 clone、未执行构建、未登录 Cloudflare 后台。
+
+### 三项声明的核实结果
+
+| 声明 | 核实过程 | 判定 |
+|---|---|---|
+| **S1** `auth.js` 加硬校验 | `auth.js:38-45` 的 `assertSecret` 存在：非字符串或长度小于 16 直接 `throw`，报错信息指明去 Dashboard 配置；`signJWT`（49 行）与 `verifyJWT`（68 行）各调用一次 | **真修** ✅ |
+| **S1 附带** 去掉硬编码 fallback | `index.js:106` 为 `const JWT_SECRET = env.JWT_SECRET;`；全文检索已无 `dev-secret-change-me`、`change-me-in-dashboard` 两个字符串；39 处鉴权全部传双密钥数组 `JWT_SECRETS`，0 处仍传单值 | **真修** ✅ |
+| **S2** 密钥轮换 | `index.js:107` 为 `[env.JWT_SECRET, env.JWT_SECRET_LEGACY].filter(Boolean)`；`signJWT` 仅用新密钥签发（410、430 两处）；`verifyJWT` 支持数组逐个尝试，任一通过即放行 | 代码**属实**，效果**未闭合**（见下） |
+| **S3** 注释清理 | `workers/wrangler.toml` 注释已重写，不再出现旧值的任何形态 | **真修** ✅ |
+
+### S2 的缺口：这 7 天里，公开的那把旧钥匙仍然能开门
+
+轮换本身做对了——新密钥签发、新旧双验、旧 token 到 TTL 自然过期。但 `JWT_SECRET_LEGACY` 存的就是 git 历史里那个公开值，而 `verifyJWT` 对它**没有任何附加条件**：签名验得过就放行。
+
+这意味着，从轮换完成到 2026-11-17 这段窗口内，任何人拿历史里那把旧钥匙自签一个 token，服务端照样认。轮换把"新钥匙生效"做到了，把"旧钥匙失效"推到了 7 天后；在这 7 天里，暴露面与轮换前基本没有区别。
+
+有人会想到用 `iat` 早于轮换时刻来限定，这条挡不住：攻击者手里有签名密钥，`iat` 想写多早写多早，签名依然有效。能真正收口的只有缩短窗口本身：
+
+- **保守做法**：`JWT_SECRET_LEGACY` 只保留 24 小时，一天后删除，代价是少量用户重登；
+- **更彻底**：现在就删 LEGACY，强制全员重登一次。日记类应用重登成本很低，比留一把公开可用的签名密钥划算。
+
+无论选哪个，LEGACY 的删除日期都应当写进部署说明并到期执行，否则它会变成一笔没人记得的遗留配置。
+
+### 两处新密钥前缀已打码
+
+第十节原文在公开仓库中写出了新密钥的前 8 位（prod 与 dev 各一处）。8/64 位不足以爆破，剩余熵仍有 224 位，技术上不构成致命泄露；但"任何密钥片段都不进公开文档"是应当守住的规矩，破了第一次就容易被破第二次。本节追加时已将这两处替换为占位文字，其余内容未动。建议后续修订也不要记录新旧密钥除长度以外的任何形态。
+
+### 一处可以不返工但值得记下
+
+`assertSecret` 的阈值是 16 字符，实际值是 64 字符，安全上没有问题；这道闸的主要职责是挡住 `undefined` 与非字符串。若要更稳，可提到 32，并把两个已公开的占位串（`change-me-in-dashboard-use-32-chars-minimum`、`dev-secret-change-me-please-32chars!`）列入拒绝名单——用已公开的串当密钥，等于没有密钥。不构成阻断项。
+
+### 本轮仍然是零的三项
+
+测试仍为零（`package.json` blob 未变，无 `test` 脚本、无 vitest/jest）；历史 `sk-` key 未轮换（第十节自述尚未查前端调用链路）；debug 签名与 App 图标未动。三项都不在本次轮换范围内，状态不变。
+
+### 本轮证据边界
+
+- **已核**：`workers/src/auth.js`、`workers/src/index.js`、`workers/wrangler.toml` 的当前内容，按行检查关键函数与全部调用点。
+- **未核**：Cloudflare Dashboard 中 prod/dev 是否真的存在 `JWT_SECRET` 与 `JWT_SECRET_LEGACY`、新密钥是否为 64 字符随机值（第十节自述，无截图）；部署版本 `88eec093` 与 `5c667215`；`a412700` 之后的 CI 是否执行过。
+- 因此"密钥已经换掉"这一事实，本审核只能确认代码具备轮换能力与双密钥路径，**不能确认 Dashboard 侧已配置**。该条仍属待确认，需产品所有者或研发同事自行核对后回填。
+
+---
+
+**本节作者：Doubao（豆包）**｜第三方独立审查者｜未 clone 仓库、未执行构建｜2026-11-10 UTC+8
