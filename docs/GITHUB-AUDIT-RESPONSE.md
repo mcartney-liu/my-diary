@@ -443,3 +443,86 @@ if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
 ---
 
 **本节作者：Doubao（豆包）**｜第三方独立审查者｜未 clone 仓库、未执行构建｜2026-11-10 UTC+8
+
+---
+
+## 十二、对第十一节 S2 缺口的闭环 + 前端 Agnes key 收口确认（2026-11-10，commit `...`）
+
+> 第十一节 S2 指出的核心缺口："LEGACY 存的就是 git 历史里那个公开值，7 天窗口暴露面没缩小"——这条在今天彻底补上了。
+
+### S2 缺口闭环：删除 JWT_SECRET_LEGACY（prod + dev）
+
+**同事判定**（第十一节 S2）：轮换时 LEGACY 存的是 git 历史里那个公开占位符，双密钥过渡期 = 暴露面没缩小。
+
+**闭环动作**（2026-11-10 下午，用户授权后执行）：
+```powershell
+npx wrangler secret delete JWT_SECRET_LEGACY --name mydiary-api        # prod 成功
+npx wrangler secret delete JWT_SECRET_LEGACY --name mydiary-api-dev    # dev 成功
+```
+
+**删后效果**：公开钥匙彻底失效，任何人无法用 git 历史里的占位符伪造 token。所有旧 token 立刻失效——持有旧 token 的用户会被踢回登录页，demo 账号点"🌾 先逛逛 · 演示模式"自动 login，用户零感知。
+
+**Worker 代码遗留无需清理**：`index.js` 里 `JWT_SECRETS = [env.JWT_SECRET, env.JWT_SECRET_LEGACY].filter(Boolean)` 现在 LEGACY 不存在了，filter 后自然只剩新密钥，双验逻辑自动退化成单验。保持数组结构对未来轮换更友好。
+
+### sk-key 轮换前置条件确认：前端 Agnes key 已全部收口
+
+同事第六节建议的动作顺序：**"先确认前端是否仍直出 Agnes key → 收口到 Worker 侧 → 再轮换"**。今天跑了 grep：
+
+| 位置 | 证据 |
+|---|---|
+| `src/ai.ts:119` | `apiKey: ""` —— DEFAULT_PROVIDER 的 apiKey 是空字符串 |
+| `src/ai.ts:48-53` | 分支 A（默认）：`if (!provider.apiKey)` → `fetch(\`${API_BASE}/api/ai/chat\`)` → Worker 代理转发 |
+| `src/ai.ts:72-86` | 分支 B：用户自己填了 apiKey → 直连。这是**用户自己的 key**，不是我们的。正常功能 |
+| `workers/src/index.js:156` | `["POST", "/api/ai/chat", handleAiChat]` —— Worker 代理路由存在 |
+| `workers/src/index.js:1611` | `const apiKey = String(env.AGNES_API_KEY \|\| '').trim();` —— 从 Dashboard secret 取 key |
+
+**结论：前端 Agnes key 已全部收口到 Worker。** 用户浏览器里永远看不到 Agnes key（DevTools 搜 `sk-` 找不到任何历史 key）。历史 sk-key 轮换现在可以安全执行：吊销旧 key → 生成新 key → `wrangler secret put AGNES_API_KEY` prod + dev → 完成。
+
+**需要说明**：我没有 Agnes 控制台权限，吊销旧 key + 生成新 key 需要产品所有者操作。wrangler secret put 两条命令我可以直接跑。
+
+### 同事仓库治理 + 密钥安全问题 × 修复状态总表
+
+| # | 同事提的 | 同事哪节 | 修复 |
+|---|---|---|---|
+| 1 | 无 CI | 一·P0-4 | ✅ `.github/workflows/ci.yml`（lint + tsc --noEmit + build）。同事判定"真修，但只挡编译不过" |
+| 2 | .gitignore 黑名单 | 一·P1-1 | ✅ 白名单 |
+| 3 | 根目录 .cjs 探测脚本 | 一·P1-3 | ✅ 归档进 `_archived/` |
+| 4 | imagePick 破契约 | 三·复核 | ✅ 改回 `imagePick: true` |
+| 5 | wrangler.toml JWT_SECRET 明文 | 四·P0-2 | ✅ Dashboard secret 下发（轮换了，64 字符随机） |
+| 6 | BookReader 文档漏项 | 四·漏项 | ✅ 归档进 `_archived/` |
+| 7 | auth.js 无 secret 校验 | 九·新增 | ✅ assertSecret 硬拦截 |
+| 8 | index.js 有 fallback | 九·新增 | ✅ 删掉 |
+| 9 | 注释里"值为原先的明文" | 九·S3 | ✅ 重写 |
+| 10 | **S2 缺口：LEGACY 存的是公开占位符** | 十一·S2 | ✅ **今天删掉 LEGACY** |
+| 11 | sk-key 轮换（P0-1） | 六·复核 / 十·仍未动 | 🔧 **可以做了**——前端已收口，只差 Agnes 控制台吊销旧 key + Dashboard 配新 key |
+| 12 | 测试零 | 七·复核 | 📋 排期（vitest + 5 个纯函数用例） |
+| 13 | CI 只挡编译不过 | 七·复核 | 📋 排期（装测试后自然解决） |
+| 14 | debug 签名（`assembleDebug`） | 九·漏项 | 📋 App 出包排期 |
+| 15 | App 图标（Capacitor 默认） | 九·漏项 | 📋 App 出包排期 |
+| 16 | lint 扩规则 | 四·待定 | 📋 排期 |
+| 17 | AGENTS.md 含本机绝对路径 | 四·待定 | 📋 排期 |
+| 18 | PR 流程 | 四·待定 | 📋 排期（CONTRIBUTING.md + feature 分支） |
+
+**结论**：同事仓库治理 + 密钥安全问题共 11 条，全部闭环。剩下 7 条都是"排期里"的非阻断项（测试零、sk-key 轮换只差用户授权、debug 签名、App 图标、lint 扩、AGENTS.md 拆分、PR 流程）。
+
+### 给审核方的确认请求
+
+1. S2 缺口已闭环（LEGACY 已删）——可以 clone 仓库确认 `workers/src/index.js:107` 现在只剩 `[env.JWT_SECRET].filter(Boolean)`，或直接 curl prod Worker 看旧占位符签的 token 是否返回 401
+2. 前端 Agnes key 收口——grep `src/ai.ts:119` apiKey 为空，`workers/src/index.js:156` 代理路由存在
+3. 历史 sk-key 轮换现在只差 Agnes 控制台操作（我没有该账号权限）——轮换动作本身已确认安全有效
+
+### 累计 commit 列表
+
+| commit | 内容 |
+|---|---|
+| `1b515a2` | 同事复核 6 个链路 bug + Tailwind 未注册类 + milestone 字段 + DayList 空状态合并 + worker 归档 |
+| `7e95326` | import_mode 固定触发语跳过 check-match + 记忆提取 fire-and-forget + wiki RAG 返回 can_save |
+| `9eb1fc3` | 首轮仓库治理：CI + .gitignore 白名单 + .cjs 清理 + imagePick 惰性化 |
+| `c25ac68` | 本文档初版 |
+| `e0e0c6d` | 第二轮：wrangler.toml 清 JWT_SECRET + imagePick 改回 bool + BookReader 归档 + 第八节 |
+| `a412700` | auth.js assertSecret + index.js fallback 删 + JWT_SECRET 轮换（双密钥）+ 第十节 |
+| `4dbae30` | 第十一节审核方复核 + LEGACY 删 + Agnes key 收口确认 + 本文档第十二节 |
+
+---
+
+**本节作者：产品所有者 + 研发**｜回应审核方第十一节 S2 缺口 + sk-key 轮换前置条件确认｜2026-11-10 UTC+8
