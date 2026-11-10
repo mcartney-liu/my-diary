@@ -1374,7 +1374,7 @@ function keywordScore(content, keywords) {
 }
 
 // ===== 长期记忆 =====
-// MEMORY_ENABLED 开关不再用模块级常量——从 env.MEMORY_ENABLED 读取，在两个问答 handler 内判断（默认开；显式设 'false' 才关）
+// MEMORY_ENABLED 开关不再用模块级常量——从 env.MEMORY_ENABLED 读取，在 handleAsk 内判断（默认开；显式设 'false' 才关）
 const MAX_MEMORIES_IN_PROMPT = 15;     // 最多塞进 prompt 的记忆数
 const MAX_EXTRACT_PER_TURN = 3;        // 每轮对话最多提取的候选记忆
 
@@ -2224,7 +2224,6 @@ async function handleWikiSuggestEntities(request, env, JWT_SECRET, params) {
 
 // ===== 知识库问答（新链路）=====
 async function handleWikiAsk(env, user, question, history, kb_id, web_search = false, import_mode = false) {
-  const MEMORY_ENABLED = env.MEMORY_ENABLED !== 'false'; // 默认开；显式设 'false' 才关
   try {
     // 1. 校验 KB 属于用户
     if (!kb_id) return json({ answer: '请先选择一个知识库', sources: [] });
