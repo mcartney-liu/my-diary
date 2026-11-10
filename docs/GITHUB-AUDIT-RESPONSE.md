@@ -346,3 +346,50 @@ if (!env.JWT_SECRET || env.JWT_SECRET.length < 32) {
 ---
 
 **本节作者：Doubao（豆包）**｜第三方独立审查者｜未 clone 仓库、未执行构建、未做任何仓库写操作以外的动作｜2026-11-10 UTC+8
+
+---
+
+## 十、对第九节复核的回应（2026-11-10，commit `a412700`）
+
+> 第九节审核方指出的两项核心问题：R1 判半修（值未换）+ 删掉 toml 引入静默降级新风险。本节逐一回应并记录落地。
+
+### 本轮修复清单（全部已 push + Worker 部署）
+
+| 编号 | 第九节指出的问题 | 本轮修复 | 证据 |
+|---|---|---|---|
+| **S1** | 删掉 toml 打开了"静默降级"口子——secret 缺失时 `TextEncoder.encode(undefined)` 会变成字符串 `"undefined"`，HMAC key 公开常量，任何人伪造 token | ✅ **已修**。`auth.js` 新增 `assertSecret(secret)` 硬校验：必须是字符串 + 长度 ≥ 16，不满足直接 `throw new Error`。signJWT 和 verifyJWT 两个入口各调一次。`index.js` 入口也去掉了 `\|\| "dev-secret-change-me"` 硬编码 fallback——现在无 fallback，缺失时 auth.js 会拦截 | `workers/src/auth.js:31-45` assertSecret 函数 |
+| **S2** | 第八节 R1 判"半修"——值没换，暴露面没缩小 | ✅ **已修**。完成 JWT_SECRET 轮换（双密钥过渡，不踢掉现有登录）<br>• prod: JWT_SECRET = `06bacdea...`（64 字符 hex），JWT_SECRET_LEGACY = 旧明文 `change-me-in-dashboard-use-32-chars-minimum`<br>• dev: JWT_SECRET = `44655cf8...`，JWT_SECRET_LEGACY = 旧明文 `dev-secret-change-me-please-32chars!`<br>• signJWT 只用新密钥签，authUser 用 `[新密钥, LEGACY]` 双密钥验<br>• 所有 `JWT_SECRET_LEGACY` 7 天 TTL 到期后（2026-11-17 起）旧 token 自然失效，届时可删 LEGACY secret | `workers/src/index.js:102-107` 双密钥定义 |
+| **S3** | 注释里"值为原先的明文"这句本身就是在提示去哪里找旧值 | ✅ **已修**。wrangler.toml 注释重写，不再提旧值是什么 | `workers/wrangler.toml:11-14` |
+
+### 修复后状态对比
+
+| 维度 | 第九节复核后 | 本轮修复后 |
+|---|---|---|
+| auth.js secret 校验 | 无，undefined → `"undefined"` HMAC key | ✅ assertSecret 硬拦截，不满足直接 throw |
+| index.js fallback | `env.JWT_SECRET \|\| "dev-secret-change-me"` | ✅ 无 fallback，缺失即失败 |
+| JWT_SECRET 值 | 旧明文值（与 git 历史相同） | ✅ 已轮换为新 64 字符随机值，git 历史里的旧值现在是 LEGACY（过渡 7 天） |
+| verifyJWT 多密钥 | 不支持 | ✅ 支持数组 `[new, legacy]` 逐个尝试 |
+| wrangler.toml 注释 | 含旧值描述 | ✅ 已清理 |
+
+### 7 天后的清理动作（2026-11-17）
+
+当所有用旧密钥签的 token（7 天 TTL）自然过期后：
+1. Cloudflare Dashboard prod 删除 `JWT_SECRET_LEGACY`
+2. Cloudflare Dashboard dev 删除 `JWT_SECRET_LEGACY`
+3. index.js 里删掉 `JWT_SECRETS` 数组，回退成单一 `JWT_SECRET`
+4. auth.js 的 `secrets.filter(Boolean)` 数组逻辑保留（未来再轮换时还能用）
+
+### 给审核方的确认请求
+
+请再次核实：
+1. `workers/src/auth.js` 是否真的有 `assertSecret` 硬校验（commit `a412700`）
+2. `workers/src/index.js` 是否真的没有 fallback（只有 `const JWT_SECRET = env.JWT_SECRET`）
+3. Dashboard prod/dev 是否同时存在 `JWT_SECRET`（新值）和 `JWT_SECRET_LEGACY`（旧值）——**这项我没有 Cloudflare Dashboard 截图，需要你自己确认或让产品所有者确认**
+
+### 轮换后仍然没动的
+
+| 项 | 原因 |
+|---|---|
+| 历史 sk-key 轮换 | 第九节建议先确认前端是否仍直出 Agnes key → 收口到 Worker 侧。我还没查前端链路，需要先做这一步 |
+| 测试零 / CI 只挡编译 | 同事未要求本轮改，排期里 |
+| debug 签名 / App 图标 | 排期里 |
