@@ -816,8 +816,8 @@ async function handleSubmitFeedback(request, env, JWT_SECRET) {
 async function handleListFeedbacks(request, env) {
   const q = new URL(request.url).searchParams;
   const key = q.get("key") || request.headers.get("X-Admin-Key");
-  const ADMIN_KEY = env.ADMIN_KEY || "dev-admin";
-  if (key !== ADMIN_KEY) return json({ error: "forbidden" }, 403);
+  if (!env.ADMIN_KEY) return json({ error: "admin_key_not_configured" }, 503);
+  if (key !== env.ADMIN_KEY) return json({ error: "forbidden" }, 403);
 
   const limit = Math.min(parseInt(q.get("limit") || "50"), 200);
   const rows = await env.DB.prepare(
