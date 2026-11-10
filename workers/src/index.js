@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MyDiary API — Cloudflare Worker
  * Routes:
  *   POST   /api/auth/register    注册
@@ -86,6 +86,13 @@ async function handleDemoReset(request, env) {
   }
 }
 
+// JWT 密钥数组：双密钥过渡时 [新密钥, LEGACY旧密钥]，已轮换完成后只剩新密钥。
+// 函数形式让模块级 handler 也能拿到数组（之前 const JWT_SECRETS 定义在 fetch 内，
+// 模块级函数引用会 ReferenceError）。
+function jwtSecrets(env) {
+  return [env.JWT_SECRET, env.JWT_SECRET_LEGACY].filter(Boolean);
+}
+
 export default {
   async scheduled(controller, env, ctx) {
     ctx.waitUntil(resetDemoAccount(env));
@@ -104,7 +111,6 @@ export default {
     // signJWT 只用新密钥签发（JWT_SECRET），authUser 用新旧双密钥验（JWT_SECRETS）
     // 为什么要双密钥？避免轮换时现有 token 全部失效、用户被强制登出
     const JWT_SECRET = env.JWT_SECRET;
-    const JWT_SECRETS = [env.JWT_SECRET, env.JWT_SECRET_LEGACY].filter(Boolean);
 
     // 路由表（method + path → handler）
     const routes = [
@@ -441,7 +447,7 @@ async function handleLogin(request, env, JWT_SECRET) {
 }
 
 async function handleChangePassword(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const { old_password, new_password } = await readBody(request);
@@ -468,7 +474,7 @@ async function handleChangePassword(request, env, JWT_SECRET) {
 }
 
 async function handleMe(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
   const row = await env.DB.prepare("SELECT id, email, nickname, avatar, identity, interests, onboarding_done, created_at FROM users WHERE id = ?").bind(user.uid).first();
   return json({ user: row });
@@ -476,7 +482,7 @@ async function handleMe(request, env, JWT_SECRET) {
 
 // ====== Diaries ======
 async function handleListDiaries(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const q = new URL(request.url).searchParams;
@@ -503,7 +509,7 @@ async function handleListDiaries(request, env, JWT_SECRET) {
 
 async function handleSaveDiary(request, env, JWT_SECRET) {
   try {
-    const user = await authUser(request, JWT_SECRETS);
+    const user = await authUser(request, jwtSecrets(env));
     if (!user) return json({ error: "unauthorized" }, 401);
 
     const body = await readBody(request);
@@ -683,7 +689,7 @@ async function handleSaveDiary(request, env, JWT_SECRET) {
 }
 
 async function handleDeleteDiary(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const q = new URL(request.url).searchParams;
@@ -704,7 +710,7 @@ async function handleDeleteDiary(request, env, JWT_SECRET) {
 }
 
 async function handlePatchCapsule(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
   const url = new URL(request.url);
   const id = url.searchParams.get("id");
@@ -728,7 +734,7 @@ async function handlePatchCapsule(request, env, JWT_SECRET) {
 
 // ====== Profile ======
 async function handleGetProfile(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const u = await env.DB.prepare("SELECT id, email, nickname, avatar, identity, interests, onboarding_done FROM users WHERE id = ?").bind(user.uid).first();
@@ -759,7 +765,7 @@ async function handleGetProfile(request, env, JWT_SECRET) {
 }
 
 async function handlePatchProfile(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
@@ -788,7 +794,7 @@ async function handlePatchProfile(request, env, JWT_SECRET) {
 
 // ====== Feedback ======
 async function handleSubmitFeedback(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
@@ -825,7 +831,7 @@ async function handleListFeedbacks(request, env) {
 
 // ====== Templates ======
 async function handleSaveTemplate(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
@@ -849,7 +855,7 @@ async function handleSaveTemplate(request, env, JWT_SECRET) {
 }
 
 async function handleListTemplates(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const q = new URL(request.url).searchParams;
@@ -894,7 +900,7 @@ async function handleListTemplates(request, env, JWT_SECRET) {
 }
 
 async function handleDeleteTemplate(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const q = new URL(request.url).searchParams;
@@ -906,7 +912,7 @@ async function handleDeleteTemplate(request, env, JWT_SECRET) {
 }
 
 async function handleUpdateTemplate(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
@@ -942,7 +948,7 @@ async function handleUpdateTemplate(request, env, JWT_SECRET) {
 }
 
 async function handleShareTemplate(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
@@ -961,7 +967,7 @@ async function handleShareTemplate(request, env, JWT_SECRET) {
 
 // ====== Papers (信纸库) ======
 async function handleSavePaper(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
@@ -983,7 +989,7 @@ async function handleSavePaper(request, env, JWT_SECRET) {
 }
 
 async function handleListPapers(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const q = new URL(request.url).searchParams;
@@ -1023,7 +1029,7 @@ async function handleListPapers(request, env, JWT_SECRET) {
 }
 
 async function handleDeletePaper(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const q = new URL(request.url).searchParams;
@@ -1035,7 +1041,7 @@ async function handleDeletePaper(request, env, JWT_SECRET) {
 }
 
 async function handleSharePaper(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
@@ -1054,7 +1060,7 @@ async function handleSharePaper(request, env, JWT_SECRET) {
 
 // ====== Milestones (纪念日) ======
 async function handleSaveMilestone(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
@@ -1076,7 +1082,7 @@ async function handleSaveMilestone(request, env, JWT_SECRET) {
 }
 
 async function handleListMilestones(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const rows = await env.DB.prepare(
@@ -1103,7 +1109,7 @@ async function handleListMilestones(request, env, JWT_SECRET) {
 }
 
 async function handleDeleteMilestone(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const q = new URL(request.url).searchParams;
@@ -1115,7 +1121,7 @@ async function handleDeleteMilestone(request, env, JWT_SECRET) {
 }
 
 async function handleUpdateMilestone(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
@@ -1148,7 +1154,7 @@ async function handleUpdateMilestone(request, env, JWT_SECRET) {
 
 // ====== Plans (计划) ======
 async function handleSavePlan(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
@@ -1167,7 +1173,7 @@ async function handleSavePlan(request, env, JWT_SECRET) {
 }
 
 async function handleListPlans(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const rows = await env.DB.prepare(
@@ -1194,7 +1200,7 @@ async function handleListPlans(request, env, JWT_SECRET) {
 }
 
 async function handleDeletePlan(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const q = new URL(request.url).searchParams;
@@ -1206,7 +1212,7 @@ async function handleDeletePlan(request, env, JWT_SECRET) {
 }
 
 async function handleUpdatePlan(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
 
   const body = await readBody(request);
@@ -1236,7 +1242,7 @@ async function handleUpdatePlan(request, env, JWT_SECRET) {
 }
 // ====== Daily Summaries (每日 AI 总结) ======
 async function handleSaveSummary(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
 
   const body = await readBody(request);
@@ -1253,7 +1259,7 @@ async function handleSaveSummary(request, env, JWT_SECRET) {
 }
 
 async function handleListSummaries(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
 
   const rows = await env.DB.prepare(
@@ -1484,7 +1490,7 @@ async function saveMemories(env, uid, candidates) {
 
 // ===== Memory API handlers =====
 async function handleListMemory(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
   const r = await env.DB.prepare(
     "SELECT id, type, content, confidence, status, created_at FROM user_memory WHERE user_id = ? AND status != 'archived' ORDER BY confidence DESC, updated_at DESC LIMIT 50"
@@ -1493,7 +1499,7 @@ async function handleListMemory(request, env, JWT_SECRET) {
 }
 
 async function handleAddMemory(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
   const { type, content, confidence } = await request.json();
   if (!content || content.length < 2) return json({ error: 'content too short' }, 400);
@@ -1508,7 +1514,7 @@ async function handleAddMemory(request, env, JWT_SECRET) {
 }
 
 async function handleEditMemory(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
   const url = new URL(request.url);
   const id = url.searchParams.get('id');
@@ -1522,7 +1528,7 @@ async function handleEditMemory(request, env, JWT_SECRET) {
 }
 
 async function handleDeleteMemory(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
   const url = new URL(request.url);
   const id = url.searchParams.get('id');
@@ -1533,7 +1539,7 @@ async function handleDeleteMemory(request, env, JWT_SECRET) {
 
 // ====== Chat Sessions 云端持久化 ======
 async function handleChatListSessions(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
   const rows = await env.DB.prepare(
     "SELECT id, title, source_type, kb_id, msgs, created_at, updated_at FROM chat_sessions WHERE user_id = ? ORDER BY updated_at DESC"
@@ -1547,7 +1553,7 @@ async function handleChatListSessions(request, env, JWT_SECRET) {
 }
 
 async function handleChatUpsertSessions(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
   const { sessions } = await readBody(request);
   if (!Array.isArray(sessions)) return json({ error: "sessions must be array" }, 400);
@@ -1575,7 +1581,7 @@ async function handleChatUpsertSessions(request, env, JWT_SECRET) {
 }
 
 async function handleChatDeleteSession(request, env, JWT_SECRET, params) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
   const id = params.id;
   await env.DB.prepare("DELETE FROM chat_sessions WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
@@ -1584,7 +1590,7 @@ async function handleChatDeleteSession(request, env, JWT_SECRET, params) {
 
 // AI 代理：前端传 messages，Worker 内部调用 Agnes（key 永不暴露）
 async function handleAiChat(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "请重新登录" }, 401);
 
   let body;
@@ -1801,7 +1807,7 @@ function findLastUserQuestion(history) {
 }
 
 async function handleAsk(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
   const body = await request.json();
   const { question, history, source_type = "diary", kb_id, web_search = false } = body;
@@ -2114,7 +2120,7 @@ async function handleWikiAskImport(env, user, question, kb, web_search) {
 
 // ===== handleWikiSuggestEntities：气泡用的实体推荐 =====
 async function handleWikiSuggestEntities(request, env, JWT_SECRET, params) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
   const kb_id = params?.kb_id;
   const count = parseInt(new URL(request.url).searchParams.get('count') || '2', 10);
@@ -2371,7 +2377,7 @@ ${contextBlock}
 }
 
 async function handleReindex(request, env, JWT_SECRET) {
-  const user = await authUser(request, JWT_SECRETS);
+  const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
   try {
     const diaries = await env.DB.prepare(
