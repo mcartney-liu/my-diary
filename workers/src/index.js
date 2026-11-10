@@ -1374,7 +1374,7 @@ function keywordScore(content, keywords) {
 }
 
 // ===== 长期记忆 =====
-const MEMORY_ENABLED_DEFAULT = false; // 默认关，env.MEMORY_ENABLED='true' 才开
+// MEMORY_ENABLED 开关不再用模块级常量——从 env.MEMORY_ENABLED 读取，在两个问答 handler 内判断（默认开；显式设 'false' 才关）
 const MAX_MEMORIES_IN_PROMPT = 15;     // 最多塞进 prompt 的记忆数
 const MAX_EXTRACT_PER_TURN = 3;        // 每轮对话最多提取的候选记忆
 
@@ -1844,6 +1844,7 @@ function findLastUserQuestion(history) {
 }
 
 async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
+  const MEMORY_ENABLED = env.MEMORY_ENABLED !== 'false'; // 默认开；显式设 'false' 才关
   const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
   const body = await request.json();
@@ -1939,7 +1940,7 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
       msgs.push({ role: 'user', content: question });
       const answer = await callLLM(env, msgs, 500);
       // ⚡ fire-and-forget + ctx.waitUntil 托住防 GC
-      if (answer) {
+      if (MEMORY_ENABLED && answer) {
         ctx.waitUntil(Promise.race([
           extractMemoryCandidates(env, question, answer),
           new Promise(r => setTimeout(() => r([]), 5000)),
@@ -2024,7 +2025,7 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
     try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history, memoriesText, structuredFacts, !!web_search); }
     catch (e) { answer = 'LLM 错: ' + e.message; }
     // ⚡ 记忆提取 fire-and-forget + ctx.waitUntil 托住防 GC
-    if (answer) {
+    if (MEMORY_ENABLED && answer) {
       ctx.waitUntil(Promise.race([
         extractMemoryCandidates(env, question, answer),
         new Promise(r => setTimeout(() => r([]), 5000)),
@@ -2223,6 +2224,7 @@ async function handleWikiSuggestEntities(request, env, JWT_SECRET, params) {
 
 // ===== 知识库问答（新链路）=====
 async function handleWikiAsk(env, user, question, history, kb_id, web_search = false, import_mode = false) {
+  const MEMORY_ENABLED = env.MEMORY_ENABLED !== 'false'; // 默认开；显式设 'false' 才关
   try {
     // 1. 校验 KB 属于用户
     if (!kb_id) return json({ answer: '请先选择一个知识库', sources: [] });

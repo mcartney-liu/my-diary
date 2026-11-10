@@ -420,7 +420,6 @@ wrangler secret put ADMIN_KEY           # 缺失：debug-log 与后台反馈 503
 wrangler secret put DEEPSEEK_API_KEY    # 缺失：AI 对话全线不可用
 wrangler secret put AGNES_API_KEY       # 缺失：绘图/图片模型不可用
 wrangler secret put FROM_EMAIL          # 缺失：回落默认 noreply@callmydiary.online（RESEND 未验证域名时发信失败）
-wrangler secret put MEMORY_ENABLED      # 缺失：记忆自动提取默认关闭。**必须显式设成 'true' 才开启**（index.js:1377）
 
 # === Worker Secrets（dev）===
 wrangler secret put JWT_SECRET --env dev
@@ -430,7 +429,11 @@ wrangler secret put ADMIN_KEY --env dev
 wrangler secret put DEEPSEEK_API_KEY --env dev
 wrangler secret put AGNES_API_KEY --env dev
 wrangler secret put FROM_EMAIL --env dev
-wrangler secret put MEMORY_ENABLED --env dev
+
+# === Worker Secrets（可选，默认行为已够用）===
+# MEMORY_ENABLED：默认「开」。只有想关掉记忆自动提取时才设 'false'：
+#   wrangler secret put MEMORY_ENABLED --env=""      # 输入 false
+#   wrangler secret put MEMORY_ENABLED --env dev    # 输入 false
 
 # === Git ===
 git status
