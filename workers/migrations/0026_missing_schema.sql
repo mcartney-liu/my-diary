@@ -1,3 +1,8 @@
+-- ⚠️ 本文件仅适用于全新空库（fresh install）。
+-- 已有数据的库（prod/dev 存量）禁止直接 `migrations apply` 0026：
+-- 任一列已存在会 duplicate column 中断，且 d1_migrations 不落记录，导致反复失败。
+-- 存量库请改用 workers/scripts/patch-columns.ps1（逐列判断后执行）。
+
 -- 补三张代码里已引用但 migration 里漏建的表
 -- 每张表用 IF NOT EXISTS 兜底，避免部分环境已手动建表导致重跑失败
 -- 末尾补 11 条 ALTER TABLE，解决 users / wiki_knowledge_bases / templates / wiki_links 缺列问题

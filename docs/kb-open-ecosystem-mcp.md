@@ -118,7 +118,7 @@ source_url: https://app.callmydiary.online/kb/xxx
 
 | 策略 | 说明 | 复杂度 | 实现 |
 |---|---|---|---|
-| 单向全量（MVP） | 每次启动或点「立即同步」按钮，从云端拉所有 KB + 所有 pages + 所有 links，完整覆盖本地 | 🟢 轻 | Worker 加 `GET /api/kb/export` → 返回完整 JSON |
+| 单向全量（MVP） | 每次启动或点「立即同步」按钮，从云端拉所有 KB + 所有 pages + 所有 links，完整覆盖本地 | 🟢 轻 | Worker 加 `GET /api/wiki/export`（目前不存在，需新写）→ 返回完整 JSON |
 | 单向增量 | 只导出 `updated_at > last_sync_at` 的页面 | 🟢 轻 | 加 `?since=timestamp` 参数 |
 | 双向同步（暂不做） | Agent 改了本地 MD → App 检测到变化 → 回写云端 | 🔴 重（冲突解决）| Phase 3 再考虑 |
 
@@ -158,15 +158,15 @@ source_url: https://app.callmydiary.online/kb/xxx
 
 | Tool | 说明 | 对应 Worker API |
 |---|---|---|
-| `my_diary_list_knowledge_bases()` | 列出用户所有知识库 | `GET /api/kb/list` |
-| `my_diary_get_kb_structure(kb_id)` | 返回 KB 的分类树 + 所有页面 + 图谱链接 | `GET /api/kb/pages?kb_id=xxx` |
-| `my_diary_search_kb(kb_id, query, top_k)` | 语义搜索（用 MyDiary 自己的 bge-m3 + ReRank）| `POST /api/kb/search` |
-| `my_diary_get_page(kb_id, page_title)` | 返回完整 wiki 页 + 反链 + frontmatter | `GET /api/kb/page/:id` |
-| `my_diary_ask_diary(query)` | 从用户日记里问答 | `POST /api/chat/ask`（type=diary）|
-| `my_diary_ask_knowledge(kb_id, query, web)` | 从 KB 问答，可选联网补强 | `POST /api/chat/ask`（type=wiki）|
-| `my_diary_get_diary_entries(date_from, date_to)` | 某个时间段的日记列表 | `GET /api/diary/entries` |
-| `my_diary_list_diaries()` | 列出所有日记条目（精简版）| `GET /api/diary/entries` |
-| `my_diary_get_my_profile()` | 用户资料（兴趣、偏好等）| `GET /api/profile/me` |
+| `my_diary_list_knowledge_bases()` | 列出用户所有知识库 | `GET /api/wiki/kbs` |
+| `my_diary_get_kb_structure(kb_id)` | 返回 KB 的分类树 + 所有页面 + 图谱链接 | `GET /api/wiki/kbs/:kb_id/pages` + `GET /api/wiki/kbs/:kb_id/graph` |
+| `my_diary_search_kb(kb_id, query, top_k)` | 语义搜索（用 MyDiary 自己的 bge-m3 + ReRank）| `GET /api/wiki/kbs/:kb_id/search?q=xxx&top_k=N` |
+| `my_diary_get_page(kb_id, page_title)` | 返回完整 wiki 页 + 反链 + frontmatter | `GET /api/wiki/kbs/:kb_id/pages/:page_id` |
+| `my_diary_ask_diary(query)` | 从用户日记里问答 | `POST /api/ai/ask`（type=diary）|
+| `my_diary_ask_knowledge(kb_id, query, web)` | 从 KB 问答，可选联网补强 | `POST /api/ai/ask`（type=wiki）|
+| `my_diary_get_diary_entries(date_from, date_to)` | 某个时间段的日记列表 | `GET /api/diaries` |
+| `my_diary_list_diaries()` | 列出所有日记条目（精简版）| `GET /api/diaries` |
+| `my_diary_get_my_profile()` | 用户资料（兴趣、偏好等）| `GET /api/profile` |
 
 #### Phase 2（可写）
 
@@ -245,7 +245,7 @@ Smithery 会自动帮用户处理 OAuth 登录（首次使用弹窗让用户授�
 
 | # | 任务 | 改动层 | 工作量 |
 |---|---|---|---|
-| 1.1 | Worker 加 `GET /api/kb/export`（返回完整 KB 数据）| Worker | 0.5d |
+| 1.1 | Worker 加 `GET /api/wiki/export`（返回完整 KB 数据，目前不存在）| Worker | 0.5d |
 | 1.2 | Capacitor App 加「同步到本地知识库」按钮 + 文件写入 | App | 1d |
 | 1.3 | 导出的 MD 格式（frontmatter + `[[]]` 双向链接）| App | 0.5d |
 | 1.4 | Worker 加 MCP Streamable HTTP 端点（Tool 描述 + 路由分发）| Worker | 1d |
