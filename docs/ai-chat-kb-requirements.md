@@ -207,7 +207,7 @@ import_mode=true 的请求进来
 │     因为用户点气泡 = 他想查 KB 里还没有的东西
 │
 ├─ 2. 拉 KB 的 categories + 每个分类的模板结构
-│     wiki_kb_categories 表
+│     wiki_categories 表
 │
 ├─ 3. System Prompt 里注入分类范本参考：
 │     「这个 KB 有以下分类和范本：
@@ -247,7 +247,7 @@ import_mode=true 的请求进来
 
 | 层 | 改动 | 量 | 复用现有逻辑 |
 |---|---|---|---|
-| Worker | `handleWikiAsk` 加 `import_mode` 分支 | ~30 行 | ✅ 复用 callLLM / wiki_kb_categories 查询 |
+| Worker | `handleWikiAsk` 加 `import_mode` 分支 | ~30 行 | ✅ 复用 callLLM / wiki_categories 查询 |
 | Worker | 新增 `GET /api/wiki/kbs/:kb_id/suggest`（气泡用的实体推荐）| ~20 行 | ✅ 调一次小模型 |
 | 前端 AiChatView | 知识 tab 里，特定时机渲染小气泡 | ~50 行 | 新 UI |
 | 前端 AiChatView | 发请求时带 `import_mode` + 回答后显示「📥 汇入」按钮 | ~30 行 | ✅ 复用 handleWikiIngestAll |

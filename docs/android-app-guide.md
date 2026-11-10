@@ -10,7 +10,7 @@
 |---|---|---|
 | Capacitor 8.5.2 依赖 | ✅ 已装 | `@capacitor/core` + `cli` + `android`，全在 devDependencies |
 | `capacitor.config.ts` | ✅ 新增 | appId `online.callmydiary.app`，背景色 `#faf6ef`（纸感米白） |
-| `.env.production` | ✅ 新增 | 注入 `VITE_API_BASE=https://app.callmydiary.online` |
+| `.env.app` | ✅ 新增 | 注入 `VITE_API_BASE=https://app.callmydiary.online`（Android 套壳用，Web 生产副本也共用这一套） |
 | `android/` 原生工程 | ✅ 生成 | minSdk 24 / targetSdk 36，MainActivity(Java) |
 | 权限声明 | ✅ 已加 | 录音 RECORD_AUDIO、相机 CAMERA、媒体读取 |
 | 前端构建 | ✅ 通过 | `npm run build` 成功，2168 模块 |

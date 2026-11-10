@@ -14,7 +14,7 @@
 | **前端功能**（`src/ai.ts` 8 处） | ⚪ **用户自填 API**（默认 Agnes） | 无 |
 | 向量检索 / 重排 | 智源 bge 系列 | 无 |
 
-**没有用 GPT / Claude / 通义 / Qwen / Whisper。**
+**未使用 GPT / Claude / 通义 / Qwen。语音转写使用 Workers AI Whisper 模型（`/api/transcribe` 端点）。**
 
 ---
 

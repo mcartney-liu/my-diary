@@ -10,7 +10,7 @@
 
 | 入口 | 位置 | 形态 | 问题 |
 |---|---|---|---|
-| 小麦日记问答 | CalendarPage 顶部按钮 / ProfilePage | `AiDrawer.tsx`（全屏右侧抽屉，max-w-md） | ❌ **EditorPage 里没有入口！** 写日记时想找小麦要灵感，必须切走 |
+| 小麦日记问答 | CalendarPage 顶部按钮 / ProfilePage / EditorPage 里的 MiniAiBubble | `AiDrawer.tsx`（全屏右侧抽屉）+ `MiniAiBubble.tsx`（编辑器内悬浮球） | ✅ EditorPage 里已有 MiniAiBubble 入口，写日记时可直接要灵感 |
 | 知识库问答 | KnowledgeBase 页面内部 | 内嵌 | ✅ 只在知识库场景里 |
 
 ### 用户写日记时的真实场景
@@ -232,7 +232,7 @@ function handleAppendAiContent(content: string) {
 |---|---|---|---|
 | **① Wiki-QA 融合** | `wiki-qa-contract-design.md` | Worker 后端 + KnowledgeBase 组件 | ✅ 已有方案，已实现 |
 | **② BookView 书柜** | `template-visual-design.md` | 新增 BookView 组件（BookShelfPage → 书本浏览） | ✅ 方案已定，未开工 |
-| **③ Editor AI 辅助** | **本文档** | EditorPage 里加 MiniAiBubble | ✅ 方案已定，未开工 |
+| **③ Editor AI 辅助** | **本文档** | EditorPage 里加 MiniAiBubble | ✅ 已实现，MiniAiBubble.tsx 在 EditorPage 挂载 |
 
 ### 三者互不冲突
 

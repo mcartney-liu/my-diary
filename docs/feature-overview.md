@@ -58,10 +58,10 @@
 
 | 层 | 技术 |
 |---|---|
-| 前端 | React 18 + TypeScript + Vite + Tailwind + React Router |
+| 前端 | React 19 + TypeScript + Vite + Tailwind + React Router |
 | 后端 | Cloudflare Workers（原生 JS） |
 | 数据库 | Cloudflare D1（SQLite） |
-| 存储 | Cloudflare R2 + KV |
+| 存储 | D1 BLOB（图片/手账页 base64）+ KV（验证码） |
 | AI | Agnes / DeepSeek / Workers AI（详见 `ai-capabilities-and-models.md`） |
 | 部署 | Wrangler Pages（前端）+ Wrangler deploy（Worker） |
 | 原生 App | Capacitor（Android 套壳 iOS 计划中） |
@@ -326,7 +326,7 @@
 | 实时云同步 | 所有写/改/删立即同步到 Cloudflare D1 | ✅ 核心机制 |
 | 导出 JSON | 个人中心一键导出所有日记 | ✅ |
 | 回收站 | 软删除 30 天后自动清理 | ✅ |
-| R2 图片存储 | 日记里的图片存 R2，不占 D1 | ✅ |
+| 图片/手账页存储 | base64 进 D1 papers.image_data 列 | ✅ |
 
 ---
 

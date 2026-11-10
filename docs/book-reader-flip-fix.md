@@ -240,7 +240,7 @@ feat: 写日记时小麦 AI 辅助 — MiniAiBubble
 
 commit 20d311b (之前的 BookReader 3D 改造，已被本次覆盖)
 
-[当前分支 uncommitted]
+[已合入 main 分支，commit 5c6f8ba]
 fix: BookReader 翻页 5 个 bug 全部修复
 - bug ①: CSS .book-sheet-left display:none 误伤
 - bug ②: 事件监听器旧闭包

@@ -1,17 +1,11 @@
-# MyDiary — App 开发副本（Android / Capacitor）
+# MyDiary — 完整产品仓库
 
-> ⚠️ **这是一份「App 专用副本」，不是 Web 生产副本。**
+> **本仓库是唯一的生产代码库**。Web（`app.callmydiary.online`）、Worker API、Android Capacitor 套壳都在这一份里。不存在独立的"Web 生产副本"或"App 专用副本"。
 >
-> | | Web 生产副本 | 本副本（App 专用） |
-> |---|---|---|
-> | 位置 | `...\TRAE SOLO CN\...\6aa3cefc66f609d7998640ec\mydiary-web` | `C:\Users\haizhi\WorkBuddy\2026-09-23-11-40-59\mydiary-android` |
-> | 角色 | 线上 `app.callmydiary.online` 跑的生产代码 | 打安卓 APK 用 |
-> | 套壳文件 | ❌ 永不含 | ✅ 全在这里 |
+> Android 套壳专属文件（只在本仓库）：`android/`、`capacitor.config.ts`
 >
-> **套壳专属文件（只在本副本）**：`android/`、`capacitor.config.ts`、`.env.production`
->
-> 日常流程：Web 副本改代码 → 推 GitHub → 本副本 `git pull` → `npm run cap:apk` → 装手机。
-> 详见 `docs/android-sync-guide.md`。
+> 日常流程：改代码 → `git push` → Cloudflare Pages/Worker 自动部署；Android 套壳：`npm run cap:sync` → `npx cap sync android` → 出 APK。
+> 详见 `docs/android-app-guide.md`、`DEPLOY.md`。
 
 ## 出安卓包
 

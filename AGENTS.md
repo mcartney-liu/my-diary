@@ -60,10 +60,10 @@ git diff src/<目标文件>
 ## 出包命令（Windows）
 
 ```bash
-cd C:\Users\haizhi\WorkBuddy\2026-09-23-11-40-59\mydiary-android
+cd <仓库根目录>/mydiary-web    # Web 和 App 套壳共用同一份仓库
 
 npm run build          # Vite 打包
-npx cap copy android   # 同步资源到原生工程
+npx cap sync android   # 同步资源到原生工程（已废弃 cap copy，统一用 cap sync）
 
 # 编译 APK（必须单引号！双引号会吞反斜杠导致找不到 java）
 export JAVA_HOME='D:\Android\jdk-21.0.9+10'
@@ -139,7 +139,7 @@ cd "<Web 副本路径>" && git status --short   # 应为空
 
 ## 待办清单（截至 2026-10-06）
 
-- ⬜ **语音快记在 App 报"拒绝录音"** — `VoiceQuickEntry.tsx` 缺能力检测（`EditorPage`/`ProfilePage` 已有）。云端**无** `/api/transcribe` 端点，若要完整修复需先加后端 STT。
+- ⬜ **语音快记在 App 报"拒绝录音"** — `VoiceQuickEntry.tsx` 缺能力检测（`EditorPage`/`ProfilePage` 已有）。云端有 `/api/transcribe`（Workers AI Whisper 模型），前端发 POST 带音频 Blob 即可。
 - ⬜ **App 图标** — 仍是 Capacitor 默认蓝色 `</>`，3 版设计稿已出（钢笔日记本 / 麦穗 / 抽象笔画），待翔哥选。
 - ⬜ **正式签名** — 现为 debug 签名，无法上架/无法让用户更新。配 keystore 后需长期保管（丢了无法更新 App）。
 - ⬜ **C 盘清理** — `C:\Users\haizhi\AppData\Local\Android` 剩 23628 个小文件删不动，需翔哥用资源管理器手动删。
