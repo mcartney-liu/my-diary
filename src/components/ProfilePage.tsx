@@ -857,12 +857,26 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-     {/* === v0.5.16 当前版本（高亮） === */}
+     {/* === v0.5.17 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v0.5.16</span>
+                  <span className="font-bold text-paper-accent">v0.5.17</span>
                   <span className="text-paper-ink3 text-xs">2026年11月18日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">⚡ 性能优化</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>🚀 <b>页面秒开：缓存层</b> — 日历/模板库/记忆/里程碑等页面首次加载后，再次进入直接秒出，不再整屏「加载中」；同事 Doubao 加的内存缓存 + stale-while-revalidate</li>
+                    <li>🔄 <b>切回前台只刷一次</b> — 从别的 App 切回来时，之前 visibilitychange + focus 会成对触发导致 2–3 次全量拉取；现在 30 秒节流 + 并发去重，同一时刻最多一次</li>
+                  </ul>
+                </div>
+              </div>
+     {/* === v0.5.16 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.16</span>
+                  <span className="text-paper-ink3 text-xs">2026年11月18日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">⚡ 优化</b></div>

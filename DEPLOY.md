@@ -916,8 +916,8 @@ APK 最初放在 Cloudflare Pages 静态目录 `mydiary-web-site/download/`，�
 | **Bucket 创建时间** | 2026-09-24 |
 | **Bucket Location** | WNAM（美国西部） |
 | **Custom Domain** | `download.callmydiary.online`（已连接） |
-| **APK 最新版** | `/apk/MyDiary-0.5.13.apk` |
-| **APK 历史版** | `/apk/MyDiary-0.5.12.apk`, `/apk/MyDiary-0.5.11.apk`, `/apk/MyDiary-0.5.10.apk`, `/apk/MyDiary-0.5.9.apk` |
+| **APK 最新版** | `/apk/MyDiary-0.5.16.apk` |
+| **APK 历史版** | `/apk/MyDiary-0.5.15.apk`, `/apk/MyDiary-0.5.13.apk`, `/apk/MyDiary-0.5.12.apk`, `/apk/MyDiary-0.5.11.apk`, `/apk/MyDiary-0.5.10.apk` |
 | **官网 Pages 项目** | `mydiary-site`（独立于主 app） |
 | **官网项目源码** | `mydiary-web-site/`（独立目录，不在 mydiary-web 里） |
 
@@ -1236,3 +1236,121 @@ npx wrangler deployments rollout <deployment_id>     # 回滚到指定版本
 ---
 
 **核心铁律：改后端先 dev 测，改前端先 dev Pages 推了再确认，每次 commit + push。**
+
+---
+
+## 🚀 完整发布 Checklist（v0.5.16 首次全链路验证）
+
+2026-11-18 验证：从代码 merge → 版本 bump → Web deploy → Android 打包 → R2 上传 → 官网更新 → commit push，**一个人能完成全部**。
+
+### Step 1: 版本号 bump（6 处必改）
+
+| 文件 | 改什么 |
+|------|--------|
+| `package.json` | `"version": "0.5.16"` |
+| `vite.config.ts` | `__APP_VERSION__: JSON.stringify("0.5.16")` |
+| `android/app/build.gradle` | `versionCode 2` ← **必须 +1！** Android 用它判断是否更新；`versionName "0.5.16"` |
+| `src/components/ProfilePage.tsx` | changelog 弹窗：旧高亮版本降为历史版本（去掉 accent color），最前面插新版本（高亮 + "最新" badge + 日期 + 一条优化描述） |
+| `CHANGELOG.md` | 最前面加新版本一级标题 + 改动说明 |
+| `mydiary-web-site/index.html`（官网） | Hero 区版本号 + 描述 + changelog 数组前插新版本 |
+| `mydiary-web-site/download/index.html`（官网） | 顶部加新版本卡片（"最新" badge），旧最新降为"旧版"（badge + 下载按钮样式） |
+
+### Step 2: 验证 + 构建
+
+```powershell
+cd mydiary-web
+npx tsc -b --noEmit        # TypeScript 类型检查
+npm run build              # Vite 构建，看 JS 哈希是否变化（变化 = 版本号进了构建）
+```
+
+### Step 3: Web Pages 部署（两端）
+
+```powershell
+# dev
+npx wrangler pages deploy dist --project-name mydiary-web-dev --commit-dirty=true --skip-caching
+# prod
+npx wrangler pages deploy dist --project-name mydiary-web --commit-dirty=true --skip-caching
+```
+
+### Step 4: Android APK 打包（一条命令到底）
+
+```powershell
+cd mydiary-web
+npm run cap:apk
+# = npm run build:app → cap sync android → gradlew assembleDebug
+# 产物: android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+**前提环境**（一次性配好，以后一直生效）：
+- 用户级 `JAVA_HOME` → `D:\Android\jdk-21.0.9+10`（**不能是 JDK 17**，Gradle 编译要求 source 21）
+- `android/local.properties` 存在，内容 `sdk.dir=D\:\\Android\\Sdk`（每台机器 SDK 路径可能不同，不进 Git）
+- 项目路径不能含中文（Gradle assetSyncStamp 有乱码坑）
+
+**踩过的坑**：
+- `assetSyncStamp` 报错：手动建 `android\app\build\tmp` 目录
+- `JAVA_HOME` 系统级要管理员权限：改用户级就够，`SetEnvironmentVariable("JAVA_HOME", "D:\Android\jdk-21.0.9+10", "User")`
+- `npm run cap:apk` 跑 `cap sync` 会重写 capacitor 生成的文件（CRLF/LF 变化）：跑完 `git checkout -- android/app/capacitor.build.gradle android/capacitor-cordova-android-plugins/` 还原
+
+### Step 5: APK 上传 R2 + 官网
+
+```powershell
+# 上传
+$apk = "android\app\build\outputs\apk\debug\app-debug.apk"
+curl.exe -s -X PUT -H "Authorization: Bearer $token" -H "Content-Type: application/vnd.android.package-archive" `
+  --data-binary "@$apk" `
+  "https://api.cloudflare.com/client/v4/accounts/f6ca7e151a87ec9040e8a5777dd95b87/r2/buckets/mydiary-assets/objects/apk/MyDiary-0.5.16.apk"
+
+# 改官网 3 处（见 Step 1 版本号 bump 表）
+
+# 部署官网
+cd mydiary-web-site
+npx wrangler pages deploy . --project-name mydiary-site
+```
+
+### Step 6: 最终验证 + commit + push
+
+```powershell
+# 验证（必做）
+curl.exe -sL "https://download.callmydiary.online/apk/MyDiary-0.5.16.apk" -o test.apk
+# 比文件大小和本地源文件一致
+
+# commit（只 commit 真正改的文件，别把 cap sync 副作用带进来）
+git add -A
+git commit -m "[TRAE] v0.5.16 bump: 版本号 + 改动内容简述"
+git push origin main
+```
+
+---
+
+## 📋 v0.5.16 实操记录（2026-11-18 · 首次完整全链路）
+
+| 项 | 值 |
+|---|---|
+| 触发 | 同事 Doubao 提交 `perf/editor-block-memo` 分支（编辑器 memo 优化），merge 进 main |
+| commit | `04d1a25`（merge） + `d8546bb`（版本 bump） |
+| **版本号 6 处** | package.json、vite.config.ts、ProfilePage.tsx、build.gradle（versionCode 2）、CHANGELOG.md、官网 3 处 |
+| **JAVA_HOME 用户级** | 改到 `D:\Android\jdk-21.0.9+10`（`SetEnvironmentVariable`，用户级，非系统级） |
+| **cap:apk** | `npm run build:app`（2.44s）→ `cap sync android`（0.37s）→ `gradlew assembleDebug`（19s），全程零手动干预 ✅ |
+| **APK** | `android\app\build\outputs\apk\debug\app-debug.apk`（18,011,115 bytes, ≈17.2 MB） |
+| **R2 上传** | `apk/MyDiary-0.5.16.apk`，etag `f78ba720b88caf6270b46aaaba68120b` |
+| **Pages dev** | ✅ 部署成功 |
+| **Pages prod** | ✅ 部署成功（app.callmydiary.online） |
+| **官网** | ✅ Hero 按钮 + 下载页 + changelog 数组，全改 v0.5.16 |
+| **官网 deploy** | ✅ 成功 |
+| **commit push** | ✅ `04d1a25..d8546bb main -> main`（GitHub 中途被墙 reset，重试一次成功） |
+| **用户验证** | ✅ 同事确认官网 + 生产 + 测试环境都更新正常 |
+
+### 回滚锚点
+
+```bash
+git revert -m 1 04d1a25   # memo 优化 merge commit，只影响 EditorPage.tsx
+# 或 Pages Dashboard 选上一个好版本 Promote to production
+```
+
+### 这次的最大收获
+
+**我能独立完成 Android 打包了**。之前一直等安卓团队来做，这次发现：
+1. 一条 `npm run cap:apk` 到底
+2. 环境坑都过了（JAVA_HOME 21、local.properties、assetSyncStamp 手动建目录）
+3. 跑之前 commit 干净状态，跑完 `git checkout --` 还原 capacitor 副作用
+4. 安卓团队不再需要参与打包环节，除非他们改了 Android 原生代码

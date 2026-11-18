@@ -1,5 +1,32 @@
 # MyDiary 版本更新记录
 
+## v0.5.17 — 2026-11-18（三连性能优化：缓存层 + 前台刷新节流）
+
+### 🚀 性能优化：页面秒开缓存层 + 切前台节流 + 并发去重
+
+- **`src/dataCache.ts`（82 行，新增）**：内存缓存模块，stale-while-revalidate 最小实现
+  - `peek(key)` 同步读缓存 —— 组件首帧直接上屏
+  - `cachedGet(key, fetcher, { ttl, force })` —— 命中未过期直接返回、同 key 并发去重、失败回退旧值
+  - `invalidate(prefix)` —— 写操作后主动失效
+- **7 个页面接入缓存**：CalendarPage（profile 每次拉，plans/milestones 60s）、ProfilePage（profile 每次拉、memory 60s）、TemplateLibrary、PaperLibrary、PlanLibrary、MilestoneLibrary、WikiTemplatesView、EditorPage（templates/papers 60s）
+- **`src/App.tsx` 前台刷新节流**：`visibilitychange` + `window.focus` 在 Web 上常成对触发，一次切走回来打 2–3 次全量拉取（每次 365 篇）。新增 `handleAppResume` 包装，30 秒节流 + 并发去重 + `refreshFromCloud` 用 `useCallback` 稳定引用
+
+### 体感变化
+
+- 日历页：头像/昵称秒出，不再整屏 loading
+- 模板库/范本库/里程碑库：第二次进入直接出列表，不再转圈
+- ProfilePage 记忆 tab：切过去秒出
+- 切窗口：不再重复全量拉取
+
+### v0.5.16 → v0.5.17 合并进来的 3 个 commit
+
+| 分支 | commit | 改了啥 |
+|------|--------|--------|
+| `perf/page-cache` | `6a18473` + `1bc9523` | dataCache.ts + 7 页面加缓存 |
+| `perf/resume-throttle` | `52dda05` | App.tsx 前台刷新节流 |
+
+---
+
 ## v0.5.16 — 2026-11-18（编辑器流畅度优化）
 
 ### ⚡ 优化：编辑器块渲染抽 memo 组件，打字不再全量重渲染
