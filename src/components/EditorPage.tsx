@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { ArrowLeft, Trash2, Save, Mic, ImagePlus, FileText, Smile, Loader2, FileAudio, Music, Bot, Palette, LayoutTemplate, MapPin, RefreshCw, Plus, Pencil } from "lucide-react";
 import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
@@ -148,6 +148,269 @@ function SortableBlock({ id, children }: { id: string; children: ReactNode }) {
     </div>
   );
 }
+
+/**
+ * 单个日记块（行）的渲染单元。
+ *
+ * 为什么要单独抽出来 + memo
+ * ------------------------
+ * 原来这一大段 JSX 内联在 EditorPage 的 `blocks.map` 里，于是「敲一个字」
+ * 就会重建整个编辑器的所有块（长日记里等于每帧几十上百个块重渲染）。
+ * 抽成独立组件并按 block 引用做浅比较后，只有「被改的那一个块」重渲染，
+ * 其余块直接命中 memo 提前返回。
+ *
+ * 行为等价性
+ * ----------
+ * 本组件的 JSX 是原内联代码原样搬移，仅做两处机械替换：
+ *   - `b`        → `block`
+ *   - `idx === blocks.length - 1` → `isLast`
+ * 除 props 化外没有任何逻辑、顺序、条件分支的改动。
+ */
+interface BlockRowProps {
+  block: DiaryBlock;
+  /** 是否为列表最后一块（原代码用它补 24px 底部留白） */
+  isLast: boolean;
+  updateBlock: (id: string, patch: Partial<DiaryBlock>) => void;
+  markDeleted: (id: string) => void;
+  restoreBlock: (id: string) => void;
+  textareaRefs: { current: Map<string, HTMLTextAreaElement> };
+}
+
+const BlockRow = memo(function BlockRow({
+  block: b,
+  isLast,
+  updateBlock,
+  markDeleted,
+  restoreBlock,
+  textareaRefs,
+}: BlockRowProps) {
+  return (
+    <SortableBlock id={b.id}>
+      <div data-block-id={b.id} className={`relative px-4 md:px-6 ${b.deleted ? "opacity-60 pointer-events-none" : ""}`}>
+        {/* deleted 时：CSS line-through 盖在字上 + 右上角恢复按钮（可点）*/}
+        {b.deleted && (
+          <button
+            onClick={(e) => { e.stopPropagation(); restoreBlock(b.id); }}
+            className="absolute top-1 right-2 z-10 px-2 py-0.5 rounded-md bg-paper-surface border border-paper-line text-xs text-paper-accent hover:border-paper-accent active:scale-95 transition pointer-events-auto"
+            title="恢复"
+          >↩️ 恢复</button>
+        )}
+        {b.kind === "text" && (
+          <TextBlock
+            block={b}
+            onChange={(c) => updateBlock(b.id, { content: c })}
+            onRemove={() => markDeleted(b.id)}
+            extraClass={b.deleted ? "line-through decoration-red-400 decoration-2" : ""}
+            onTextareaRef={(el) => {
+              if (el) textareaRefs.current.set(b.id, el);
+              else textareaRefs.current.delete(b.id);
+            }}
+          />
+        )}
+        {b.kind === "image" && (
+          <GridSnap minRows={2}><ImageBlock block={b} onUpdate={(patch) => updateBlock(b.id, patch)} onRemove={() => markDeleted(b.id)} /></GridSnap>
+        )}
+        {b.kind === "audio" && (
+          <GridSnap minRows={3}><AudioBlock block={b} onRemove={() => markDeleted(b.id)} /></GridSnap>
+        )}
+
+        {/* heading — 小标题，加粗 */}
+        {b.kind === "heading" && (
+          <div className="py-1.5 group flex items-center gap-2">
+            <input
+              type="text"
+              value={b.content}
+              onChange={(e) => updateBlock(b.id, { content: e.target.value })}
+              placeholder="标题..."
+              className={`flex-1 bg-transparent outline-none font-bold placeholder:text-paper-ink3 ${
+                (b.level ?? 2) === 1 ? "text-2xl" : (b.level ?? 2) === 3 ? "text-base" : "text-lg"
+              } text-paper-ink`}
+            />
+            <button
+              onClick={() => markDeleted(b.id)}
+              className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
+              title="删除"
+            >×</button>
+          </div>
+        )}
+
+        {/* number — 数字输入（记账用） */}
+        {b.kind === "number" && (
+          <div className="py-1 group flex items-center gap-3">
+            <span className="text-sm text-paper-ink2 w-16 shrink-0">{b.label ?? "金额"}</span>
+            {b.unit && <span className="text-lg text-paper-ink font-semibold">{b.unit}</span>}
+            <input
+              type="number"
+              inputMode="decimal"
+              value={b.value ?? ""}
+              onChange={(e) => updateBlock(b.id, { value: e.target.value ? Number(e.target.value) : undefined })}
+              placeholder="0"
+              className="flex-1 bg-transparent outline-none text-lg text-paper-ink font-semibold min-w-0"
+            />
+            <button
+              onClick={() => markDeleted(b.id)}
+              className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
+              title="删除"
+            >×</button>
+          </div>
+        )}
+
+        {/* divider — 虚线分隔 */}
+        {b.kind === "divider" && (
+          <div className="py-2 flex items-center gap-3 group">
+            <div className="flex-1 h-px border-t border-dashed border-paper-line" />
+            <button
+              onClick={() => markDeleted(b.id)}
+              className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
+              title="删除"
+            >×</button>
+            <div className="flex-1 h-px border-t border-dashed border-paper-line" />
+          </div>
+        )}
+
+        {/* checkbox — 可勾选的待办 */}
+        {b.kind === "checkbox" && (
+          <div className="py-1 group flex items-center gap-2">
+            <button
+              onClick={() => updateBlock(b.id, { checked: !b.checked })}
+              className={`w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition ${
+                b.checked
+                  ? "bg-paper-accent border-paper-accent text-white"
+                  : "border-paper-line hover:border-paper-accent"
+              }`}
+              title={b.checked ? "取消勾选" : "勾选"}
+            >
+              {b.checked && <span className="text-xs leading-none">✓</span>}
+            </button>
+            <input
+              type="text"
+              value={b.content}
+              onChange={(e) => updateBlock(b.id, { content: e.target.value })}
+              placeholder="待办事项..."
+              className={`flex-1 bg-transparent outline-none text-sm placeholder:text-paper-ink3 min-w-0 ${
+                b.checked ? "text-paper-ink3 line-through" : "text-paper-ink"
+              }`}
+            />
+            <button
+              onClick={() => markDeleted(b.id)}
+              className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
+              title="删除"
+            >×</button>
+          </div>
+        )}
+
+        {/* finance_item — 记账流水 */}
+        {b.kind === "finance_item" && (
+          <FinanceItemRow
+            block={b}
+            onChange={(patch) => updateBlock(b.id, patch)}
+            onRemove={() => markDeleted(b.id)}
+          />
+        )}
+
+        {/* book — 书籍信息 + 进度条 */}
+        {b.kind === "book" && (
+          <div className="py-2 group">
+            <div className="rounded-xl border border-paper-line bg-paper-surface/60 p-3">
+              <div className="flex items-start gap-3">
+                <div className="text-3xl shrink-0">📚</div>
+                <div className="flex-1 min-w-0">
+                  <input
+                    type="text"
+                    value={b.content}
+                    onChange={(e) => {
+                      updateBlock(b.id, { content: e.target.value, bookId: e.target.value });
+                    }}
+                    placeholder="《书名》"
+                    className="w-full bg-transparent outline-none text-lg font-bold text-paper-ink placeholder:text-paper-ink3"
+                  />
+                  <input
+                    type="text"
+                    value={b.author ?? ""}
+                    onChange={(e) => updateBlock(b.id, { author: e.target.value })}
+                    placeholder="作者"
+                    className="w-full bg-transparent outline-none text-sm text-paper-ink2 placeholder:text-paper-ink3 mt-0.5"
+                  />
+                  {/* 进度条 */}
+                  <div className="mt-2.5">
+                    <div className="flex items-center justify-between text-xs text-paper-ink2 mb-1">
+                      <span>进度</span>
+                      <span>
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          value={b.currentPage ?? 0}
+                          onChange={(e) => updateBlock(b.id, { currentPage: e.target.value ? Number(e.target.value) : 0 })}
+                          className="w-10 bg-transparent outline-none text-right text-paper-ink font-semibold"
+                        />
+                        {" / "}
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          value={b.totalPages ?? 200}
+                          onChange={(e) => updateBlock(b.id, { totalPages: e.target.value ? Number(e.target.value) : 200 })}
+                          className="w-10 bg-transparent outline-none text-right text-paper-ink"
+                        />
+                        {" 页"}
+                      </span>
+                    </div>
+                    <div className="h-2 bg-paper-line/40 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-paper-accent rounded-full transition-all duration-300"
+                        style={{
+                          width: `${Math.min(100, ((b.currentPage ?? 0) / Math.max(1, b.totalPages ?? 1)) * 100)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => markDeleted(b.id)}
+                  className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition shrink-0"
+                  title="删除"
+                >×</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* quote — 摘抄 */}
+        {b.kind === "quote" && (
+          <div className="py-1 group">
+            <div className="flex gap-2 items-start">
+              <div className="text-paper-accent text-lg leading-none mt-1 shrink-0">"</div>
+              <textarea
+                value={b.content}
+                onChange={(e) => updateBlock(b.id, { content: e.target.value })}
+                placeholder="摘抄一段喜欢的话..."
+                rows={2}
+                className="flex-1 bg-transparent outline-none text-sm text-paper-ink leading-relaxed placeholder:text-paper-ink3 resize-none border-l-2 border-paper-accent/40 pl-2 py-1"
+              />
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={b.pageNumber ?? ""}
+                  onChange={(e) => updateBlock(b.id, { pageNumber: e.target.value ? Number(e.target.value) : undefined })}
+                  placeholder="页"
+                  className="w-12 bg-transparent outline-none text-xs text-paper-ink2 text-right placeholder:text-paper-ink3"
+                  title="页码"
+                />
+                <button
+                  onClick={() => markDeleted(b.id)}
+                  className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-xs transition"
+                  title="删除"
+                >×</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isLast && <div className="h-6" />}
+      </div>
+    </SortableBlock>
+  );
+});
 
 export default function EditorPage({ initialDiary, initialTemplateId, initialPolished, onSave, onSoftDelete, onCancel, allDiaries }: Props) {
   const [title, setTitle] = useState(initialPolished?.title ?? initialDiary?.title ?? "");
@@ -785,15 +1048,20 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     setTemplateId(initialDiary.templateId);
   }, [initialDiary?.id]);
 
-  const updateBlock = (id: string, patch: Partial<DiaryBlock>) => {
+  // ⚠️ 这三个必须保持稳定引用，否则 BlockRow 的 memo 永远命中不了
+  //    （每次 render 新建函数 → props 变化 → 所有块全量重渲染）
+  const updateBlock = useCallback((id: string, patch: Partial<DiaryBlock>) => {
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
-  };
-  const markDeleted = (id: string) => {
+  }, []);
+  const markDeleted = useCallback((id: string) => {
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, deleted: true } : b)));
-  };
-  const restoreBlock = (id: string) => {
+  }, []);
+  const restoreBlock = useCallback((id: string) => {
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, deleted: false } : b)));
-  };
+  }, []);
+
+  // 拖拽排序用的 id 列表：只在 blocks 变化时重算，避免每次 render 给 dnd-kit 传新数组
+  const blockIds = useMemo(() => blocks.map((b) => b.id), [blocks]);
 
   // === 记账自动计算 ===
   const financeSummary = useMemo(() => {
@@ -2079,232 +2347,17 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           style={wallpaper ? { backgroundImage: `url(${wallpaper})` } : undefined}
         >
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+          <SortableContext items={blockIds} strategy={verticalListSortingStrategy}>
           {blocks.map((b, idx) => (
-          <SortableBlock id={b.id} key={b.id}>
-          <div data-block-id={b.id} className={`relative px-4 md:px-6 ${b.deleted ? "opacity-60 pointer-events-none" : ""}`}>
-            {/* deleted 时：CSS line-through 盖在字上 + 右上角恢复按钮（可点）*/}
-            {b.deleted && (
-              <button
-                onClick={(e) => { e.stopPropagation(); restoreBlock(b.id); }}
-                className="absolute top-1 right-2 z-10 px-2 py-0.5 rounded-md bg-paper-surface border border-paper-line text-xs text-paper-accent hover:border-paper-accent active:scale-95 transition pointer-events-auto"
-                title="恢复"
-              >↩️ 恢复</button>
-            )}
-            {b.kind === "text" && (
-              <TextBlock
-                block={b}
-                onChange={(c) => updateBlock(b.id, { content: c })}
-                onRemove={() => markDeleted(b.id)}
-                extraClass={b.deleted ? "line-through decoration-red-400 decoration-2" : ""}
-                onTextareaRef={(el) => {
-                  if (el) textareaRefs.current.set(b.id, el);
-                  else textareaRefs.current.delete(b.id);
-                }}
-              />
-            )}
-            {b.kind === "image" && (
-              <GridSnap minRows={2}><ImageBlock block={b} onUpdate={(patch) => updateBlock(b.id, patch)} onRemove={() => markDeleted(b.id)} /></GridSnap>
-            )}
-            {b.kind === "audio" && (
-              <GridSnap minRows={3}><AudioBlock block={b} onRemove={() => markDeleted(b.id)} /></GridSnap>
-            )}
-
-            {/* heading — 小标题，加粗 */}
-            {b.kind === "heading" && (
-              <div className="py-1.5 group flex items-center gap-2">
-                <input
-                  type="text"
-                  value={b.content}
-                  onChange={(e) => updateBlock(b.id, { content: e.target.value })}
-                  placeholder="标题..."
-                  className={`flex-1 bg-transparent outline-none font-bold placeholder:text-paper-ink3 ${
-                    (b.level ?? 2) === 1 ? "text-2xl" : (b.level ?? 2) === 3 ? "text-base" : "text-lg"
-                  } text-paper-ink`}
-                />
-                <button
-                  onClick={() => markDeleted(b.id)}
-                  className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
-                  title="删除"
-                >×</button>
-              </div>
-            )}
-
-            {/* number — 数字输入（记账用） */}
-            {b.kind === "number" && (
-              <div className="py-1 group flex items-center gap-3">
-                <span className="text-sm text-paper-ink2 w-16 shrink-0">{b.label ?? "金额"}</span>
-                {b.unit && <span className="text-lg text-paper-ink font-semibold">{b.unit}</span>}
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  value={b.value ?? ""}
-                  onChange={(e) => updateBlock(b.id, { value: e.target.value ? Number(e.target.value) : undefined })}
-                  placeholder="0"
-                  className="flex-1 bg-transparent outline-none text-lg text-paper-ink font-semibold min-w-0"
-                />
-                <button
-                  onClick={() => markDeleted(b.id)}
-                  className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
-                  title="删除"
-                >×</button>
-              </div>
-            )}
-
-            {/* divider — 虚线分隔 */}
-            {b.kind === "divider" && (
-              <div className="py-2 flex items-center gap-3 group">
-                <div className="flex-1 h-px border-t border-dashed border-paper-line" />
-                <button
-                  onClick={() => markDeleted(b.id)}
-                  className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
-                  title="删除"
-                >×</button>
-                <div className="flex-1 h-px border-t border-dashed border-paper-line" />
-              </div>
-            )}
-
-            {/* checkbox — 可勾选的待办 */}
-            {b.kind === "checkbox" && (
-              <div className="py-1 group flex items-center gap-2">
-                <button
-                  onClick={() => updateBlock(b.id, { checked: !b.checked })}
-                  className={`w-5 h-5 rounded-md border-2 shrink-0 flex items-center justify-center transition ${
-                    b.checked
-                      ? "bg-paper-accent border-paper-accent text-white"
-                      : "border-paper-line hover:border-paper-accent"
-                  }`}
-                  title={b.checked ? "取消勾选" : "勾选"}
-                >
-                  {b.checked && <span className="text-xs leading-none">✓</span>}
-                </button>
-                <input
-                  type="text"
-                  value={b.content}
-                  onChange={(e) => updateBlock(b.id, { content: e.target.value })}
-                  placeholder="待办事项..."
-                  className={`flex-1 bg-transparent outline-none text-sm placeholder:text-paper-ink3 min-w-0 ${
-                    b.checked ? "text-paper-ink3 line-through" : "text-paper-ink"
-                  }`}
-                />
-                <button
-                  onClick={() => markDeleted(b.id)}
-                  className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition"
-                  title="删除"
-                >×</button>
-              </div>
-            )}
-
-            {/* finance_item — 记账流水 */}
-            {b.kind === "finance_item" && (
-              <FinanceItemRow
-                block={b}
-                onChange={(patch) => updateBlock(b.id, patch)}
-                onRemove={() => markDeleted(b.id)}
-              />
-            )}
-
-            {/* book — 书籍信息 + 进度条 */}
-            {b.kind === "book" && (
-              <div className="py-2 group">
-                <div className="rounded-xl border border-paper-line bg-paper-surface/60 p-3">
-                  <div className="flex items-start gap-3">
-                    <div className="text-3xl shrink-0">📚</div>
-                    <div className="flex-1 min-w-0">
-                      <input
-                        type="text"
-                        value={b.content}
-                        onChange={(e) => {
-                          updateBlock(b.id, { content: e.target.value, bookId: e.target.value });
-                        }}
-                        placeholder="《书名》"
-                        className="w-full bg-transparent outline-none text-lg font-bold text-paper-ink placeholder:text-paper-ink3"
-                      />
-                      <input
-                        type="text"
-                        value={b.author ?? ""}
-                        onChange={(e) => updateBlock(b.id, { author: e.target.value })}
-                        placeholder="作者"
-                        className="w-full bg-transparent outline-none text-sm text-paper-ink2 placeholder:text-paper-ink3 mt-0.5"
-                      />
-                      {/* 进度条 */}
-                      <div className="mt-2.5">
-                        <div className="flex items-center justify-between text-xs text-paper-ink2 mb-1">
-                          <span>进度</span>
-                          <span>
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              value={b.currentPage ?? 0}
-                              onChange={(e) => updateBlock(b.id, { currentPage: e.target.value ? Number(e.target.value) : 0 })}
-                              className="w-10 bg-transparent outline-none text-right text-paper-ink font-semibold"
-                            />
-                            {" / "}
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              value={b.totalPages ?? 200}
-                              onChange={(e) => updateBlock(b.id, { totalPages: e.target.value ? Number(e.target.value) : 200 })}
-                              className="w-10 bg-transparent outline-none text-right text-paper-ink"
-                            />
-                            {" 页"}
-                          </span>
-                        </div>
-                        <div className="h-2 bg-paper-line/40 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-paper-accent rounded-full transition-all duration-300"
-                            style={{
-                              width: `${Math.min(100, ((b.currentPage ?? 0) / Math.max(1, b.totalPages ?? 1)) * 100)}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => markDeleted(b.id)}
-                      className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-sm transition shrink-0"
-                      title="删除"
-                    >×</button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* quote — 摘抄 */}
-            {b.kind === "quote" && (
-              <div className="py-1 group">
-                <div className="flex gap-2 items-start">
-                  <div className="text-paper-accent text-lg leading-none mt-1 shrink-0">"</div>
-                  <textarea
-                    value={b.content}
-                    onChange={(e) => updateBlock(b.id, { content: e.target.value })}
-                    placeholder="摘抄一段喜欢的话..."
-                    rows={2}
-                    className="flex-1 bg-transparent outline-none text-sm text-paper-ink leading-relaxed placeholder:text-paper-ink3 resize-none border-l-2 border-paper-accent/40 pl-2 py-1"
-                  />
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      value={b.pageNumber ?? ""}
-                      onChange={(e) => updateBlock(b.id, { pageNumber: e.target.value ? Number(e.target.value) : undefined })}
-                      placeholder="页"
-                      className="w-12 bg-transparent outline-none text-xs text-paper-ink2 text-right placeholder:text-paper-ink3"
-                      title="页码"
-                    />
-                    <button
-                      onClick={() => markDeleted(b.id)}
-                      className="opacity-0 group-hover:opacity-100 text-paper-ink3 hover:text-red-500 text-xs transition"
-                      title="删除"
-                    >×</button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {idx === blocks.length - 1 && <div className="h-6" />}
-          </div>
-          </SortableBlock>
+          <BlockRow
+            key={b.id}
+            block={b}
+            isLast={idx === blocks.length - 1}
+            updateBlock={updateBlock}
+            markDeleted={markDeleted}
+            restoreBlock={restoreBlock}
+            textareaRefs={textareaRefs}
+          />
           ))}
           </SortableContext>
           </DndContext>
