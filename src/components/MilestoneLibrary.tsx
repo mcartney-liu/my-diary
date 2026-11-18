@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listMilestones, saveMilestone, type Milestone, type MilestoneType } from "../api";
+import { cachedGet, peek } from "../dataCache";
 
 const TYPE_LABEL: Record<MilestoneType, { label: string; icon: string; hint: string }> = {
   fixed:     { label: "固定日期", icon: "🎈", hint: "每年这一天都会提醒你" },
@@ -10,17 +11,16 @@ const TYPE_LABEL: Record<MilestoneType, { label: string; icon: string; hint: str
 
 export default function MilestoneLibrary() {
   const nav = useNavigate();
-  const [items, setItems] = useState<Milestone[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<Milestone[]>(() => peek<{ milestones?: Milestone[] }>("milestones:all")?.milestones ?? []);
+  const [loading, setLoading] = useState(() => peek("milestones:all") === undefined);
   const [showForm, setShowForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDate, setNewDate] = useState("");
   const [newType, setNewType] = useState<MilestoneType>("fixed");
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (force = false) => {
     try {
-      const res = await listMilestones();
+      const res = await cachedGet("milestones:all", listMilestones, { ttl: 60_000, force });
       setItems(res.milestones || []);
     } catch (e) {
       console.error("[milestones] ❌ 加载失败:", e);
@@ -51,7 +51,7 @@ export default function MilestoneLibrary() {
       setNewDate("");
       setNewType("fixed");
       setShowForm(false);
-      await load();
+      await load(true);
     } catch (e) {
       alert("创建失败：" + (e as Error).message);
     }

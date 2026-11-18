@@ -1,21 +1,26 @@
 import { useState, useEffect } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { wikiListTemplates, wikiAddTemplate, wikiDeleteTemplate, type WikiTemplate } from "../api";
+import { cachedGet, peek } from "../dataCache";
 
 // ====== 范本库 — 全局化 v5，从 KnowledgeBase 挪到个人中心 ======
 // UI 对齐 PaperLibrary：tab 切换 + 右上操作按钮
+type WikiTplBundle = { official: WikiTemplate[]; mine: WikiTemplate[] };
+
 export default function WikiTemplatesView() {
-  const [templates, setTemplates] = useState<{ official: WikiTemplate[]; mine: WikiTemplate[] }>({ official: [], mine: [] });
+  const cachedWikiTpl = peek<WikiTplBundle>("wikiTemplates:all");
+  const [templates, setTemplates] = useState<WikiTplBundle>(cachedWikiTpl ?? { official: [], mine: [] });
   const [tab, setTab] = useState<"mine" | "official">("mine");
   const [showNew, setShowNew] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [openCats, setOpenCats] = useState<Set<string>>(new Set(["📦 通用基础"]));
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(cachedWikiTpl === undefined);
 
-  async function load() {
-    setLoading(true);
-    try { const r = await wikiListTemplates(); setTemplates(r); }
-    finally { setLoading(false); }
+  async function load(force = false) {
+    try {
+      const r = await cachedGet("wikiTemplates:all", wikiListTemplates, { ttl: 60_000, force });
+      setTemplates(r);
+    } finally { setLoading(false); }
   }
   useEffect(() => { load(); }, []);
 
@@ -89,7 +94,7 @@ export default function WikiTemplatesView() {
               onToggle={() => setExpanded(expanded === t.id ? null : t.id)}
               onDelete={async () => {
                 if (!confirm(`删除「${t.name}」？`)) return;
-                await wikiDeleteTemplate(t.id); load();
+                await wikiDeleteTemplate(t.id); load(true);
               }} />
           ))}
         </div>
@@ -129,7 +134,7 @@ export default function WikiTemplatesView() {
         <TemplateEditor
           onSave={async (data) => {
             await wikiAddTemplate(data);
-            setShowNew(false); load();
+            setShowNew(false); load(true);
           }}
           onCancel={() => setShowNew(false)}
         />
