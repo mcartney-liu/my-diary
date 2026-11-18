@@ -9,6 +9,42 @@
 - **效果**：现在只有被修改的那一个块重渲染，其他块直接命中 memo 提前返回；编辑长日记体感明显顺滑
 - **不影响**：纯前端渲染层改动，不改数据结构、不改 API、不碰 Worker
 
+### 🔧 技术记录（给后续维护者）
+
+**根因**
+`EditorPage.tsx` 把 `blocks.map` 的整段块渲染 JSX 内联在一个 3400 行组件里。
+每敲一个字 → `setBlocks` → 所有块全量重渲染（每个 `<textarea>`、dnd-kit 的
+`SortableContext`、壁纸层、行线层全部重建）。中文输入法在选词阶段会高频触发
+`onChange`，因此卡顿随日记字数增加而放大。
+
+**修法**
+① 内联块渲染 JSX 抽成 `<BlockRow>` + `React.memo`，只有被修改的那一块重渲染；
+② `updateBlock` / `markDeleted` / `restoreBlock` 包 `useCallback([])`
+   （函数引用不稳定则 memo 永不命中，这步不可省）；
+③ `SortableContext items` 改用 `useMemo` 的 `blockIds`，
+   不再每次 render 给 dnd-kit 传新数组。
+
+**行为等价性**
+搬移的 220 行 JSX 与原内联代码逐行比对，归一化后 212 行完全一致，
+唯一差异为 `idx === blocks.length - 1` → `isLast` prop（取值相同）。
+保存 / 删除 / 恢复 / 拖拽 / 模板切换 / 记账逻辑均未改动。
+
+**验证**
+`npx tsc -b --noEmit` 0 错误；`oxlint` 0 错误；`npm run build` 成功；
+GitHub Actions `check` 全绿。线上 bundle `index-DIT8D0Ad.js` 与本地构建哈希一致。
+
+**已知遗留（本次未处理，待排期）**
+- 构建产物仍是单个 997KB JS（gzip 287KB）、零代码分割，首屏会把
+  `EditorPage` / `KnowledgeBase` / `ProfilePage` / `AiChatView` 一起解析
+  → 建议做路由级 `React.lazy`。
+- 切页面反复出现「加载中」：路由无保活 + 全站无读缓存 + loading 遮整页。
+  前端缓存层已单独起草（PR #2），尚未合并。
+- 后端 `GET /api/profile` 每次仍扫全库算 `total_words`，首次进入秒级；
+  需要 `profiles.total_words` 增量维护 + 一次 backfill（要 migration）。
+- `listDiaries?limit=365` 仍返回每篇完整 blocks，且 `platform.onAppResume`
+  未做幂等去重，切回前台可能重复拉全库（Web / Android 均受影响）。
+- Android 需 `npm run cap:apk` 重新出包才会带上本次改动。
+
 ---
 
 ## v0.5.15 — 2026-10-30（**WorkBuddy 1024 大赛投稿版**）
