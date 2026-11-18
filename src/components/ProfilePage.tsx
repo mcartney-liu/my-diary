@@ -848,12 +848,25 @@ export default function ProfilePage() {
               >×</button>
             </div>
             <div className="px-5 py-4 overflow-y-auto text-sm text-paper-ink space-y-4">
-     {/* === v0.5.15 当前版本（高亮） === */}
+     {/* === v0.5.16 当前版本（高亮） === */}
               <div>
                 <div className="flex items-baseline gap-2 mb-2">
-                  <span className="font-bold text-paper-accent">v0.5.15</span>
-                  <span className="text-paper-ink3 text-xs">2026年10月30日</span>
+                  <span className="font-bold text-paper-accent">v0.5.16</span>
+                  <span className="text-paper-ink3 text-xs">2026年11月18日</span>
                   <span className="text-[10px] px-1.5 py-0.5 bg-paper-accent/10 text-paper-accent rounded">最新</span>
+                </div>
+                <div className="space-y-2 text-paper-ink2 leading-relaxed">
+                  <div><b className="text-paper-ink">⚡ 优化</b></div>
+                  <ul className="list-disc pl-5 space-y-1">
+                    <li>✍️ <b>编辑器流畅度大幅提升</b> — 长日记里敲一个字不再卡顿；之前每打一个字，编辑器里所有日记块都会一起重渲染（20+ 块的日记等于每秒几十次），现在只重渲染你正在编辑的那一行；同事 Doubao 帮忙抽的 memo 组件，体感明显顺滑</li>
+                  </ul>
+                </div>
+              </div>
+     {/* === v0.5.15 === */}
+              <div className="border-t border-paper-line pt-4">
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="font-bold text-paper-ink">v0.5.15</span>
+                  <span className="text-paper-ink3 text-xs">2026年10月30日</span>
                 </div>
                 <div className="space-y-2 text-paper-ink2 leading-relaxed">
                   <div><b className="text-paper-ink">✨ 新功能</b></div>
