@@ -539,6 +539,22 @@ async function handleListDiaries(request, env, JWT_SECRET) {
   return json({ diaries: out });
 }
 
+// 计算一篇日记的字数 —— 与 handleGetProfile 旧算法 (L782-783) 严格一致：
+//   sum of b.content.length where b.kind === "text" (JS string.length = UTF-16 code unit)
+//   null/undefined blocks → 0，空 content → 0
+// 写路径 handleSaveDiary 的 UPDATE/INSERT 都调用它，写入 diaries.word_count
+function calcWordCount(blocks) {
+  if (!Array.isArray(blocks)) return 0;
+  let n = 0;
+  for (const b of blocks) {
+    if (b && b.kind === "text") {
+      const c = b.content;
+      if (c != null) n += c.length;
+    }
+  }
+  return n;
+}
+
 async function handleSaveDiary(request, env, JWT_SECRET, _params, ctx) {
   try {
     const user = await authUser(request, jwtSecrets(env));
@@ -551,6 +567,7 @@ async function handleSaveDiary(request, env, JWT_SECRET, _params, ctx) {
 
     const now = Date.now();
     const blocksJson = JSON.stringify(blocks || []);
+    const wordCount = calcWordCount(blocks);
     const tagsJson = JSON.stringify(tags || []);
     let tplId = template_id || "diary";
     console.log("[handleSaveDiary] 📥 template_id:", tplId, "milestone_info:", milestone_info ? JSON.stringify(milestone_info) : "(无)");
@@ -602,10 +619,10 @@ async function handleSaveDiary(request, env, JWT_SECRET, _params, ctx) {
     if (existing) {
       await env.DB.prepare(
         `UPDATE diaries SET date=?, template_id=?, title=?, mood_id=?, tags=?, weather=?, blocks=?,
-          deleted_at=?, capsule_unlock_at=?, wallpaper=?, show_lines=?, updated_at=?
+          word_count=?, deleted_at=?, capsule_unlock_at=?, wallpaper=?, show_lines=?, updated_at=?
          WHERE id=? AND user_id=?`
       ).bind(date, tplId, title || "", mood_id || "calm", tagsJson,
-             weather ? JSON.stringify(weather) : null, blocksJson,
+             weather ? JSON.stringify(weather) : null, blocksJson, wordCount,
              deleted_at ?? null, capsule_unlock_at ?? null, wallpaper ?? null, show_lines ?? 1,
              now, existing.id, user.uid).run();
       console.log("[handleSaveDiary] 📝 UPDATE diary:", diaryId);
@@ -613,10 +630,10 @@ async function handleSaveDiary(request, env, JWT_SECRET, _params, ctx) {
       diaryId = uuid();
       await env.DB.prepare(
         `INSERT INTO diaries (id, user_id, date, template_id, title, mood_id, tags, weather, blocks,
-          deleted_at, capsule_unlock_at, wallpaper, show_lines, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          word_count, deleted_at, capsule_unlock_at, wallpaper, show_lines, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(diaryId, user.uid, date, tplId, title || "", mood_id || "calm",
-             tagsJson, weather ? JSON.stringify(weather) : null, blocksJson,
+             tagsJson, weather ? JSON.stringify(weather) : null, blocksJson, wordCount,
              deleted_at ?? null, capsule_unlock_at ?? null, wallpaper ?? null, show_lines ?? 1,
              now, now).run();
       console.log("[handleSaveDiary] ✨ INSERT diary:", diaryId);
@@ -773,17 +790,14 @@ async function handleGetProfile(request, env, JWT_SECRET) {
   const p = await env.DB.prepare("SELECT * FROM profiles WHERE user_id = ?").bind(user.uid).first();
   const countRow = await env.DB.prepare("SELECT COUNT(*) as c FROM diaries WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')").bind(user.uid).first();
 
-  // 统计总字数（应用层，D1 不支持 json_length）
-  const allBlocks = await env.DB.prepare("SELECT blocks FROM diaries WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')").bind(user.uid).all();
-  let totalWords = 0;
-  for (const row of allBlocks.results) {
-    try {
-      const blocks = JSON.parse(row.blocks || "[]");
-      for (const b of blocks) {
-        if (b.kind === "text" && b.content) totalWords += b.content.length;
-      }
-    } catch {}
-  }
+  // 读时聚合：直接 SUM(word_count)，不再扫全库 JSON.parse
+  const wordRow = await env.DB.prepare("SELECT COALESCE(SUM(word_count), 0) as w FROM diaries WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')").bind(user.uid).first();
+  const totalWords = wordRow?.w || 0;
+
+  // 同步 profiles.total_words（AI 上下文在 L1386/L1415 读它）
+  try {
+    await env.DB.prepare("UPDATE profiles SET total_words = ? WHERE user_id = ?").bind(totalWords, user.uid).run();
+  } catch { /* 表不存在或列不存在，忽略 */ }
 
   return json({
     user: u,
@@ -2554,11 +2568,12 @@ async function resetDemoAccount(env) {
   for (const s of seeds) {
     const id = crypto.randomUUID();
     const blocksJson = JSON.stringify(s.blocks);
+    const seedWordCount = calcWordCount(s.blocks);
     try {
       await env.DB.prepare(
-        `INSERT INTO diaries (id, user_id, date, template_id, title, mood_id, tags, weather, blocks, wallpaper, show_lines, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`
-      ).bind(id, uid, s.date, s.template_id, s.title, s.mood_id, JSON.stringify(s.tags), blocksJson, s.wallpaper || null, s.show_lines ? 1 : 0, now, now).run();
+        `INSERT INTO diaries (id, user_id, date, template_id, title, mood_id, tags, weather, blocks, word_count, wallpaper, show_lines, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`
+      ).bind(id, uid, s.date, s.template_id, s.title, s.mood_id, JSON.stringify(s.tags), blocksJson, seedWordCount, s.wallpaper || null, s.show_lines ? 1 : 0, now, now).run();
     } catch (e) {
       console.error("[demo] 种子日记插入失败:", s.title, e.message);
     }
