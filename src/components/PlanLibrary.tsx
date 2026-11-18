@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listPlans, savePlan, updatePlan, type Plan } from "../api";
+import { cachedGet, peek, invalidate } from "../dataCache";
 
 function daysUntil(targetDate: string): number {
   const now = new Date();
@@ -21,17 +22,16 @@ function getDisplay(p: Plan): { text: string; kind: "upcoming" | "ongoing" | "ov
 
 export default function PlanLibrary() {
   const nav = useNavigate();
-  const [items, setItems] = useState<Plan[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<Plan[]>(() => peek<{ plans?: Plan[] }>("plans:all")?.plans ?? []);
+  const [loading, setLoading] = useState(() => peek("plans:all") === undefined);
   const [showForm, setShowForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDate, setNewDate] = useState("");
   const [newDesc, setNewDesc] = useState("");
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (force = false) => {
     try {
-      const res = await listPlans();
+      const res = await cachedGet("plans:all", listPlans, { ttl: 60_000, force });
       setItems(res.plans || []);
     } catch (e) {
       console.error("[plans] ❌ 加载失败:", e);
@@ -62,7 +62,7 @@ export default function PlanLibrary() {
       setNewDate("");
       setNewDesc("");
       setShowForm(false);
-      await load();
+      await load(true);
     } catch (e) {
       alert("创建失败：" + (e as Error).message);
     }
@@ -76,6 +76,8 @@ export default function PlanLibrary() {
     setItems(optimistic);
     try {
       await updatePlan({ id: p.id, status: nextStatus as any });
+      // 日历上的计划圆点也读这份缓存，写完主动失效
+      invalidate("plans:all");
     } catch (e) {
       alert("更新失败：" + (e as Error).message);
       await load();

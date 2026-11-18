@@ -1,21 +1,30 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Share2, Trash2, Upload } from "lucide-react";
 import { listPapers, savePaper, deletePaper, sharePaper, type UserPaper } from "../api";
+import { cachedGet, peek } from "../dataCache";
+
+type PaperBundle = { mine: UserPaper[]; pub: UserPaper[] };
 
 export default function PaperLibrary() {
-  const [mine, setMine] = useState<UserPaper[]>([]);
-  const [pub, setPub] = useState<UserPaper[]>([]);
-  const [loading, setLoading] = useState(true);
+  // 🔑 首帧优先用缓存：二次进入直接出内容，不再整块「加载中...」
+  const cachedPapers = peek<PaperBundle>("papers:all");
+  const [mine, setMine] = useState<UserPaper[]>(cachedPapers?.mine ?? []);
+  const [pub, setPub] = useState<UserPaper[]>(cachedPapers?.pub ?? []);
+  const [loading, setLoading] = useState(cachedPapers === undefined);
   const [tab, setTab] = useState<"mine" | "public">("mine");
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function load() {
-    setLoading(true);
+  async function load(force = false) {
     try {
-      const [m, p] = await Promise.all([listPapers("mine"), listPapers("public")]);
-      setMine(m.papers);
-      setPub(p.papers);
+      const d = await cachedGet<PaperBundle>(
+        "papers:all",
+        () => Promise.all([listPapers("mine"), listPapers("public")])
+          .then(([m, p]) => ({ mine: m.papers, pub: p.papers })),
+        { ttl: 60_000, force },
+      );
+      setMine(d.mine);
+      setPub(d.pub);
     } catch {}
     setLoading(false);
   }
@@ -30,7 +39,7 @@ export default function PaperLibrary() {
         const imageData = reader.result as string;
         const name = file.name.replace(/\.[^.]+$/, "");
         await savePaper({ name: name || "未命名信纸", image_data: imageData });
-        await load();
+        await load(true);
         setUploading(false);
       };
       reader.onerror = () => { setUploading(false); alert("读取图片失败"); };
@@ -44,14 +53,14 @@ export default function PaperLibrary() {
   async function handleDelete(id: string, name: string) {
     if (!confirm(`删除信纸"${name}"？`)) return;
     await deletePaper(id);
-    await load();
+    await load(true);
   }
 
   async function handleShare(p: UserPaper) {
     const newVal = !p.is_public;
     if (newVal && !confirm(`确认共享？共享后所有人都能看到"${p.name}"`)) return;
     await sharePaper(p.id, newVal);
-    await load();
+    await load(true);
   }
 
   const list = tab === "mine" ? mine : pub;

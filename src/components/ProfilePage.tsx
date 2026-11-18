@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
 import { getProfile, patchProfile, submitFeedback, changePassword, type ProfileStats, listMemory, addMemory, editMemory, deleteMemory } from "../api";
+import { cachedGet, peek } from "../dataCache";
 import { polishFeedback, getAiProvider } from "../ai";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
@@ -44,8 +45,9 @@ function getAvatarImg(key?: string): string | null {
 export default function ProfilePage() {
   const nav = useNavigate();
   const auth = useAuth();
-  const [data, setData] = useState<ProfileData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // 🔑 首帧优先用缓存：有上一份资料就直接渲染，不再整页「加载中...」
+  const [data, setData] = useState<ProfileData | null>(() => peek<ProfileData>("profile") ?? null);
+  const [loading, setLoading] = useState(() => peek("profile") === undefined);
   const [error, setError] = useState<string | null>(null);
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState("");
@@ -107,7 +109,8 @@ export default function ProfilePage() {
   const [fbPolishing, setFbPolishing] = useState(false);
 
   useEffect(() => {
-    getProfile()
+    // ttl: 0 —— 缓存只用于首帧先上屏，资料仍是每次进页面拉最新
+    cachedGet<ProfileData>("profile", getProfile as () => Promise<ProfileData>, { ttl: 0 })
       .then(r => setData(r))
       .catch(e => setError(e.message || "加载失败"))
       .finally(() => setLoading(false));

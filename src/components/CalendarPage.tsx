@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { User, PenLine, LibraryBig } from "lucide-react";
 import type { Diary } from "../types";
 import { getProfile, listPlans, listMilestones } from "../api";
+import { cachedGet, peek } from "../dataCache";
 import { monthCells, moodById, fmtDate } from "../data";
 import { TEMPLATES } from "../templates";
 import StreakBadge from "./StreakBadge";
@@ -37,17 +38,26 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [selectedDate, setSelectedDate] = useState<string>(initialDate);
   const [view, setView] = useState<"monthly" | "yearly" | "ai" | "wiki">("monthly");
   const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
-  const [avatarKey, setAvatarKey] = useState<string | null>(null);
-  const [userProfile, setUserProfile] = useState<any>(null);
+  // 🔑 首帧优先用缓存：进过一次之后，再回到这个页面不再出现整屏「正在加载…」
+  const [avatarKey, setAvatarKey] = useState<string | null>(
+    () => peek<any>("profile")?.user?.avatar ?? null
+  );
+  const [userProfile, setUserProfile] = useState<any>(
+    () => peek<any>("profile")?.user ?? null
+  );
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showTour, setShowTour] = useState(false);
-  const [bootLoading, setBootLoading] = useState(true);
+  const [bootLoading, setBootLoading] = useState(() => peek("profile") === undefined);
   const [plansByDate, setPlansByDate] = useState<Map<string, number>>(new Map());
   const [milestonesByDate, setMilestonesByDate] = useState<Map<string, number>>(new Map());
 
   // 并行拉 plans + milestones，按 target_date 分组
   useEffect(() => {
-    Promise.all([listPlans().catch(() => null), listMilestones().catch(() => null)]).then(([p, m]) => {
+    Promise.all([
+      // 日历上的计划/里程碑圆点：缓存 60s，切回来不再重复拉
+      cachedGet("plans:all", listPlans).catch(() => null),
+      cachedGet("milestones:all", listMilestones).catch(() => null),
+    ]).then(([p, m]) => {
       const pMap = new Map<string, number>();
       const mMap = new Map<string, number>();
       for (const pl of (p as any)?.plans ?? []) {
@@ -63,7 +73,8 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
 
   // 拉用户信息，判断是否需要新手指引
   useEffect(() => {
-    getProfile().then((p: any) => {
+    // ttl: 0 —— 缓存只用于"先上屏"，每次进入仍拉一次最新资料（达人/统计要准）
+    cachedGet<any>("profile", getProfile, { ttl: 0 }).then((p: any) => {
       const u = p?.user;
       if (!u) return;
       setUserProfile(u);

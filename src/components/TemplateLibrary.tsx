@@ -3,6 +3,7 @@ import { Loader2, Pencil, Trash2, Share2, Plus } from "lucide-react";
 import type { DiaryBlock } from "../types";
 import { uid } from "../types";
 import { listTemplates, saveTemplate, updateTemplate, deleteTemplate, shareTemplate, type UserTemplate } from "../api";
+import { cachedGet, peek } from "../dataCache";
 
 const COMPONENT_LABELS: Record<string, string> = {
   heading: "标题", text: "文字", divider: "分割线", checkbox: "待办",
@@ -32,10 +33,14 @@ function blocksSummary(blocks: DiaryBlock[]): string {
   return labels.slice(0, 2).join(" + ") + ` +${labels.length - 2}`;
 }
 
+type TplBundle = { mine: UserTemplate[]; pub: UserTemplate[] };
+
 export default function TemplateLibrary() {
-  const [mine, setMine] = useState<UserTemplate[]>([]);
-  const [pub, setPub] = useState<UserTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
+  // 🔑 首帧优先用缓存：二次进入直接出内容，不再整块「加载中...」
+  const cachedTpl = peek<TplBundle>("templates:all");
+  const [mine, setMine] = useState<UserTemplate[]>(cachedTpl?.mine ?? []);
+  const [pub, setPub] = useState<UserTemplate[]>(cachedTpl?.pub ?? []);
+  const [loading, setLoading] = useState(cachedTpl === undefined);
   const [tab, setTab] = useState<"mine" | "public">("mine");
 
   const [showBuilder, setShowBuilder] = useState(false);
@@ -46,12 +51,16 @@ export default function TemplateLibrary() {
   const [bKinds, setBKinds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
-  async function load() {
-    setLoading(true);
+  async function load(force = false) {
     try {
-      const [m, p] = await Promise.all([listTemplates("mine"), listTemplates("public")]);
-      setMine(m.templates);
-      setPub(p.templates);
+      const d = await cachedGet<TplBundle>(
+        "templates:all",
+        () => Promise.all([listTemplates("mine"), listTemplates("public")])
+          .then(([m, p]) => ({ mine: m.templates, pub: p.templates })),
+        { ttl: 60_000, force },
+      );
+      setMine(d.mine);
+      setPub(d.pub);
     } catch {}
     setLoading(false);
   }
@@ -96,20 +105,20 @@ export default function TemplateLibrary() {
         await saveTemplate({ name: bName.trim(), icon: bIcon, description: bDesc.trim(), blocks: newBlocks });
       }
       setShowBuilder(false);
-      await load();
+      await load(true);
     } catch (e: any) { alert("保存失败: " + (e?.message || e)); }
     finally { setSaving(false); }
   }
 
   async function handleDelete(id: string, name: string) {
     if (!confirm(`删除模板"${name}"？`)) return;
-    await deleteTemplate(id); await load();
+    await deleteTemplate(id); await load(true);
   }
 
   async function handleShare(t: UserTemplate) {
     const newVal = !t.is_public;
     if (newVal && !confirm(`确认共享？共享后所有人都能看到"${t.name}"`)) return;
-    await shareTemplate(t.id, newVal); await load();
+    await shareTemplate(t.id, newVal); await load(true);
   }
 
   const list = tab === "mine" ? mine : pub;
