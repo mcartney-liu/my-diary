@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
 import { getProfile, patchProfile, submitFeedback, changePassword, type ProfileStats, listMemory, addMemory, editMemory, deleteMemory } from "../api";
+import { cachedGet, peek, invalidate } from "../dataCache";
 import { polishFeedback, getAiProvider } from "../ai";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
@@ -44,8 +45,9 @@ function getAvatarImg(key?: string): string | null {
 export default function ProfilePage() {
   const nav = useNavigate();
   const auth = useAuth();
-  const [data, setData] = useState<ProfileData | null>(null);
-  const [loading, setLoading] = useState(true);
+  // 🔑 首帧优先用缓存：有上一份资料就直接渲染，不再整页「加载中...」
+  const [data, setData] = useState<ProfileData | null>(() => peek<ProfileData>("profile") ?? null);
+  const [loading, setLoading] = useState(() => peek("profile") === undefined);
   const [error, setError] = useState<string | null>(null);
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState("");
@@ -54,7 +56,7 @@ export default function ProfilePage() {
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [avatarSaving, setAvatarSaving] = useState(false);
   const [profileSub, setProfileSub] = useState<"templates" | "wikiTemplates" | "papers">("templates");
-  const [memories, setMemories] = useState<MemoryItem[]>([]);
+  const [memories, setMemories] = useState<MemoryItem[]>(() => peek<{ memories?: MemoryItem[] }>("memory:all")?.memories ?? []);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [newMemType, setNewMemType] = useState("fact");
   const [newMemContent, setNewMemContent] = useState("");
@@ -107,7 +109,8 @@ export default function ProfilePage() {
   const [fbPolishing, setFbPolishing] = useState(false);
 
   useEffect(() => {
-    getProfile()
+    // ttl: 0 —— 缓存只用于首帧先上屏，资料仍是每次进页面拉最新
+    cachedGet<ProfileData>("profile", getProfile as () => Promise<ProfileData>, { ttl: 0 })
       .then(r => setData(r))
       .catch(e => setError(e.message || "加载失败"))
       .finally(() => setLoading(false));
@@ -146,20 +149,26 @@ export default function ProfilePage() {
   // ===== 切换到记忆 tab 时加载 =====
   useEffect(() => {
     if (activeTab !== "memory") return;
-    setMemoryLoading(true);
-    listMemory()
+    // 有缓存就不转圈；60s 内直接复用上次结果
+    setMemoryLoading(peek("memory:all") === undefined);
+    cachedGet("memory:all", listMemory, { ttl: 60_000 })
       .then(r => setMemories(r.memories || []))
       .catch(() => setMemories([]))
       .finally(() => setMemoryLoading(false));
   }, [activeTab]);
+
+  // 写操作后强制刷新（跳过缓存），保证刚加/刚改的一定在列表里
+  const reloadMemories = async () => {
+    const r = await cachedGet("memory:all", listMemory, { ttl: 0, force: true });
+    setMemories(r.memories || []);
+  };
 
   const handleAddMemory = async () => {
     if (!newMemContent.trim()) return;
     try {
       await addMemory(newMemType, newMemContent.trim(), 0.8);
       setNewMemContent("");
-      const r = await listMemory();
-      setMemories(r.memories || []);
+      await reloadMemories();
     } catch {}
   };
 
@@ -168,6 +177,7 @@ export default function ProfilePage() {
     try {
       await deleteMemory(id);
       setMemories(prev => prev.filter(m => m.id !== id));
+      invalidate("memory:all");
     } catch {}
   };
 
@@ -648,9 +658,8 @@ export default function ProfilePage() {
                                 await editMemory(m.id, editingContent.trim());
                                 setEditingMemoryId(null);
                                 setEditingContent("");
-                                // 刷新记忆列表
-                                const list = await listMemory();
-                                if (list) setMemories(list.memories);
+                                // 刷新记忆列表（跳过缓存）
+                                await reloadMemories();
                               } catch (e) { alert("保存失败：" + (e as Error).message); }
                             }}
                             className="text-xs text-paper-card bg-paper-accent hover:opacity-90 transition px-3 py-1 rounded-md"

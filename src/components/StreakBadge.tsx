@@ -3,6 +3,7 @@ import type { Diary } from "../types";
 import { computeStreak, computeMaxStreak, fmtDate } from "../data";
 import { summarizeDay } from "../ai";
 import { listSummaries, type DailySummary } from "../api";
+import { cachedGet, peek } from "../dataCache";
 
 interface Props {
   diaries: Diary[];
@@ -43,7 +44,7 @@ export default function StreakBadge({ diaries }: Props) {
 
   // 🔑 历史总结抽屉
   const [showHistory, setShowHistory] = useState(false);
-  const [history, setHistory] = useState<DailySummary[]>([]);
+  const [history, setHistory] = useState<DailySummary[]>(() => peek<{ summaries?: DailySummary[] }>("summaries:all")?.summaries ?? []);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
@@ -66,8 +67,9 @@ export default function StreakBadge({ diaries }: Props) {
   useEffect(() => {
     if (!showHistory) return;
     let cancelled = false;
-    setHistoryLoading(true);
-    listSummaries()
+    // 有缓存就先不转圈，60s 内直接复用
+    setHistoryLoading(peek("summaries:all") === undefined);
+    cachedGet("summaries:all", listSummaries, { ttl: 60_000 })
       .then((res) => {
         if (!cancelled) setHistory(res.summaries || []);
       })

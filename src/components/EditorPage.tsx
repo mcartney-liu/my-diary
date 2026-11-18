@@ -4,6 +4,7 @@ import type { Diary, DiaryBlock, MoodId } from "../types";
 import { uid } from "../types";
 import { MOOD_TAGS, moodById, today, PROMPTS, fmtDateLocal } from "../data";
 import { transcribeAudio, listTemplates, saveTemplate, updateTemplate, deleteTemplate, listPapers, patchCapsule, type UserTemplate, type UserPaper } from "../api";
+import { cachedGet, peek, invalidate } from "../dataCache";
 import { polishTranscript, recommendBooks, kickoffBookNote, inferMilestoneInfo, quickRuleMatch, getAiProvider, type BookRecommendation } from "../ai";
 import { fetchWeather, fetchLocation, fetchLocationAuto, type LocationResult } from "../weather";
 import { fetchNearbyPois, type Poi } from "../services/poi";
@@ -602,9 +603,9 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
   // ===== 模板管理 =====
   async function loadMyTemplates() {
-    setLoadingMyTemplates(true);
+    setLoadingMyTemplates(peek("templates:editor") === undefined);
     try {
-      const data = await listTemplates("all");
+      const data = await cachedGet("templates:editor", () => listTemplates("all"), { ttl: 60_000 });
       setMyTemplates(data.templates);
     } catch {
       // 登录过期或网络错误，静默
@@ -617,15 +618,17 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     try {
       await deleteTemplate(id);
       setMyTemplates((prev) => prev.filter((t) => t.id !== id));
+      // 模板库页面也读同一份数据，删完主动失效
+      invalidate("templates");
     } catch {
       alert("删除失败");
     }
   }
 
   async function loadPapers() {
-    setLoadingPapers(true);
+    setLoadingPapers(peek("papers:editor") === undefined);
     try {
-      const data = await listPapers("all");
+      const data = await cachedGet("papers:editor", () => listPapers("all"), { ttl: 60_000 });
       setMyPapers(data.papers);
     } catch {}
     finally {
