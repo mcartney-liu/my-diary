@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Routes, Route, Navigate, useParams, useSearchParams } from "react-router-dom";
 import type { Diary, MoodId, DiaryBlock } from "./types";
 import { seedIfEmpty } from "./storage";
@@ -267,7 +267,7 @@ export default function App() {
 
 // 多端同步：回到前台 / App 获得焦点时，从云端拉一次最新日记
   // 解决 "Web 端删了 Android 端还留着" 这种跨端延迟问题
-  const refreshFromCloud = async () => {
+  const refreshFromCloud = useCallback(async () => {
     if (!getToken()) return;
     try {
       const r = await apiListDiaries({ limit: 365 });
@@ -296,13 +296,37 @@ export default function App() {
     } catch (e: any) {
       console.warn("[mydiary] 🔄 云端刷新失败:", e?.message);
     }
-  };
+  }, []);
+
+  // 切回前台的三层收敛 —— 否则一次「切走再回来」会打出多次全量请求：
+  //   ① `visibilitychange` 与 `window.focus` 在 Web 上常成对触发；
+  //   ② 点了别的窗口再点回来，`focus` 会连续触发；
+  //   ③ 上一次全量拉取（365 篇，含全部 blocks）还没回来时又发一次。
+  // 这里统一合并成「同一时刻最多一次 + 30s 内最多一次」。
+  // 30s 的来源：既盖住 focus/visibilitychange 的成对触发和抖动，又不至于让
+  // 「切出去 5 秒再回来」这种常见操作失去同步能力。
+  const RESUME_REFRESH_MIN_INTERVAL = 30_000;
+  const resumeRefreshingRef = useRef(false);
+  const lastResumeRefreshRef = useRef(0);
+
+  const handleAppResume = useCallback(() => {
+    // ② 并发去重：上一次还没回来，直接忽略这次的第二次事件
+    if (resumeRefreshingRef.current) return;
+    // ① focus 抖动 / 频繁切窗口：间隔内不重复全量拉
+    if (Date.now() - lastResumeRefreshRef.current < RESUME_REFRESH_MIN_INTERVAL) return;
+    resumeRefreshingRef.current = true;
+    lastResumeRefreshRef.current = Date.now();
+    void refreshFromCloud().finally(() => {
+      resumeRefreshingRef.current = false;
+    });
+  }, [refreshFromCloud]);
 
   useEffect(() => {
     // 切回前台自动刷新云端 → 统一走 platform.onAppResume（含 visibilitychange + focus）
     // ⚠️ 平台差异必须收口到 platform.ts（见 docs/APP-SYNC-RULES.md）
-    return platform.onAppResume(refreshFromCloud);
-  }, []);
+    // 幂等/节流在 handleAppResume 里做：platform.onAppResume 按约定只负责挂事件
+    return platform.onAppResume(handleAppResume);
+  }, [handleAppResume]);
 
   // 🔥 网络恢复 → 自动重推离线积压的日记
   useEffect(() => {
