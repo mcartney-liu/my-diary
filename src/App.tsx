@@ -567,9 +567,9 @@ export default function App() {
         </div>
       )}
 
-      {/* 删除撤销 Snackbar — 底部 fixed，5 秒自动消失 */}
+      {/* 删除撤销 Snackbar — 浮在底栏上方（底栏已改为常驻，bottom-6 会被压住） */}
       {undoSnack && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-full bg-paper-ink text-paper-card shadow-lg text-sm animate-[fade-in_0.2s]">
+        <div className="fixed bottom-[5.5rem] left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-full bg-paper-ink text-paper-card shadow-lg text-sm animate-[fade-in_0.2s]">
           <span>已删除「{undoSnack.title}」</span>
           <button
             onClick={handleUndoDelete}

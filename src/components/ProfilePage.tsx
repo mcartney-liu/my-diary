@@ -462,6 +462,16 @@ export default function ProfilePage() {
                     <span className="flex-1 text-left">反馈与建议</span>
                     <span className="text-paper-ink3">›</span>
                   </button>
+
+                  {/* 退出登录：移动端习惯位置是「设置」最底部，红色危险项，而不是常驻在页面正文里 */}
+                  <div className="border-t border-paper-line/60 my-1" />
+                  <button
+                    onClick={() => { setShowSettings(false); handleLogout(); }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-red-600 hover:bg-red-50 transition"
+                  >
+                    <span>🚪</span>
+                    <span>退出登录</span>
+                  </button>
                 </div>
               </>
             )}
@@ -707,14 +717,6 @@ export default function ProfilePage() {
         {activeTab === "knowledge" && (
           <KnowledgeBase />
         )}
-
-        {/* 退出登录（始终显示） */}
-        <button
-          onClick={handleLogout}
-          className="w-full py-3 rounded-card border border-red-200 bg-red-50 text-red-600 font-medium hover:bg-red-100 transition active:scale-[0.98]"
-        >
-          退出登录
-        </button>
 
         <p className="text-center text-paper-ink3 text-xs pt-2">
           MyDiary · 纸风格日记 · Powered by Cloudflare
