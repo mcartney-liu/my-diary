@@ -4,6 +4,7 @@ import { useAuth } from "../AuthContext";
 import { getProfile, patchProfile, submitFeedback, changePassword, type ProfileStats, listMemory, addMemory, editMemory, deleteMemory } from "../api";
 import { cachedGet, peek, invalidate } from "../dataCache";
 import { polishFeedback, getAiProvider } from "../ai";
+import { toast, notify, confirmAsync } from "../uiFeedback";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
 import WikiTemplatesView from "./WikiTemplatesView";
@@ -174,7 +175,12 @@ export default function ProfilePage() {
   };
 
   const handleDeleteMemory = async (id: number) => {
-    if (!confirm("删除这条记忆？小麦 下次就不会用上了")) return;
+    if (!(await confirmAsync({
+      title: "删除这条记忆",
+      message: "删除后小麦 下次就不会用上了。",
+      confirmText: "删除",
+      confirmTone: "danger",
+    }))) return;
     try {
       await deleteMemory(id);
       setMemories(prev => prev.filter(m => m.id !== id));
@@ -183,9 +189,16 @@ export default function ProfilePage() {
   };
 
   const handleLogout = () => {
-    if (!confirm("确定要退出登录吗？")) return;
-    auth.logout();
-    nav("/", { replace: true });
+    void confirmAsync({
+      title: "退出登录",
+      message: "确定要退出登录吗？退出后需要重新登录才能看到日记。",
+      confirmText: "退出",
+      confirmTone: "danger",
+    }).then((ok) => {
+      if (!ok) return;
+      auth.logout();
+      nav("/", { replace: true });
+    });
   };
 
   const startEditNickname = () => {
@@ -207,7 +220,7 @@ export default function ProfilePage() {
         setFbType("suggestion");
       }, 1500);
     } catch (e: any) {
-      alert("提交失败: " + (e.message || "网络错误，请稍后再试"));
+      toast("提交失败: " + (e.message || "网络错误，请稍后再试"), "error");
     } finally {
       setFbSubmitting(false);
     }
@@ -216,7 +229,7 @@ export default function ProfilePage() {
   // ===== 反馈语音录入 =====
   const startFbRecording = () => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { alert("当前浏览器不支持语音识别"); return; }
+    if (!SR) { notify("当前浏览器不支持语音识别，换成手机自带键盘的语音输入试试。", "不能语音输入"); return; }
     const rec = new SR();
     rec.lang = "zh-CN";
     rec.interimResults = true;
@@ -252,7 +265,7 @@ export default function ProfilePage() {
 
   // ===== 反馈 AI 美化（开发视角 bug report）=====
   const runFbPolish = async () => {
-    if (!fbContent.trim()) { alert("先写点东西再整理吧"); return; }
+    if (!fbContent.trim()) { toast("先写点东西再整理吧"); return; }
     setFbPolishing(true);
     try {
       const polished = await polishFeedback(fbContent, fbType, getAiProvider());
@@ -261,7 +274,7 @@ export default function ProfilePage() {
       const titleMatch = polished.match(/^标题[:：]\s*(.+)$/m);
       if (titleMatch) setFbTitle(titleMatch[1].trim());
     } catch (e: any) {
-      alert("整理失败: " + (e.message || "试试文字输入吧"));
+      toast("整理失败: " + (e.message || "试试文字输入吧"), "error");
     } finally {
       setFbPolishing(false);
     }
@@ -277,7 +290,7 @@ export default function ProfilePage() {
       auth.refresh();
       setEditingNickname(false);
     } catch (e: any) {
-      alert("保存失败: " + (e.message || "未知错误"));
+      toast("保存失败: " + (e.message || "未知错误"), "error");
     } finally {
       setSaving(false);
     }
@@ -665,7 +678,7 @@ export default function ProfilePage() {
                                 setEditingContent("");
                                 // 刷新记忆列表（跳过缓存）
                                 await reloadMemories();
-                              } catch (e) { alert("保存失败：" + (e as Error).message); }
+                              } catch (e) { toast("保存失败：" + (e as Error).message, "error"); }
                             }}
                             className="text-xs text-paper-card bg-paper-accent hover:opacity-90 transition px-3 py-1 rounded-md"
                           >保存</button>
@@ -725,7 +738,7 @@ export default function ProfilePage() {
 
       {/* 📮 反馈弹窗 */}
       {showFeedback && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !fbSubmitting && setShowFeedback(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !fbSubmitting && setShowFeedback(false)}>
           <div
             className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-slide-up"
             onClick={e => e.stopPropagation()}
@@ -841,7 +854,7 @@ export default function ProfilePage() {
 
       {/* 📋 版本更新记录弹窗 */}
       {showChangelog && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowChangelog(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowChangelog(false)}>
           <div
             className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-slide-up max-h-[85vh] flex flex-col"
             onClick={e => e.stopPropagation()}
@@ -1226,7 +1239,7 @@ export default function ProfilePage() {
 
       {/* 🖋️ 字体选择器 */}
       {showFontPicker && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowFontPicker(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowFontPicker(false)}>
           <div
             className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-slide-up"
             onClick={e => e.stopPropagation()}
@@ -1287,7 +1300,7 @@ export default function ProfilePage() {
 
       {/* ===== 修改密码弹窗 ===== */}
       {showPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowPasswordModal(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowPasswordModal(false)}>
           <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
               <h3 className="text-paper-ink font-semibold text-lg">🔐 修改密码</h3>
@@ -1360,7 +1373,7 @@ export default function ProfilePage() {
 
       {/* ===== 主题色弹窗 ===== */}
       {showThemeModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowThemeModal(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowThemeModal(false)}>
           <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
               <h3 className="text-paper-ink font-semibold text-lg">🎨 主题色</h3>
@@ -1396,7 +1409,7 @@ export default function ProfilePage() {
 
       {/* ===== 每日提醒弹窗 ===== */}
       {showRemindModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowRemindModal(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowRemindModal(false)}>
           <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
               <h3 className="text-paper-ink font-semibold text-lg">🔔 每日提醒</h3>
@@ -1417,9 +1430,9 @@ export default function ProfilePage() {
                     const newVal = !remindEnabled;
                     if (newVal) {
                       // 请求通知权限
-                      if (!("Notification" in window)) { alert("这个浏览器不支持通知"); return; }
+                      if (!("Notification" in window)) { notify("这个浏览器不支持系统通知，换用 App 或系统浏览器试试。", "不能开提醒"); return; }
                       const perm = await Notification.requestPermission();
-                      if (perm !== "granted") { alert("通知权限被拒绝了，请到浏览器设置里手动开启"); return; }
+                      if (perm !== "granted") { notify("通知权限被拒绝了。到浏览器设置里把这个站点的通知打开，再回来开启提醒。", "通知权限没开"); return; }
                     }
                     setRemindEnabled(newVal);
                     patchProfile({ remind_enabled: newVal ? 1 : 0, remind_time: remindTime });
@@ -1457,7 +1470,7 @@ export default function ProfilePage() {
 
       {/* 🎙️ 语音识别 设置弹窗 — 两个选项卡直接点选 */}
       {showVoiceModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowVoiceModal(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowVoiceModal(false)}>
           <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
               <h3 className="text-paper-ink font-semibold text-lg">🎙️ 语音识别</h3>
@@ -1509,7 +1522,7 @@ export default function ProfilePage() {
 
       {/* 头像选择器 Modal */}
       {showAvatarPicker && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAvatarPicker(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAvatarPicker(false)}>
           <div className="w-full sm:max-w-md bg-paper-bg rounded-t-2xl sm:rounded-card shadow-card border border-paper-line overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 pt-4 pb-2 border-b border-paper-line/60">
               <h3 className="text-paper-ink font-semibold text-lg">🎨 选个头像</h3>
@@ -1529,7 +1542,7 @@ export default function ProfilePage() {
                           await patchProfile({ avatar: o.key });
                           setData(prev => prev ? { ...prev, user: { ...prev.user, avatar: o.key } } : prev);
                           setShowAvatarPicker(false);
-                        } catch { alert("保存失败，请重试"); }
+                        } catch { toast("保存失败，请重试", "error"); }
                         finally { setAvatarSaving(false); }
                       }}
                       className={`aspect-square rounded-full border-2 overflow-hidden flex items-center justify-center transition active:scale-95 ${active ? "border-paper-accent ring-2 ring-paper-accent/30" : "border-paper-line hover:border-paper-ink3"} ${avatarSaving ? "opacity-50" : ""}`}
@@ -1560,7 +1573,7 @@ export default function ProfilePage() {
 
       {/* ===== 兴趣选择弹窗 ===== */}
       {showInterestsModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowInterestsModal(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowInterestsModal(false)}>
           <div className="w-full sm:max-w-md bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
               <h3 className="text-paper-ink font-semibold text-lg">💡 我的兴趣</h3>
@@ -1616,7 +1629,7 @@ function IdentityPicker({ value, onSave, onClose }: { value: string; onSave: (ke
   ];
   const changed = draft !== value;
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div className="w-full sm:max-w-md bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
         <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
           <h3 className="text-paper-ink font-semibold text-lg">👤 我的身份</h3>

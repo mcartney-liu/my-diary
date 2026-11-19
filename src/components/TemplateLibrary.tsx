@@ -4,6 +4,7 @@ import type { DiaryBlock } from "../types";
 import { uid } from "../types";
 import { listTemplates, saveTemplate, updateTemplate, deleteTemplate, shareTemplate, type UserTemplate } from "../api";
 import { cachedGet, peek } from "../dataCache";
+import { toast, confirmAsync } from "../uiFeedback";
 
 const COMPONENT_LABELS: Record<string, string> = {
   heading: "标题", text: "文字", divider: "分割线", checkbox: "待办",
@@ -81,8 +82,8 @@ export default function TemplateLibrary() {
   }
 
   async function handleSave() {
-    if (!bName.trim()) { alert("请输入模板名称"); return; }
-    if (bKinds.length === 0) { alert("至少选一个组件"); return; }
+    if (!bName.trim()) { toast("请输入模板名称"); return; }
+    if (bKinds.length === 0) { toast("至少选一个组件"); return; }
     setSaving(true);
     try {
       const newBlocks: DiaryBlock[] = bKinds.map((kind) => {
@@ -106,18 +107,27 @@ export default function TemplateLibrary() {
       }
       setShowBuilder(false);
       await load(true);
-    } catch (e: any) { alert("保存失败: " + (e?.message || e)); }
+    } catch (e: any) { toast("保存失败: " + (e?.message || e)); }
     finally { setSaving(false); }
   }
 
   async function handleDelete(id: string, name: string) {
-    if (!confirm(`删除模板"${name}"？`)) return;
+    if (!(await confirmAsync({
+      title: "删除模板",
+      message: `删除模板"${name}"？`,
+      confirmText: "删除",
+      confirmTone: "danger",
+    }))) return;
     await deleteTemplate(id); await load(true);
   }
 
   async function handleShare(t: UserTemplate) {
     const newVal = !t.is_public;
-    if (newVal && !confirm(`确认共享？共享后所有人都能看到"${t.name}"`)) return;
+    if (newVal && !(await confirmAsync({
+      title: "共享模板",
+      message: `确认共享？共享后所有人都能看到"${t.name}"。`,
+      confirmText: "共享",
+    }))) return;
     await shareTemplate(t.id, newVal); await load(true);
   }
 
@@ -186,7 +196,7 @@ export default function TemplateLibrary() {
       )}
 
       {showBuilder && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={() => !saving && setShowBuilder(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center" onClick={() => !saving && setShowBuilder(false)}>
           <div className="absolute inset-0 bg-black/40" />
           <div className="relative w-full max-w-md max-h-[85vh] bg-paper-card rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-paper-line">

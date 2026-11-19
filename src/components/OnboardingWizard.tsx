@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { toast } from "../uiFeedback";
 import { patchProfile } from "../api";
 
 /**
@@ -58,7 +59,7 @@ export default function OnboardingWizard({ nickname, onComplete, onSkip }: Props
       });
       onComplete();
     } catch {
-      alert("保存失败，请重试");
+      toast("保存失败，请重试");
     } finally {
       setSaving(false);
     }

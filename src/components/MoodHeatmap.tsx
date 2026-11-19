@@ -297,7 +297,7 @@ function MonthlyOverview({ diaries, year }: { diaries: Diary[]; year: number }) 
 
       {clickedMonth && (
         <div
-          className="fixed inset-0 z-50 bg-black/30 flex items-end md:items-center justify-center"
+          className="fixed inset-0 z-50 footer-safe bg-black/30 flex items-end md:items-center justify-center"
           onClick={() => setShowMonthDetail(null)}
         >
           <div

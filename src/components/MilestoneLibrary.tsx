@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "../uiFeedback";
 import { useNavigate } from "react-router-dom";
 import { listMilestones, saveMilestone, type Milestone, type MilestoneType } from "../api";
 import { cachedGet, peek } from "../dataCache";
@@ -31,8 +32,8 @@ export default function MilestoneLibrary() {
   useEffect(() => { load(); }, []);
 
   const handleCreate = async () => {
-    if (!newTitle.trim()) return alert("请输入标题");
-    if (!newDate) return alert("请选择日期");
+    if (!newTitle.trim()) return toast("请输入标题");
+    if (!newDate) return toast("请选择日期");
     // 按类型传对字段 — 同时填 target_date（列表和月历都读这个）
     const [, m, d] = newDate.split("-").map(Number);
     const mm = String(m).padStart(2, "0");
@@ -53,7 +54,7 @@ export default function MilestoneLibrary() {
       setShowForm(false);
       await load(true);
     } catch (e) {
-      alert("创建失败：" + (e as Error).message);
+      toast("创建失败：" + (e as Error).message);
     }
   };
 
