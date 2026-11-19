@@ -17,6 +17,7 @@ import { categoriesByDir, resolveCategory } from "../categories";
 import { isIOSBrowser, isAndroidBrowser } from "../platform";
 import GridSnap from "./GridSnap";
 import ConfirmDialog from "./ConfirmDialog";
+import PromptDialog from "./PromptDialog";
 import MiniAiBubble from "./MiniAiBubble";
 import {
   DndContext,
@@ -593,6 +594,10 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmSwitchTpl, setConfirmSwitchTpl] = useState(false);
+  // 时间胶囊：改期输入弹窗 / 取消封存确认
+  const [capsulePromptOpen, setCapsulePromptOpen] = useState(false);
+  const [capsuleCancelOpen, setCapsuleCancelOpen] = useState(false);
+  const [capsuleError, setCapsuleError] = useState<string | null>(null);
   const [aiBubbleOpen, setAiBubbleOpen] = useState(false);
   const [aiHintDismissed, setAiHintDismissed] = useState(false);
   // 暂存切换模板时选中的目标模板
@@ -1942,30 +1947,11 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           <div className="w-full max-w-xs space-y-2">
             <div className="flex gap-2">
               <button
-                onClick={async () => {
-                  const unlockStr = new Date(initialDiary.capsuleUnlockAt!).toLocaleDateString("zh-CN");
-                  const msg = `当前解锁于 ${unlockStr}。延长多少天？`;
-                  const answer = window.prompt(msg, "30");
-                  if (!answer) return;
-                  const d = parseInt(answer, 10);
-                  if (!d || d < 1) return alert("请输入有效天数");
-                  try {
-                    await patchCapsule(initialDiary.id, Date.now() + d * 86400000);
-                    alert(`已改为 ${d} 天后解锁`);
-                    window.location.reload();
-                  } catch (e) { alert("改期失败：" + (e as Error).message); }
-                }}
+                onClick={() => { setCapsuleError(null); setCapsulePromptOpen(true); }}
                 className="flex-1 py-2 rounded-lg text-amber-800 text-sm border border-amber-300 hover:bg-amber-50 transition"
               >📅 改期</button>
               <button
-                onClick={async () => {
-                  if (!window.confirm("确定取消封存吗？取消后立即可以编辑这篇日记。")) return;
-                  try {
-                    await patchCapsule(initialDiary.id, null);
-                    alert("已取消封存，现在可以编辑了");
-                    window.location.reload();
-                  } catch (e) { alert("操作失败：" + (e as Error).message); }
-                }}
+                onClick={() => setCapsuleCancelOpen(true)}
                 className="flex-1 py-2 rounded-lg text-red-600 text-sm border border-red-200 hover:bg-red-50 transition"
               >🔓 取消封存</button>
             </div>
@@ -1976,6 +1962,51 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           >
             返回首页
           </button>
+
+          {/* 改期：页内输入弹窗（原 window.prompt 在安卓 WebView 里可能不弹） */}
+          <PromptDialog
+            open={capsulePromptOpen}
+            title="时间胶囊改期"
+            message={`当前解锁于 ${initialDiary.capsuleUnlockAt ? new Date(initialDiary.capsuleUnlockAt).toLocaleDateString("zh-CN") : "—"}。延长多少天？`}
+            inputType="number"
+            defaultValue="30"
+            suffix="天"
+            confirmText="确定改期"
+            error={capsuleError}
+            onSubmit={async (v) => {
+              const d = parseInt(v, 10);
+              if (!d || d < 1) { setCapsuleError("请输入有效天数（至少 1 天）"); return; }
+              if (d > 3650) { setCapsuleError("最多延长 3650 天"); return; }
+              setCapsuleError(null);
+              try {
+                await patchCapsule(initialDiary.id, Date.now() + d * 86400000);
+                window.location.reload();
+              } catch (e) {
+                setCapsuleError("改期失败：" + ((e as Error).message || "请稍后再试"));
+              }
+            }}
+            onCancel={() => setCapsulePromptOpen(false)}
+          />
+
+          {/* 取消封存：改用页内确认弹窗 */}
+          <ConfirmDialog
+            open={capsuleCancelOpen}
+            title="取消封存？"
+            message="取消后立即可以编辑这篇日记。"
+            confirmText="取消封存"
+            cancelText="再等等"
+            confirmTone="danger"
+            onConfirm={async () => {
+              setCapsuleCancelOpen(false);
+              try {
+                await patchCapsule(initialDiary.id, null);
+                window.location.reload();
+              } catch (e) {
+                alert("操作失败：" + ((e as Error).message || "请稍后再试"));
+              }
+            }}
+            onCancel={() => setCapsuleCancelOpen(false)}
+          />
         </div>
       </div>
     );

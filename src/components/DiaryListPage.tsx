@@ -138,7 +138,7 @@ export default function DiaryListPage({ diaries }: Props) {
   return (
     <div className="min-h-screen bg-paper-bg pb-32">
       {/* 顶部栏 */}
-      <header className="sticky top-0 z-30 bg-paper-bg/90 backdrop-blur-md border-b border-paper-line/60 px-4 py-3">
+      <header className="sticky top-0 z-30 bg-paper-bg/90 backdrop-blur-md border-b border-paper-line/60 px-4 py-3 header-safe">
         <div className="flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-paper-ink leading-tight">{todayDate}</h1>
@@ -350,7 +350,7 @@ export default function DiaryListPage({ diaries }: Props) {
       {/* 右下角 + 浮动按钮 */}
       <button
         onClick={() => nav("/editor")}
-        className="fixed bottom-24 right-5 w-14 h-14 rounded-full bg-paper-accent text-white shadow-lg shadow-paper-accent/30 hover:shadow-xl hover:scale-105 transition-all active:scale-95 flex items-center justify-center z-40"
+        className="fixed fab-safe right-5 w-14 h-14 rounded-full bg-paper-accent text-white shadow-lg shadow-paper-accent/30 hover:shadow-xl hover:scale-105 transition-all active:scale-95 flex items-center justify-center z-40"
         aria-label="写新日记"
       >
         <Plus className="w-7 h-7" strokeWidth={2.2} />

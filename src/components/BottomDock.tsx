@@ -45,7 +45,7 @@ export default function BottomDock({
   return (
     <nav
       aria-label="主导航"
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 rounded-full bg-paper-surface/90 backdrop-blur-md border border-paper-line/80 px-2 py-1.5 shadow-lg shadow-paper-ink/5 max-w-[calc(100vw-1rem)]"
+      className="fixed dock-safe left-1/2 -translate-x-1/2 z-40 rounded-full bg-paper-surface/90 backdrop-blur-md border border-paper-line/80 px-2 py-1.5 shadow-lg shadow-paper-ink/5 max-w-[calc(100vw-1rem)]"
     >
       <div className="flex items-center gap-2">
         {/* 我的 */}

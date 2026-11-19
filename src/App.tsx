@@ -5,7 +5,8 @@ import { seedIfEmpty } from "./storage";
 import { upsertDiary as apiUpsert, deleteDiary as apiDelete, listDiaries as apiListDiaries, getToken } from "./api";
 import { useAuth } from "./AuthContext";
 // ⭐ 平台能力（App/Web 差异统一入口，见 docs/APP-SYNC-RULES.md）
-import { platform } from "./platform";
+import { platform, isNativeApp, platformName } from "./platform";
+import { closeTopModal } from "./uiModalStack";
 import LoginPage from "./components/LoginPage";
 import CalendarPage from "./components/CalendarPage";
 import EditorPage from "./components/EditorPage";
@@ -174,6 +175,29 @@ export default function App() {
   useEffect(() => {
     const saved = localStorage.getItem("mydiary_theme") || "paper";
     document.documentElement.setAttribute("data-theme", saved);
+  }, []);
+
+  // 安卓硬件返回键统一策略：先关弹窗 → 再回上一页 → 最后才退出 App
+  // （不注册监听时，安卓默认在根页面直接退出 App，弹窗开着也会退）
+  useEffect(() => {
+    if (!isNativeApp || platformName !== "android") return;
+    let remove: (() => void) | undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { App: CapApp } = await import("@capacitor/app");
+        const handle = await CapApp.addListener("backButton", ({ canGoBack }) => {
+          if (closeTopModal()) return;              // ① 有弹窗 → 只关弹窗
+          if (canGoBack) { window.history.back(); return; }  // ② 还有上一页 → 退一页
+          CapApp.exitApp();                          // ③ 已在根页面 → 退出
+        });
+        if (cancelled) handle.remove();
+        else remove = () => handle.remove();
+      } catch {
+        // @capacitor/app 缺失或未 cap sync → 保持系统默认行为，不影响功能
+      }
+    })();
+    return () => { cancelled = true; remove?.(); };
   }, []);
 
   // 过滤：正常日记（未软删）和回收站（已软删）
@@ -567,9 +591,9 @@ export default function App() {
         </div>
       )}
 
-      {/* 删除撤销 Snackbar — 底部 fixed，5 秒自动消失 */}
+      {/* 删除撤销 Snackbar — 浮在常驻底栏上方（bottom-6 会与底栏重叠），并叠加安全区 */}
       {undoSnack && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-full bg-paper-ink text-paper-card shadow-lg text-sm animate-[fade-in_0.2s]">
+        <div className="fixed snack-safe left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-full bg-paper-ink text-paper-card shadow-lg text-sm animate-[fade-in_0.2s]">
           <span>已删除「{undoSnack.title}」</span>
           <button
             onClick={handleUndoDelete}
