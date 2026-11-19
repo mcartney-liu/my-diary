@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
 import type { Diary } from "../types";
 import { TEMPLATES } from "../templates";
 import BookReader, { BOOK_THEMES } from "./BookReader";
+import BottomDock from "./BottomDock";
 import { parseDate } from "../data";
 
 interface Props {
@@ -321,13 +321,6 @@ export default function BookShelfPage({ diaries }: Props) {
     <div className="min-h-screen bg-paper-bg pb-24">
       <header className="sticky top-0 z-20 bg-paper-bg/85 backdrop-blur-md border-b border-paper-line/60">
         <div className="flex items-center gap-3 px-4 py-3 max-w-xl mx-auto">
-          <button
-            onClick={() => nav(-1)}
-            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-paper-line/40 transition active:scale-95"
-            aria-label="返回"
-          >
-            <ArrowLeft className="w-5 h-5 text-paper-ink" />
-          </button>
           <h1 className="text-lg font-semibold text-paper-ink">📚 我的书柜</h1>
           <span className="text-xs text-paper-ink2/60">· {diaries.filter((d) => !d.deletedAt).length} 篇</span>
         </div>
@@ -360,6 +353,9 @@ export default function BookShelfPage({ diaries }: Props) {
           </div>
         )}
       </main>
+
+      {/* Tab 页：底栏常驻（原来是跳到独立页面、返回才见底栏） */}
+      <BottomDock active="shelf" />
     </div>
   );
 }

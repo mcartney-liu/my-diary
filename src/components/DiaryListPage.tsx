@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, ChevronRight, Search, X, Volume2, Image, FileText, Mic, ChevronLeft } from "lucide-react";
+import { Plus, ChevronRight, Search, X, Volume2, Image, FileText, Mic } from "lucide-react";
 import type { Diary } from "../types";
 import { moodById } from "../data";
+import BottomDock from "./BottomDock";
 
 interface Props {
   diaries: Diary[];
@@ -139,12 +140,6 @@ export default function DiaryListPage({ diaries }: Props) {
       {/* 顶部栏 */}
       <header className="sticky top-0 z-30 bg-paper-bg/90 backdrop-blur-md border-b border-paper-line/60 px-4 py-3">
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => nav(-1)}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-paper-surface border border-paper-line/80 hover:bg-paper-line/30 transition active:scale-95"
-          >
-            <ChevronLeft className="w-5 h-5 text-paper-ink" />
-          </button>
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-paper-ink leading-tight">{todayDate}</h1>
             <p className="text-xs text-paper-ink2">星期{todayWeekday} · {totalCount} 篇日记</p>
@@ -360,6 +355,9 @@ export default function DiaryListPage({ diaries }: Props) {
       >
         <Plus className="w-7 h-7" strokeWidth={2.2} />
       </button>
+
+      {/* Tab 页：底栏常驻 */}
+      <BottomDock active="diaries" />
     </div>
   );
 }
