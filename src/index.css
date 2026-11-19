@@ -810,3 +810,7 @@ html.fonts-loaded * {
 .dock-safe   { bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)); }
 .snack-safe  { bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); }
 .header-safe { padding-top: env(safe-area-inset-top, 0px); }
+/* 底部固定条 / 编辑器浮动元素的安全区补充 */
+.footer-safe   { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.top14-safe    { top: calc(3.5rem + env(safe-area-inset-top, 0px)); }
+.bottom20-safe { bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }

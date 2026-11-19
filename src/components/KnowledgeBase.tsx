@@ -625,7 +625,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
       onConfirm={confirm.onConfirm}
       onCancel={() => setConfirm(c => ({ ...c, open: false }))}
     />
-    {toast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-paper-ink text-white text-xs px-4 py-2 rounded-lg shadow-lg z-[60]">{toast}</div>}
+    {toast && <div className="fixed snack-safe left-1/2 -translate-x-1/2 bg-paper-ink text-white text-xs px-4 py-2 rounded-lg shadow-lg z-[60]">{toast}</div>}
     </>
   );
 }
@@ -846,7 +846,7 @@ function SettingsTab(props: {
           className="w-full px-4 py-2 bg-paper-ink text-white rounded-md text-xs">+ 新建知识库</button>
         <button onClick={onOpenPreset}
           className="w-full px-4 py-2 mt-2 bg-paper-accent text-white rounded-md text-xs">🎁 从官方预设创建</button>
-        {toast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-4 py-2 rounded shadow-lg z-50">{toast}</div>}
+        {toast && <div className="fixed snack-safe left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-4 py-2 rounded shadow-lg z-50">{toast}</div>}
         <Modal
           open={showNewKbDialog}
           onClose={() => { resetNewKb(); }}
@@ -999,7 +999,7 @@ function SettingsTab(props: {
       </div>
 
       {/* Toast */}
-      {toast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-4 py-2 rounded shadow-lg z-50">{toast}</div>}
+      {toast && <div className="fixed snack-safe left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-4 py-2 rounded shadow-lg z-50">{toast}</div>}
 
       <Modal
         open={showNewKbDialog}
@@ -1640,7 +1640,7 @@ function PagesTab({ kbs, mode, kbLoading = false }: { kbs: WikiKB[]; mode: "list
           </div>
         );
       })}
-      {localToast && <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-4 py-2 rounded shadow-lg z-50">{localToast}</div>}
+      {localToast && <div className="fixed snack-safe left-1/2 -translate-x-1/2 bg-green-600 text-white text-xs px-4 py-2 rounded shadow-lg z-50">{localToast}</div>}
 
       {/* 实体删除确认弹窗（自定义，替代原生 confirm） */}
       <ConfirmDialog
