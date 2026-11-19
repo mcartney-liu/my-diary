@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { confirmAsync } from "../uiFeedback";
+
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { moodById } from "../data";
@@ -239,7 +241,12 @@ export default function DayList({ date, diaries, onSoftDelete }: Props) {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm("删除后进入回收站，30 天内可恢复。确定？")) onSoftDelete(d.id);
+                        void confirmAsync({
+                          title: "删除这篇日记",
+                          message: "删除后进入回收站，30 天内可恢复。",
+                          confirmText: "删除",
+                          confirmTone: "danger",
+                        }).then((ok) => { if (ok) onSoftDelete(d.id); });
                       }}
                       className="shrink-0 p-1.5 rounded-full hover:bg-red-50 active:scale-90 opacity-0 group-hover:opacity-100 transition-opacity"
                       title="删除"

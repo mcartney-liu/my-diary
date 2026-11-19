@@ -1,3 +1,4 @@
+import { toast, confirmAsync } from "../uiFeedback";
 /**
  * 全局资料面板 — 不绑定某个 KB
  * 支持 KB 标签筛选、添加文本/上传文件、批量汇入到任意 KB
@@ -188,7 +189,12 @@ export default function SourcesPanel() {
 
   // ===== 删除单条 =====
   async function deleteOne(id: string) {
-    if (!confirm("删除这份资料？")) return;
+    if (!(await confirmAsync({
+      title: "删除资料",
+      message: "删除这份资料？",
+      confirmText: "删除",
+      confirmTone: "danger",
+    }))) return;
     try {
       await wikiGlobalDeleteSource(id);
       setResult({ ok: true, summary: "🗑️ 已删除" });
@@ -202,7 +208,12 @@ export default function SourcesPanel() {
   async function deleteSelected() {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
-    if (!confirm(`确定删除 ${ids.length} 份资料？`)) return;
+    if (!(await confirmAsync({
+      title: "批量删除资料",
+      message: `确定删除 ${ids.length} 份资料？`,
+      confirmText: "删除",
+      confirmTone: "danger",
+    }))) return;
     setDeleting(true);
     setResult(null);
     try {
@@ -263,7 +274,7 @@ export default function SourcesPanel() {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
     if (!ingestTargetKb) {
-      alert("请先选择目标知识库");
+      toast("请先选择目标知识库");
       return;
     }
     setIngesting(true);

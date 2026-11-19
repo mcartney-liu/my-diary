@@ -1,3 +1,4 @@
+import { toast, confirmAsync, promptAsync } from "../uiFeedback";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Hash, Pencil, Trash2, Merge } from "lucide-react";
@@ -58,13 +59,23 @@ export default function TagsPage({ diaries, onDiariesChange }: Props) {
   };
 
   const handleDeleteTag = async (tag: string) => {
-    if (!confirm(`确定删除标签 #${tag}？所有日记里的这个标签都会被移除。`)) return;
+    if (!(await confirmAsync({
+      title: "删除标签",
+      message: `确定删除标签 #${tag}？所有日记里的这个标签都会被移除。`,
+      confirmText: "删除",
+      confirmTone: "danger",
+    }))) return;
     await updateDiaryTagField((tags) => tags.filter((t) => t !== tag));
     if (selectedTag === tag) setSelectedTag(null);
   };
 
   const handleRenameTag = async (tag: string) => {
-    const newName = prompt(`把 #${tag} 改名为：`, tag);
+    const newName = await promptAsync({
+      title: "标签改名",
+      message: `把 #${tag} 改名为：`,
+      defaultValue: tag,
+      confirmText: "改名",
+    });
     if (!newName || !newName.trim() || newName === tag) return;
     await updateDiaryTagField((tags) => tags.map((t) => (t === tag ? newName.trim() : t)));
     if (selectedTag === tag) setSelectedTag(newName.trim());
@@ -72,12 +83,18 @@ export default function TagsPage({ diaries, onDiariesChange }: Props) {
 
   const handleMergeTag = async (tagA: string) => {
     const others = tagStats.filter((t) => t.tag !== tagA).map((t) => t.tag);
-    if (others.length === 0) { alert("至少需要两个标签才能合并"); return; }
+    if (others.length === 0) { toast("至少需要两个标签才能合并"); return; }
     const msg = `把 #${tagA} 合并到哪个标签？\n\n可选：${others.map((o, i) => `${i + 1}. #${o}`).join("\n")}`;
-    const answer = prompt(msg);
+    const answer = await promptAsync({
+      title: "合并标签",
+      message: msg.replace(`把 #${tagA} 合并到哪个标签？\n\n`, "合并到哪个标签？可选："),
+      inputType: "number",
+      placeholder: "输入序号",
+      confirmText: "合并",
+    });
     if (!answer) return;
     const idx = parseInt(answer.trim(), 10) - 1;
-    if (isNaN(idx) || idx < 0 || idx >= others.length) { alert("请输入正确的序号"); return; }
+    if (isNaN(idx) || idx < 0 || idx >= others.length) { toast("请输入正确的序号"); return; }
     const target = others[idx];
     await updateDiaryTagField((tags) => {
       const filtered = tags.filter((t) => t !== tagA);

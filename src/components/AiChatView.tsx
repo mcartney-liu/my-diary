@@ -1,3 +1,4 @@
+import { toast } from "../uiFeedback";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { askDiary, askWiki, addMemory, upsertDiary, listTemplates, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, chatListSessions, chatUpsertSessions, chatDeleteSession, wikiAddSourceText, wikiIngestAll, wikiGetPage, type WikiKB, type WikiPage } from "../api";
 import Modal from "./Modal";
@@ -661,7 +662,7 @@ export default function AiChatView() {
         newMsgs[aiIdx] = { ...newMsgs[aiIdx], importing: false };
         return { ...s, msgs: newMsgs };
       });
-      alert("存入日记失败: " + (err as Error)?.message);
+      toast("存入日记失败: " + (err as Error)?.message);
     }
   }
 

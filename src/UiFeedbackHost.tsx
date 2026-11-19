@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import ConfirmDialog from "./components/ConfirmDialog";
+import PromptDialog from "./components/PromptDialog";
 import {
   closeNotice,
   getFeedbackState,
   settleConfirm,
+  settlePrompt,
   subscribeFeedback,
   type FeedbackState,
   type ToastTone,
@@ -77,6 +79,21 @@ export default function UiFeedbackHost() {
         confirmTone={state.confirm?.confirmTone}
         onConfirm={() => settleConfirm(true)}
         onCancel={() => settleConfirm(false)}
+      />
+
+      {/* 需要用户输入 */}
+      <PromptDialog
+        open={!!state.prompt}
+        title={state.prompt?.title ?? ""}
+        message={state.prompt?.message}
+        defaultValue={state.prompt?.defaultValue}
+        inputType={state.prompt?.inputType}
+        placeholder={state.prompt?.placeholder}
+        suffix={state.prompt?.suffix}
+        confirmText={state.prompt?.confirmText}
+        cancelText={state.prompt?.cancelText}
+        onSubmit={(v) => settlePrompt(v)}
+        onCancel={() => settlePrompt(null)}
       />
     </>,
     document.body

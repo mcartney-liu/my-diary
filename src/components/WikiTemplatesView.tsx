@@ -1,3 +1,4 @@
+import { confirmAsync } from "../uiFeedback";
 import { useState, useEffect } from "react";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { wikiListTemplates, wikiAddTemplate, wikiDeleteTemplate, type WikiTemplate } from "../api";
@@ -93,7 +94,12 @@ export default function WikiTemplatesView() {
             <TemplateCard key={t.id} t={t} expanded={expanded === t.id}
               onToggle={() => setExpanded(expanded === t.id ? null : t.id)}
               onDelete={async () => {
-                if (!confirm(`删除「${t.name}」？`)) return;
+                if (!(await confirmAsync({
+                  title: "删除模板",
+                  message: `删除「${t.name}」？`,
+                  confirmText: "删除",
+                  confirmTone: "danger",
+                }))) return;
                 await wikiDeleteTemplate(t.id); load(true);
               }} />
           ))}

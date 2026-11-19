@@ -1,3 +1,4 @@
+import { toast, confirmAsync } from "../uiFeedback";
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Share2, Trash2, Upload } from "lucide-react";
 import { listPapers, savePaper, deletePaper, sharePaper, type UserPaper } from "../api";
@@ -42,23 +43,32 @@ export default function PaperLibrary() {
         await load(true);
         setUploading(false);
       };
-      reader.onerror = () => { setUploading(false); alert("读取图片失败"); };
+      reader.onerror = () => { setUploading(false); toast("读取图片失败"); };
       reader.readAsDataURL(file);
     } catch (e: any) {
-      alert("上传失败: " + (e?.message || e));
+      toast("上传失败: " + (e?.message || e));
       setUploading(false);
     }
   }
 
   async function handleDelete(id: string, name: string) {
-    if (!confirm(`删除信纸"${name}"？`)) return;
+    if (!(await confirmAsync({
+      title: "删除信纸",
+      message: `删除信纸"${name}"？`,
+      confirmText: "删除",
+      confirmTone: "danger",
+    }))) return;
     await deletePaper(id);
     await load(true);
   }
 
   async function handleShare(p: UserPaper) {
     const newVal = !p.is_public;
-    if (newVal && !confirm(`确认共享？共享后所有人都能看到"${p.name}"`)) return;
+    if (newVal && !(await confirmAsync({
+      title: "共享这张信纸",
+      message: `确认共享？共享后所有人都能看到"${p.name}"。`,
+      confirmText: "共享",
+    }))) return;
     await sharePaper(p.id, newVal);
     await load(true);
   }

@@ -1,3 +1,4 @@
+import { toast, confirmAsync } from "../uiFeedback";
 import { useEffect, useState } from "react";
 import { Loader2, Pencil, Trash2, Share2, Plus } from "lucide-react";
 import type { DiaryBlock } from "../types";
@@ -81,8 +82,8 @@ export default function TemplateLibrary() {
   }
 
   async function handleSave() {
-    if (!bName.trim()) { alert("请输入模板名称"); return; }
-    if (bKinds.length === 0) { alert("至少选一个组件"); return; }
+    if (!bName.trim()) { toast("请输入模板名称"); return; }
+    if (bKinds.length === 0) { toast("至少选一个组件"); return; }
     setSaving(true);
     try {
       const newBlocks: DiaryBlock[] = bKinds.map((kind) => {
@@ -106,18 +107,27 @@ export default function TemplateLibrary() {
       }
       setShowBuilder(false);
       await load(true);
-    } catch (e: any) { alert("保存失败: " + (e?.message || e)); }
+    } catch (e: any) { toast("保存失败: " + (e?.message || e)); }
     finally { setSaving(false); }
   }
 
   async function handleDelete(id: string, name: string) {
-    if (!confirm(`删除模板"${name}"？`)) return;
+    if (!(await confirmAsync({
+      title: "删除模板",
+      message: `删除模板"${name}"？`,
+      confirmText: "删除",
+      confirmTone: "danger",
+    }))) return;
     await deleteTemplate(id); await load(true);
   }
 
   async function handleShare(t: UserTemplate) {
     const newVal = !t.is_public;
-    if (newVal && !confirm(`确认共享？共享后所有人都能看到"${t.name}"`)) return;
+    if (newVal && !(await confirmAsync({
+      title: "共享模板",
+      message: `确认共享？共享后所有人都能看到"${t.name}"。`,
+      confirmText: "共享",
+    }))) return;
     await shareTemplate(t.id, newVal); await load(true);
   }
 

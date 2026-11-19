@@ -1,3 +1,4 @@
+import { toast as toastGlobal } from "../uiFeedback";
 /**
  * LLM Wiki 知识库组件 v4 — 多知识库 + 分类-模板 1:1
  * sub-tabs: [⚙️ 配置] [📜 资料] [🌐 知识库]
@@ -178,7 +179,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
       const name = ingestName.trim() || ingestText.trim().slice(0, 30);
       await wikiGlobalAddSource({ kb_id: ingestFor, title: name, text: ingestText });
       await wikiIngestAll(ingestFor);
-      alert("✅ 已汇入，小麦 正在生成实体...");
+      toastGlobal("✅ 已汇入，小麦 正在生成实体...", "ok");
       const refreshedKbId = ingestFor;
       setIngestFor(null);
       loadKbs();
@@ -187,7 +188,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
         setCardDetail(d => ({ ...d, [refreshedKbId]: { cats: cat.categories, pages: p.pages } }));
       }
     } catch (e: any) {
-      alert("❌ 汇入失败：" + (e?.message || "未知错误"));
+      toastGlobal("❌ 汇入失败：" + (e?.message || "未知错误"));
     } finally {
       setIngestLoading(false);
     }
@@ -203,7 +204,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
       setShowPresetPicker(false);
       
     } catch (e) {
-      alert("创建失败，请重试");
+      toastGlobal("创建失败，请重试");
     } finally {
       setSeeding(false);
     }

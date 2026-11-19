@@ -1,3 +1,4 @@
+import { toast } from "../uiFeedback";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { listPlans, savePlan, updatePlan, type Plan } from "../api";
@@ -50,7 +51,7 @@ export default function PlanLibrary() {
   });
 
   const handleCreate = async () => {
-    if (!newTitle.trim()) return alert("请输入标题");
+    if (!newTitle.trim()) return toast("请输入标题");
     try {
       await savePlan({
         title: newTitle.trim(),
@@ -64,7 +65,7 @@ export default function PlanLibrary() {
       setShowForm(false);
       await load(true);
     } catch (e) {
-      alert("创建失败：" + (e as Error).message);
+      toast("创建失败：" + (e as Error).message);
     }
   };
 
@@ -79,7 +80,7 @@ export default function PlanLibrary() {
       // 日历上的计划圆点也读这份缓存，写完主动失效
       invalidate("plans:all");
     } catch (e) {
-      alert("更新失败：" + (e as Error).message);
+      toast("更新失败：" + (e as Error).message);
       await load();
     }
   };

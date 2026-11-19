@@ -1,3 +1,4 @@
+import { confirmAsync } from "../uiFeedback";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, RotateCcw, Trash2, CheckSquare, Square } from "lucide-react";
@@ -56,18 +57,29 @@ export default function TrashPage({ diaries, onRestore, onPermanentDelete, onBat
 
   const handleBatchRestore = () => {
     if (selected.size === 0) return;
-    if (confirm(`恢复选中的 ${selected.size} 篇日记？`)) {
+    void confirmAsync({
+      title: "恢复日记",
+      message: `恢复选中的 ${selected.size} 篇日记？`,
+      confirmText: "恢复",
+    }).then((ok) => {
+      if (!ok) return;
       onBatchRestore([...selected]);
       exitSelectMode();
-    }
+    });
   };
 
   const handleBatchDelete = () => {
     if (selected.size === 0) return;
-    if (confirm(`永久删除选中的 ${selected.size} 篇日记？无法恢复！`)) {
+    void confirmAsync({
+      title: "永久删除",
+      message: `永久删除选中的 ${selected.size} 篇日记？无法恢复！`,
+      confirmText: "永久删除",
+      confirmTone: "danger",
+    }).then((ok) => {
+      if (!ok) return;
       onBatchPermanentDelete([...selected]);
       exitSelectMode();
-    }
+    });
   };
 
   return (
@@ -164,7 +176,7 @@ export default function TrashPage({ diaries, onRestore, onPermanentDelete, onBat
                     <div className="flex gap-1 shrink-0">
                       {canRestore && (
                         <button
-                          onClick={() => { if (confirm("恢复这篇日记？")) onRestore(d.id); }}
+                          onClick={() => { void confirmAsync({ title: "恢复日记", message: "恢复这篇日记？", confirmText: "恢复" }).then((ok) => { if (ok) onRestore(d.id); }); }}
                           title="恢复"
                           className="p-2 rounded-lg hover:bg-emerald-50 active:scale-90 text-emerald-600"
                         >
@@ -172,7 +184,7 @@ export default function TrashPage({ diaries, onRestore, onPermanentDelete, onBat
                         </button>
                       )}
                       <button
-                        onClick={() => { if (confirm("永久删除无法恢复，确定吗？")) onPermanentDelete(d.id); }}
+                        onClick={() => { void confirmAsync({ title: "永久删除", message: "永久删除无法恢复，确定吗？", confirmText: "永久删除", confirmTone: "danger" }).then((ok) => { if (ok) onPermanentDelete(d.id); }); }}
                         title="永久删除"
                         className="p-2 rounded-lg hover:bg-red-50 active:scale-90 text-red-500"
                       >
