@@ -144,6 +144,15 @@ export default function DiaryListPage({ diaries }: Props) {
             <h1 className="text-xl font-bold text-paper-ink leading-tight">{todayDate}</h1>
             <p className="text-xs text-paper-ink2">星期{todayWeekday} · {totalCount} 篇日记</p>
           </div>
+          {/* 写日记：顶栏右上角（原贴底栏的右下角 FAB 与常驻底栏叠在一起，已撤掉） */}
+          <button
+            onClick={() => nav("/editor")}
+            aria-label="写新日记"
+            title="写新日记"
+            className="shrink-0 w-10 h-10 rounded-full bg-paper-accent text-white flex items-center justify-center shadow-sm hover:opacity-90 active:scale-95 transition"
+          >
+            <Plus className="w-5 h-5" strokeWidth={2.4} />
+          </button>
         </div>
       </header>
 
@@ -346,15 +355,6 @@ export default function DiaryListPage({ diaries }: Props) {
           ))
         )}
       </div>
-
-      {/* 右下角 + 浮动按钮 */}
-      <button
-        onClick={() => nav("/editor")}
-        className="fixed fab-safe right-5 w-14 h-14 rounded-full bg-paper-accent text-white shadow-lg shadow-paper-accent/30 hover:shadow-xl hover:scale-105 transition-all active:scale-95 flex items-center justify-center z-40"
-        aria-label="写新日记"
-      >
-        <Plus className="w-7 h-7" strokeWidth={2.2} />
-      </button>
 
       {/* Tab 页：底栏常驻 */}
       <BottomDock active="diaries" />
