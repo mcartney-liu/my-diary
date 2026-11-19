@@ -10,6 +10,7 @@ import WikiTemplatesView from "./WikiTemplatesView";
 import KnowledgeBase from "./KnowledgeBase";
 import SourcesPanel from "./SourcesPanel";
 import Captcha from "./Captcha";
+import BottomDock from "./BottomDock";
 
 interface MemoryItem { id: number; type: string; content: string; confidence: number; status: string; created_at: string; }
 
@@ -311,16 +312,10 @@ export default function ProfilePage() {
   const displayName = user.nickname || user.email.split("@")[0];
 
   return (
-    <div className="min-h-screen bg-paper-bg pb-10">
+    <div className="min-h-screen bg-paper-bg pb-24">
       {/* 顶部 */}
       <header className="sticky top-0 z-20 backdrop-blur-sm bg-[#faf6ef]/85 border-b border-paper-line/60">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
-          <button
-            onClick={() => nav(-1)}
-            className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95"
-          >
-            ← 返回
-          </button>
           <h1 className="text-paper-ink font-semibold text-lg tracking-wide flex-1">我的</h1>
           {/* ⭐ 右上角齿轮按钮 */}
           <div className="relative">
@@ -1580,6 +1575,9 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+
+      {/* Tab 页：底栏常驻（原来这里靠「← 返回」回首页，Tab 习惯下不需要） */}
+      <BottomDock active="profile" />
     </div>
   );
 }

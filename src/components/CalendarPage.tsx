@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { User, PenLine, LibraryBig } from "lucide-react";
+
 import type { Diary } from "../types";
 import { getProfile, listPlans, listMilestones } from "../api";
 import { cachedGet, peek } from "../dataCache";
@@ -11,7 +11,7 @@ import SearchBar from "./SearchBar";
 import OnThisDay from "./OnThisDay";
 import MoodHeatmap from "./MoodHeatmap";
 import DayList from "./DayList";
-import VoiceQuickEntry from "./VoiceQuickEntry";
+import BottomDock from "./BottomDock";
 import AiChatView from "./AiChatView";
 import KnowledgeBase from "./KnowledgeBase";
 import OnboardingWizard from "./OnboardingWizard";
@@ -575,52 +575,8 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
         ) : null;
       })()}
 
-      {/* 🫧 悬浮胶囊坞 Floating Pill Dock */}
-      <nav className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 rounded-full bg-paper-surface/90 backdrop-blur-md border border-paper-line/80 px-2 py-1.5 shadow-lg shadow-paper-ink/5 max-w-[calc(100vw-1rem)]">
-        <div className="flex items-center gap-2">
-
-          {/* 我的 */}
-          <button
-            id="tour-dock-profile"
-            onClick={() => nav("/profile")}
-            className="flex flex-col items-center justify-center h-10 text-[10px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap min-w-[44px]"
-          >
-            {avatarKey?.startsWith("emoji-") ? (
-              <span className="w-5 h-5 rounded-full border border-paper-line shrink-0 flex items-center justify-center text-sm bg-gradient-to-br from-amber-100 to-paper-surface">{avatarKey.slice(6)}</span>
-            ) : avatarKey ? (
-              <img src={`/avatars/${avatarKey}.jpg`} alt="头像" className="block w-5 h-5 rounded-full object-cover border border-paper-line shrink-0" />
-            ) : (
-              <User className="w-4 h-4 shrink-0" />
-            )}
-            <span className="leading-none mt-0.5">我的</span>
-          </button>
-
-          {/* 📚 书柜 */}
-          <button
-            id="tour-dock-shelf"
-            onClick={() => nav("/shelf")}
-            className="flex flex-col items-center justify-center h-10 text-[10px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap min-w-[44px]"
-          >
-            <LibraryBig className="w-4 h-4 shrink-0" />
-            <span className="leading-none mt-0.5">书柜</span>
-          </button>
-
-          {/* 🎤 语音快记（中心强调胶囊） */}
-          <span id="tour-dock-voice" className="inline-flex">
-            <VoiceQuickEntry dockVariant />
-          </span>
-
-          {/* 日记列表 */}
-          <button
-            id="tour-dock-write"
-            onClick={() => nav("/diaries")}
-            className="flex flex-col items-center justify-center h-10 text-[10px] font-medium text-paper-ink2 hover:text-paper-ink transition-colors active:scale-95 px-2 rounded-full hover:bg-paper-line/40 shrink-0 whitespace-nowrap min-w-[44px]"
-          >
-            <PenLine className="w-4 h-4 shrink-0" />
-            <span className="leading-none mt-0.5">日记</span>
-          </button>
-        </div>
-      </nav>
+      {/* 🫧 悬浮胶囊底栏（共享组件，书柜/日记/我的 页也会渲染，Tab 切换时不再消失） */}
+      <BottomDock active="home" avatarKey={avatarKey} />
 
       {/* === 新手指引 === */}
       {showOnboarding && (
