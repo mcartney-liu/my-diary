@@ -1373,6 +1373,50 @@ function keywordScore(content, keywords) {
   return Math.min(1, score / keywords.length);
 }
 
+// ===== 知识库问答：页面片段选取 =====
+// 背景：知识库页面是结构化长页（多个 ## 小节）。旧实现每页只取前 250 字，
+// 问到第 2 个小节之后的内容时，模型根本看不到 → 误判"知识库里没有"。
+// 这里按小节切分，用已有的关键词打分挑出最相关的几节，再按原文顺序拼回。
+// 注意：内容本身就短于预算时，直接整段返回 —— 与旧行为完全一致。
+function selectRelevantSnippet(content, keywords, budget = 800) {
+  const text = String(content || '').trim();
+  if (!text) return '';
+  if (text.length <= budget) return text;
+
+  // 1) 切段：优先按 Markdown 标题，其次空行，最后按单换行
+  let parts = text.split(/\n(?=#{1,6}\s)/).map(s => s.trim()).filter(Boolean);
+  if (parts.length < 2) parts = text.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
+  if (parts.length < 2) parts = text.split('\n').map(s => s.trim()).filter(Boolean);
+  if (parts.length < 2) return text.slice(0, budget);
+
+  // 2) 打分：关键词命中 + 轻微位置加成（首节通常是定义/概述，不能丢）
+  const scored = parts.map((p, i) => ({
+    i,
+    score: keywordScore(p, keywords || []) + 0.15 / (i + 3),
+  }));
+
+  // 3) 预算内贪心选取，首节保底
+  const picked = new Set([0]);
+  let used = Math.min(parts[0].length, budget);
+  if (used >= budget) return parts[0].slice(0, budget);
+  for (const s of scored.slice().sort((a, b) => b.score - a.score)) {
+    if (picked.has(s.i)) continue;
+    if (used + parts[s.i].length + 2 > budget) continue;
+    picked.add(s.i);
+    used += parts[s.i].length + 2;
+  }
+
+  // 4) 按原文顺序拼接
+  let out = '';
+  for (let i = 0; i < parts.length; i++) {
+    if (!picked.has(i)) continue;
+    const piece = parts[i].length > budget ? parts[i].slice(0, budget) : parts[i];
+    out = out ? `${out}\n${piece}` : piece;
+    if (out.length >= budget) return out.slice(0, budget).trim();
+  }
+  return out.trim() || text.slice(0, budget);
+}
+
 // ===== 长期记忆 =====
 // MEMORY_ENABLED 开关不再用模块级常量——从 env.MEMORY_ENABLED 读取，在 handleAsk 内判断（默认开；显式设 'false' 才关）
 const MAX_MEMORIES_IN_PROMPT = 15;     // 最多塞进 prompt 的记忆数
@@ -2244,6 +2288,14 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
     // ===== 情况 1：import_mode=true → 尝试收集流程 =====
     // import_mode 不再要求 KB 必须空——用户可能想给已有 KB 收集更多内容
     // handleWikiAskImport 内部会做 check-match 预检，low 就返回 null 降级
+    // 🆕 收紧触发：前端判定用的是「收集|查询|整理|帮我查」这类日常词，
+    //    用户说"帮我整理一下 A 和 B 的关系"也会被当成"要生成新内容"，
+    //    于是跳过检索直接长篇生成 → 行为不可预期。这里只认明确的收集/录入意图，
+    //    知识库已有内容时，其余情况静默降级回正常 RAG（无损，不报错）。
+    const COLLECT_INTENT = /(收集|帮我找|帮我搜|录入|添加资料|补充资料|新建页面|建个页面)/;
+    if (import_mode && hasAnyPage && !COLLECT_INTENT.test(question)) {
+      import_mode = false;
+    }
     if (import_mode) {
       const importResult = await handleWikiAskImport(env, user, question, kb, web_search);
       if (importResult) return importResult;
@@ -2301,22 +2353,33 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
     const mixedTopScore = candidates[0]?.score ?? 0;
     console.log(`[wikiAsk] scores kb=${kb.title} q="${question.slice(0,30)}" mixedTop=${mixedTopScore.toFixed(4)} rerankTop=${rerankerTopScore?.toFixed(4) ?? 'null'} candidates=${candidates.length}`);
 
-    // 6. 拼知识上下文 — 砍到每页 250 chars（prompt 砍一半 → callLLM 快一倍）
-    // 重要：只要 DB 里有页面（hasAnyPage=true），就喂给 LLM，让它自己判断相关性
-    // 不要用 bestScore 阈值过滤——后端替 LLM 过滤会导致"明明有页面但 LLM 看不到"
-    const contextParts = finalTop.map((s, i) => {
+    // 6. 拼知识上下文
+    // 🆕 旧实现每页只取前 250 字（注释：prompt 砍一半 → callLLM 快一倍），
+    //    代价是长页面第 2 节之后的内容模型根本看不到，于是误答"知识库里没有"。
+    //    现在：每页预算 800 字，并且按小节挑最相关片段（短页面行为与旧版一致）。
+    const CONTEXT_PER_PAGE = Math.max(300, parseInt(env.WIKI_CONTEXT_PER_PAGE || '800', 10) || 800);
+    // 🆕 相关性闸门：reranker top1 分数是比混合检索分更可靠的信号。
+    //    默认 0.08 —— 刻意取低：只拦"几乎完全不相关"的候选，宁可漏拦也不误杀。
+    //    在日志里积累真实分布后再往上调；env.WIKI_RERANK_MIN=0 即完全关闭闸门。
+    //    reranker 未跑/无分数时不拦（保持旧行为，避免小知识库退化）。
+    const RERANK_MIN = parseFloat(env.WIKI_RERANK_MIN || '0.08');
+    const rerankAvailable = typeof rerankerTopScore === 'number';
+    const relevant = !rerankAvailable || !(RERANK_MIN > 0) || rerankerTopScore >= RERANK_MIN;
+
+    const contextParts = relevant ? finalTop.map((s, i) => {
       const t = (s.title && s.title.trim()) || `页面${i+1}`;
-      const c = (s.content || '').slice(0, 250);
+      const c = selectRelevantSnippet(s.content, keywords, CONTEXT_PER_PAGE);
       return `[${i+1}] [[${t}]]\n${c}`;
-    });
+    }) : [];
     const hasPagesInDb = hasAnyPage;
     const context = contextParts.length > 0 ? contextParts.join('\n\n') : '';
+    console.log(`[wikiAsk] gate kb=${kb.title} q="${question.slice(0,30)}" rerankTop=${rerankerTopScore?.toFixed(4) ?? 'null'} min=${RERANK_MIN} relevant=${relevant} pages=${finalTop.length} ctxChars=${context.length}`);
 
     // 7. 根据联网开关生成 System Prompt
     let sys;
-    const contextBlock = hasPagesInDb && context
-      ? context
-      : '（知识库是空的，还没有任何实体或页面）';
+    const contextBlock = !hasPagesInDb
+      ? '（知识库是空的，还没有任何实体或页面）'
+      : (context || '（已检索知识库，但没有命中与这个问题相关的内容）');
 
     if (web_search) {
       // 联网开：允许 AI 用自身知识补充，但要区分来源
@@ -2351,13 +2414,14 @@ ${contextBlock}
 回答完问题后，另起一行写 <<<SUGGEST>>>，然后下面写3个用户可能接着问的后续问题（每行一个，不要编号）。这3个问题要和当前知识库主题相关、和刚才的回答有延续性。`;
     }
 
-    // 8. callLLM — history 砍到 3 条 + 200 chars/条（多轮意义不大）
+    // 8. callLLM — 🆕 多轮上下文：旧实现 6 条 × 200 字，追问"那第二个呢"经常断片；
+    //    现在保留最近 4 条（2 轮）但放宽到 600 字/条，token 预算相当、连贯性更好。
     const msgs = [{ role: 'system', content: sys }];
     if (Array.isArray(history) && history.length) {
-      const recent = history.slice(-6);  // 最近 6 条（3 轮）
+      const recent = history.slice(-4);
       for (const h of recent) {
         if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
-          msgs.push({ role: h.role, content: String(h.content).slice(0, 200) });
+          msgs.push({ role: h.role, content: String(h.content).slice(0, 600) });
         }
       }
     }
@@ -2372,12 +2436,12 @@ ${contextBlock}
     // ⚡ 普通 RAG 也带 can_save：用户问了问题，AI 的回答（不管是查知识库还是联网补充的）都可以一键汇入
     return json({
       answer,
-      sources: finalTop.map(s => ({
+      sources: relevant ? finalTop.map(s => ({
         page_id: s.id,
         title: (s.title && s.title.trim()) || '(未命名页面)',
         summary: s.summary || '',
         score: Math.round((s.score || 0) * 1000) / 1000,
-      })),
+      })) : [],
       kb_title: kb.title,
       can_save: true,
     });
