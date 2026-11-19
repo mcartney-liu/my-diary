@@ -2669,7 +2669,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
         {/* 信纸选择 Drawer — 半屏底部弹出 */}
         {showWallpaperMenu && (
-          <div className="fixed inset-0 z-50 flex items-end" onClick={() => setShowWallpaperMenu(false)}>
+          <div className="fixed inset-0 z-50 footer-safe flex items-end" onClick={() => setShowWallpaperMenu(false)}>
             {/* 遮罩 */}
             <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-[fade-in_0.2s]" />
 
@@ -2829,7 +2829,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
         {/* 模板选择 Drawer */}
         {showTemplateMenu && (
-          <div className="fixed inset-0 z-50 flex items-end" onClick={() => setShowTemplateMenu(false)}>
+          <div className="fixed inset-0 z-50 footer-safe flex items-end" onClick={() => setShowTemplateMenu(false)}>
             <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-[fade-in_0.2s]" />
             <div
               className="relative w-full max-h-[75vh] bg-paper-card rounded-t-2xl shadow-2xl overflow-hidden flex flex-col animate-[drawer-up_0.28s_ease-out]"
@@ -3007,7 +3007,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
         {/* ===== 自定义模板 Builder ===== */}
         {showCustomBuilder && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={() => setShowCustomBuilder(false)}>
+          <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center" onClick={() => setShowCustomBuilder(false)}>
             <div className="absolute inset-0 bg-black/40 animate-[fade-in_0.2s]" />
             <div
               className="relative w-full max-w-md max-h-[85vh] bg-paper-card rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-[drawer-up_0.28s_ease-out]"
@@ -3164,7 +3164,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
         {/* ====== 启动读书笔记 Modal ====== */}
         {showBookPicker && (
-          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center">
             {/* 遮罩 */}
             <div
               className="absolute inset-0 bg-black/40 backdrop-blur-sm"

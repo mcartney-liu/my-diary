@@ -186,7 +186,7 @@ export default function TemplateLibrary() {
       )}
 
       {showBuilder && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={() => !saving && setShowBuilder(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center" onClick={() => !saving && setShowBuilder(false)}>
           <div className="absolute inset-0 bg-black/40" />
           <div className="relative w-full max-w-md max-h-[85vh] bg-paper-card rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-3 border-b border-paper-line">

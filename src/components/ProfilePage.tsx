@@ -738,7 +738,7 @@ export default function ProfilePage() {
 
       {/* 📮 反馈弹窗 */}
       {showFeedback && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !fbSubmitting && setShowFeedback(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !fbSubmitting && setShowFeedback(false)}>
           <div
             className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-slide-up"
             onClick={e => e.stopPropagation()}
@@ -854,7 +854,7 @@ export default function ProfilePage() {
 
       {/* 📋 版本更新记录弹窗 */}
       {showChangelog && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowChangelog(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowChangelog(false)}>
           <div
             className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-slide-up max-h-[85vh] flex flex-col"
             onClick={e => e.stopPropagation()}
@@ -1239,7 +1239,7 @@ export default function ProfilePage() {
 
       {/* 🖋️ 字体选择器 */}
       {showFontPicker && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowFontPicker(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowFontPicker(false)}>
           <div
             className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-slide-up"
             onClick={e => e.stopPropagation()}
@@ -1300,7 +1300,7 @@ export default function ProfilePage() {
 
       {/* ===== 修改密码弹窗 ===== */}
       {showPasswordModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowPasswordModal(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowPasswordModal(false)}>
           <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
               <h3 className="text-paper-ink font-semibold text-lg">🔐 修改密码</h3>
@@ -1373,7 +1373,7 @@ export default function ProfilePage() {
 
       {/* ===== 主题色弹窗 ===== */}
       {showThemeModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowThemeModal(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowThemeModal(false)}>
           <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
               <h3 className="text-paper-ink font-semibold text-lg">🎨 主题色</h3>
@@ -1409,7 +1409,7 @@ export default function ProfilePage() {
 
       {/* ===== 每日提醒弹窗 ===== */}
       {showRemindModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowRemindModal(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowRemindModal(false)}>
           <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
               <h3 className="text-paper-ink font-semibold text-lg">🔔 每日提醒</h3>
@@ -1470,7 +1470,7 @@ export default function ProfilePage() {
 
       {/* 🎙️ 语音识别 设置弹窗 — 两个选项卡直接点选 */}
       {showVoiceModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowVoiceModal(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowVoiceModal(false)}>
           <div className="bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
               <h3 className="text-paper-ink font-semibold text-lg">🎙️ 语音识别</h3>
@@ -1522,7 +1522,7 @@ export default function ProfilePage() {
 
       {/* 头像选择器 Modal */}
       {showAvatarPicker && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAvatarPicker(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAvatarPicker(false)}>
           <div className="w-full sm:max-w-md bg-paper-bg rounded-t-2xl sm:rounded-card shadow-card border border-paper-line overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 pt-4 pb-2 border-b border-paper-line/60">
               <h3 className="text-paper-ink font-semibold text-lg">🎨 选个头像</h3>
@@ -1573,7 +1573,7 @@ export default function ProfilePage() {
 
       {/* ===== 兴趣选择弹窗 ===== */}
       {showInterestsModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowInterestsModal(false)}>
+        <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowInterestsModal(false)}>
           <div className="w-full sm:max-w-md bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
               <h3 className="text-paper-ink font-semibold text-lg">💡 我的兴趣</h3>
@@ -1629,7 +1629,7 @@ function IdentityPicker({ value, onSave, onClose }: { value: string; onSave: (ke
   ];
   const changed = draft !== value;
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 footer-safe flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div className="w-full sm:max-w-md bg-paper-bg rounded-t-2xl sm:rounded-2xl shadow-2xl border border-paper-line animate-scale-in" onClick={e => e.stopPropagation()}>
         <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-paper-line">
           <h3 className="text-paper-ink font-semibold text-lg">👤 我的身份</h3>
