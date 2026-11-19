@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-
 import type { Diary } from "../types";
 import { getProfile, listPlans, listMilestones } from "../api";
 import { cachedGet, peek } from "../dataCache";
