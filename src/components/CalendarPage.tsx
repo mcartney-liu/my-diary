@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { Plus } from "lucide-react";
 import type { Diary } from "../types";
 import { getProfile, listPlans, listMilestones } from "../api";
 import { cachedGet, peek } from "../dataCache";
@@ -269,7 +270,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           <div
             id="tour-marquee"
             ref={marqueeRef}
-            className={`marquee-wrapper overflow-hidden max-w-[58%] md:max-w-none select-none ${marqueePaused ? "marquee-paused" : ""}`}
+            className={`marquee-wrapper overflow-hidden max-w-[46%] md:max-w-none shrink min-w-0 select-none ${marqueePaused ? "marquee-paused" : ""}`}
             onTouchStart={handleMarqueeTouchStart}
             onTouchMove={handleMarqueeTouchMove}
             onTouchEnd={handleMarqueeTouchEnd}
@@ -363,6 +364,15 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
               </button>
             </div>
           </div>
+          {/* 写日记：顶栏右上角（与「日记」页同一位置，取代贴底栏的 FAB） */}
+          <button
+            onClick={() => nav("/editor")}
+            aria-label="写新日记"
+            title="写新日记"
+            className="shrink-0 ml-2 w-9 h-9 rounded-full bg-paper-accent text-white flex items-center justify-center shadow-sm hover:opacity-90 active:scale-95 transition"
+          >
+            <Plus size={18} strokeWidth={2.6} />
+          </button>
         </div>
       </header>
 
