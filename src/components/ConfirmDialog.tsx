@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
+import { registerModalClose } from "../uiModalStack";
 
 interface Props {
   open: boolean;
@@ -21,6 +23,12 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
+  // 安卓硬件返回键：弹窗开着时优先关闭弹窗
+  useEffect(() => {
+    if (!open) return;
+    return registerModalClose(onCancel);
+  }, [open, onCancel]);
+
   if (!open) return null;
 
   const confirmBtnClass =

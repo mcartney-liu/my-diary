@@ -314,7 +314,7 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-paper-bg pb-24">
       {/* 顶部 */}
-      <header className="sticky top-0 z-20 backdrop-blur-sm bg-[#faf6ef]/85 border-b border-paper-line/60">
+      <header className="sticky top-0 z-20 backdrop-blur-sm bg-[#faf6ef]/85 border-b border-paper-line/60 header-safe">
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
           <h1 className="text-paper-ink font-semibold text-lg tracking-wide flex-1">我的</h1>
           {/* ⭐ 右上角齿轮按钮 */}

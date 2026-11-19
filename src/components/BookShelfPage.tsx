@@ -319,7 +319,7 @@ export default function BookShelfPage({ diaries }: Props) {
   // ====== 书柜主页 ======
   return (
     <div className="min-h-screen bg-paper-bg pb-24">
-      <header className="sticky top-0 z-20 bg-paper-bg/85 backdrop-blur-md border-b border-paper-line/60">
+      <header className="sticky top-0 z-20 bg-paper-bg/85 backdrop-blur-md border-b border-paper-line/60 header-safe">
         <div className="flex items-center gap-3 px-4 py-3 max-w-xl mx-auto">
           <h1 className="text-lg font-semibold text-paper-ink">📚 我的书柜</h1>
           <span className="text-xs text-paper-ink2/60">· {diaries.filter((d) => !d.deletedAt).length} 篇</span>
