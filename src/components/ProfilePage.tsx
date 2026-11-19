@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../AuthContext";
 import { getProfile, patchProfile, submitFeedback, changePassword, type ProfileStats, listMemory, addMemory, editMemory, deleteMemory } from "../api";
 import { cachedGet, peek, invalidate } from "../dataCache";
+import { toast, notify, confirmAsync } from "../uiFeedback";
 import { polishFeedback, getAiProvider } from "../ai";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
@@ -174,7 +175,12 @@ export default function ProfilePage() {
   };
 
   const handleDeleteMemory = async (id: number) => {
-    if (!confirm("删除这条记忆？小麦 下次就不会用上了")) return;
+    if (!(await confirmAsync({
+      title: "删除这条记忆",
+      message: "删除后小麦 下次就不会用上了。",
+      confirmText: "删除",
+      confirmTone: "danger",
+    }))) return;
     try {
       await deleteMemory(id);
       setMemories(prev => prev.filter(m => m.id !== id));
@@ -183,9 +189,16 @@ export default function ProfilePage() {
   };
 
   const handleLogout = () => {
-    if (!confirm("确定要退出登录吗？")) return;
-    auth.logout();
-    nav("/", { replace: true });
+    void confirmAsync({
+      title: "退出登录",
+      message: "确定要退出登录吗？退出后需要重新登录才能看到日记。",
+      confirmText: "退出",
+      confirmTone: "danger",
+    }).then((ok) => {
+      if (!ok) return;
+      auth.logout();
+      nav("/", { replace: true });
+    });
   };
 
   const startEditNickname = () => {
@@ -207,7 +220,7 @@ export default function ProfilePage() {
         setFbType("suggestion");
       }, 1500);
     } catch (e: any) {
-      alert("提交失败: " + (e.message || "网络错误，请稍后再试"));
+      toast("提交失败: " + (e.message || "网络错误，请稍后再试"), "error");
     } finally {
       setFbSubmitting(false);
     }
@@ -216,7 +229,7 @@ export default function ProfilePage() {
   // ===== 反馈语音录入 =====
   const startFbRecording = () => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { alert("当前浏览器不支持语音识别"); return; }
+    if (!SR) { notify("当前浏览器不支持语音识别，换成手机自带键盘的语音输入试试。", "不能语音输入"); return; }
     const rec = new SR();
     rec.lang = "zh-CN";
     rec.interimResults = true;
@@ -252,7 +265,7 @@ export default function ProfilePage() {
 
   // ===== 反馈 AI 美化（开发视角 bug report）=====
   const runFbPolish = async () => {
-    if (!fbContent.trim()) { alert("先写点东西再整理吧"); return; }
+    if (!fbContent.trim()) { toast("先写点东西再整理吧"); return; }
     setFbPolishing(true);
     try {
       const polished = await polishFeedback(fbContent, fbType, getAiProvider());
@@ -261,7 +274,7 @@ export default function ProfilePage() {
       const titleMatch = polished.match(/^标题[:：]\s*(.+)$/m);
       if (titleMatch) setFbTitle(titleMatch[1].trim());
     } catch (e: any) {
-      alert("整理失败: " + (e.message || "试试文字输入吧"));
+      toast("整理失败: " + (e.message || "试试文字输入吧"), "error");
     } finally {
       setFbPolishing(false);
     }
@@ -277,7 +290,7 @@ export default function ProfilePage() {
       auth.refresh();
       setEditingNickname(false);
     } catch (e: any) {
-      alert("保存失败: " + (e.message || "未知错误"));
+      toast("保存失败: " + (e.message || "未知错误"), "error");
     } finally {
       setSaving(false);
     }
@@ -665,7 +678,7 @@ export default function ProfilePage() {
                                 setEditingContent("");
                                 // 刷新记忆列表（跳过缓存）
                                 await reloadMemories();
-                              } catch (e) { alert("保存失败：" + (e as Error).message); }
+                              } catch (e) { toast("保存失败：" + (e as Error).message, "error"); }
                             }}
                             className="text-xs text-paper-card bg-paper-accent hover:opacity-90 transition px-3 py-1 rounded-md"
                           >保存</button>
@@ -1417,9 +1430,9 @@ export default function ProfilePage() {
                     const newVal = !remindEnabled;
                     if (newVal) {
                       // 请求通知权限
-                      if (!("Notification" in window)) { alert("这个浏览器不支持通知"); return; }
+                      if (!("Notification" in window)) { notify("这个浏览器不支持系统通知，换用 App 或系统浏览器试试。", "不能开提醒"); return; }
                       const perm = await Notification.requestPermission();
-                      if (perm !== "granted") { alert("通知权限被拒绝了，请到浏览器设置里手动开启"); return; }
+                      if (perm !== "granted") { notify("通知权限被拒绝了。到浏览器设置里把这个站点的通知打开，再回来开启提醒。", "通知权限没开"); return; }
                     }
                     setRemindEnabled(newVal);
                     patchProfile({ remind_enabled: newVal ? 1 : 0, remind_time: remindTime });
@@ -1529,7 +1542,7 @@ export default function ProfilePage() {
                           await patchProfile({ avatar: o.key });
                           setData(prev => prev ? { ...prev, user: { ...prev.user, avatar: o.key } } : prev);
                           setShowAvatarPicker(false);
-                        } catch { alert("保存失败，请重试"); }
+                        } catch { toast("保存失败，请重试", "error"); }
                         finally { setAvatarSaving(false); }
                       }}
                       className={`aspect-square rounded-full border-2 overflow-hidden flex items-center justify-center transition active:scale-95 ${active ? "border-paper-accent ring-2 ring-paper-accent/30" : "border-paper-line hover:border-paper-ink3"} ${avatarSaving ? "opacity-50" : ""}`}

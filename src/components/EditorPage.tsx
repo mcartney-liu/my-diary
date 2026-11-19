@@ -18,6 +18,7 @@ import { isIOSBrowser, isAndroidBrowser } from "../platform";
 import GridSnap from "./GridSnap";
 import ConfirmDialog from "./ConfirmDialog";
 import PromptDialog from "./PromptDialog";
+import { toast, notify, confirmAsync } from "../uiFeedback";
 import MiniAiBubble from "./MiniAiBubble";
 import {
   DndContext,
@@ -626,7 +627,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       // 模板库页面也读同一份数据，删完主动失效
       invalidate("templates");
     } catch {
-      alert("删除失败");
+      toast("删除失败", "error");
     }
   }
 
@@ -734,8 +735,8 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   }
 
   async function handleSaveBuilder() {
-    if (!builderName.trim()) { alert("请输入模板名称"); return; }
-    if (builderKinds.length === 0) { alert("至少选一个组件"); return; }
+    if (!builderName.trim()) { toast("请输入模板名称"); return; }
+    if (builderKinds.length === 0) { toast("至少选一个组件"); return; }
 
     setSavingTemplate(true);
     try {
@@ -779,9 +780,9 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       setShowCustomBuilder(false);
 
       await loadMyTemplates();
-      alert(editingTemplate ? "✅ 模板已更新" : "✅ 模板已保存！下次在模板选择里就能看到了");
+      toast(editingTemplate ? "✅ 模板已更新" : "✅ 模板已保存！下次在模板选择里就能看到了", "ok");
     } catch (e: any) {
-      alert("保存失败: " + (e?.message || e));
+      toast("保存失败: " + (e?.message || e), "error");
     } finally {
       setSavingTemplate(false);
     }
@@ -1496,11 +1497,11 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
         } else {
           tip = "点地址栏左边的 🔒 → 网站设置 → 麦克风 → 允许";
         }
-        alert(`麦克风被禁用了。${tip}`);
+        notify(`麦克风被禁用了。${tip}`, "麦克风打不开");
       } else if (name === "NotFoundError") {
-        alert("没找到麦克风设备，检查系统设置");
+        notify("没找到麦克风设备，检查系统设置", "麦克风打不开");
       } else {
-        alert("无法访问麦克风：" + (msg || "请检查权限"));
+        notify("无法访问麦克风：" + (msg || "请检查权限"), "麦克风打不开");
       }
       return;
     }
@@ -1637,7 +1638,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       if (text.trim()) setEditableTranscript(text.trim());
     } catch (err) {
       console.warn("AI 转写失败:", err);
-      alert("小麦 转写失败");
+      toast("小麦 转写失败", "error");
     } finally {
       setTranscribing(false);
     }
@@ -1648,7 +1649,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const confirmAIPolish = async () => {
     if (!pendingRec) return;
     const text = editableTranscript.trim();
-    if (!text) { alert("先录点东西呀～"); return; }
+    if (!text) { toast("先录点东西呀～"); return; }
     setAiPolishing(true);
     try {
       const polished = await polishTranscript(text, { templateId: templateId ?? "diary" });
@@ -1671,7 +1672,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       cancelPending();
     } catch (err) {
       console.warn("AI 美化失败:", err);
-      alert("小麦 美化失败，试试别的操作吧");
+      toast("小麦 美化失败，试试别的操作吧", "error");
     } finally {
       setAiPolishing(false);
     }
@@ -1697,7 +1698,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
           (b) => b.kind === "finance_item" && (b.value ?? 0) > 0
         );
         if (!hasFilledFinanceItem) {
-          alert("💰 还没填任何收支哦，至少记一笔再保存吧～");
+          toast("💰 还没填任何收支哦，至少记一笔再保存吧～");
           return;
         }
       } else if (tplId !== "milestone" && tplId !== "plan") {
@@ -1711,7 +1712,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
             (b.kind === "finance_item" && (b.value ?? 0) > 0)
         );
         if (!hasRealContent) {
-          alert("📝 还没写内容哦，写点什么再保存吧～");
+          toast("📝 还没写内容哦，写点什么再保存吧～");
           return;
         }
       }
@@ -2002,7 +2003,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                 await patchCapsule(initialDiary.id, null);
                 window.location.reload();
               } catch (e) {
-                alert("操作失败：" + ((e as Error).message || "请稍后再试"));
+                toast("操作失败：" + ((e as Error).message || "请稍后再试"), "error");
               }
             }}
             onCancel={() => setCapsuleCancelOpen(false)}
@@ -2936,7 +2937,12 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                                   title="删除"
                                   onClick={(e) => {
                                     e.stopPropagation(); e.preventDefault();
-                                    if (confirm(`删除模板"${tpl.name}"？`)) deleteMyTemplate(tpl.id);
+                                    void confirmAsync({
+                                      title: "删除模板",
+                                      message: `删除模板"${tpl.name}"？删掉后模板库里的记录也会一起移除。`,
+                                      confirmText: "删除",
+                                      confirmTone: "danger",
+                                    }).then((ok) => { if (ok) deleteMyTemplate(tpl.id); });
                                   }}
                                   className="w-6 h-6 rounded-full bg-paper-card border border-paper-line text-paper-ink2 hover:border-red-200 hover:text-red-500 flex items-center justify-center shadow"
                                 ><Trash2 size={10} /></button>

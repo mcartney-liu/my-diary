@@ -7,6 +7,7 @@ import { useAuth } from "./AuthContext";
 // ⭐ 平台能力（App/Web 差异统一入口，见 docs/APP-SYNC-RULES.md）
 import { platform, isNativeApp, platformName } from "./platform";
 import { closeTopModal } from "./uiModalStack";
+import UiFeedbackHost from "./UiFeedbackHost";
 import LoginPage from "./components/LoginPage";
 import CalendarPage from "./components/CalendarPage";
 import EditorPage from "./components/EditorPage";
@@ -625,6 +626,9 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+
+      {/* 页内反馈层：toast / 提示弹窗 / 确认弹窗（替代原生 alert、confirm） */}
+      <UiFeedbackHost />
     </>
   );
 }
