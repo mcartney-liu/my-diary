@@ -814,3 +814,44 @@ html.fonts-loaded * {
 .footer-safe   { padding-bottom: env(safe-area-inset-bottom, 0px); }
 .top14-safe    { top: calc(3.5rem + env(safe-area-inset-top, 0px)); }
 .bottom20-safe { bottom: calc(5rem + env(safe-area-inset-bottom, 0px)); }
+
+/* === 移动端「手感」三件套 ===
+   这三条不改任何布局和视觉，只影响手指操作时的物理反馈，
+   解决「点下去要等一下」「列表滑到底会带着整页弹一下」这类体感问题。 */
+
+/* 1) 去掉双击缩放带来的点击延迟，并禁止双击放大（捏合缩放仍然保留）
+     只作用于可点元素，不影响长文档滚动。 */
+button, a, input, textarea, select, label,
+[role="button"], [role="tab"], [role="switch"] {
+  touch-action: manipulation;
+}
+
+/* 2) 阻止滚动链 / 橡皮筋回弹：弹层内滚到底，不会把下面的页面一起拖走；
+     页面滚到顶也不会触发安卓的「下拉刷新」把正在编辑的内容刷掉。 */
+html, body {
+  overscroll-behavior-y: contain;
+}
+/* 所有可滚动的弹层 / 面板同样切断滚动链（弹层滚到底不带动背后的页面）
+   这里用属性选择器统一覆盖，避免逐个组件去加类名 */
+[class*="overflow-y-auto"],
+[class*="overflow-auto"] {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 3) iOS 聚焦输入框时的自动放大：字号小于 16px 会触发整页缩放，
+     这里只在 iOS 上把输入元素字号兜到 16px，安卓不受影响、视觉不变。 */
+@supports (-webkit-touch-callout: none) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em);
+  }
+}
+
+/* 4) 防止安卓 WebView 的字体膨胀（横屏 / 系统字号设置下文字忽大忽小） */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
