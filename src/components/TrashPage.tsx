@@ -189,7 +189,7 @@ export default function TrashPage({ diaries, onRestore, onPermanentDelete, onBat
 
       {/* 批量操作栏 */}
       {selectMode && sorted.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-paper-line bg-[#faf6ef]/95 backdrop-blur">
+        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-paper-line bg-[#faf6ef]/95 backdrop-blur footer-safe">
           <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-2">
             <button
               onClick={toggleSelectAll}

@@ -454,7 +454,7 @@ export default function SourcesPanel() {
 
       {/* 底部批量汇入/选择栏 */}
       {selectMode && sources.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-paper-line bg-[#faf6ef]/95 backdrop-blur">
+        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-paper-line bg-[#faf6ef]/95 backdrop-blur footer-safe">
           <div className="max-w-3xl mx-auto flex flex-col gap-2 px-4 py-3">
             {/* 目标 KB + 汇入按钮 */}
             <div className="flex items-center gap-2">

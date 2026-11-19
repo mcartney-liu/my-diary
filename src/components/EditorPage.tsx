@@ -1917,7 +1917,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     const hoursLeft = Math.ceil((msLeft % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
     return (
       <div className="min-h-screen bg-paper-bg flex flex-col">
-        <header className="sticky top-0 z-10 bg-paper-bg/95 backdrop-blur border-b border-paper-line">
+        <header className="sticky top-0 z-10 bg-paper-bg/95 backdrop-blur border-b border-paper-line header-safe">
           <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center">
             <button
               onClick={onCancel}
@@ -2015,7 +2015,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   return (
     <div className="min-h-screen bg-paper-bg flex flex-col">
       {/* 顶栏 */}
-      <header className="sticky top-0 z-10 bg-paper-bg/95 backdrop-blur border-b border-paper-line">
+      <header className="sticky top-0 z-10 bg-paper-bg/95 backdrop-blur border-b border-paper-line header-safe">
         <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center justify-between">
           <button
             onClick={() => {
@@ -2054,7 +2054,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
       {/* 保存成功 toast */}
       {saveToast && (
-        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-green-500/95 text-white text-sm px-4 py-2 rounded-full shadow-lg animate-[fade-in_0.3s]">
+        <div className="fixed top14-safe left-1/2 -translate-x-1/2 z-50 bg-green-500/95 text-white text-sm px-4 py-2 rounded-full shadow-lg animate-[fade-in_0.3s]">
           ✓ 已保存
         </div>
       )}
@@ -2607,7 +2607,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       )}
 
       {/* 底部添加栏 */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-paper-bg/95 backdrop-blur border-t border-paper-line z-20" style={{ bottom: keyboardOffset }}>
+      <footer className="fixed bottom-0 left-0 right-0 bg-paper-bg/95 backdrop-blur border-t border-paper-line z-20 footer-safe" style={{ bottom: keyboardOffset }}>
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-center gap-3">
           <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
             onChange={(e) => e.target.files?.[0] && handleImagePick(e.target.files[0])} />
@@ -3301,7 +3301,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
       {/* 小麦 AI 辅助提示条 — 写了 3 段以上就弹，引导用户发现 AI */}
       {blocks.length >= 3 && !aiHintDismissed && !aiBubbleOpen && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-30 animate-[fade-in_0.3s]">
+        <div className="fixed bottom20-safe left-1/2 -translate-x-1/2 z-30 animate-[fade-in_0.3s]">
           <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-full shadow-lg px-4 py-2 flex items-center gap-2 text-sm">
             <span className="text-base">🌾</span>
             <span className="text-amber-900">小麦可以帮你润色 / 起标题 / 写结尾</span>
