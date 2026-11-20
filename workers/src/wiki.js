@@ -154,10 +154,17 @@ export async function handleWikiListKbs(request, env, JWT_SECRET) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
 
-  // 自动 seed：确保所有 active 的官方预设都存在（幂等，已有则跳过）
+  // 自动 seed：只在缺官方预设时才跑
+  // 旧实现每次打开列表都跑一遍 seed（N 个预设 × 每次请求的写操作），读接口做写操作既慢又容易打架
   try {
-    for (const preset of OFFICIAL_KB_PRESETS) {
-      if (preset.active !== false) await seedOfficialPreset(env, user.uid, preset);
+    const activePresets = OFFICIAL_KB_PRESETS.filter(p => p.active !== false);
+    if (activePresets.length > 0) {
+      const officialCount = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM wiki_knowledge_bases WHERE user_id=? AND is_official=1"
+      ).bind(user.uid).first();
+      if ((officialCount?.n || 0) < activePresets.length) {
+        for (const preset of activePresets) await seedOfficialPreset(env, user.uid, preset);
+      }
     }
   } catch (e) {
     console.error('[wiki] auto-seed failed, continue to list kbs:', e);
@@ -173,12 +180,20 @@ export async function handleWikiAddKb(request, env, JWT_SECRET) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
   const { title, description } = await readBody(request);
-  if (!title) return json({ error: "title required" }, 400);
+  if (!title || !String(title).trim()) return json({ error: "title required" }, 400);
+  const cleanTitle = String(title).trim();
+
+  // 同一用户下不允许重名：库里几个同名知识库时，用户在选择器里根本分不清，问答还容易选错库
+  const dup = await env.DB.prepare(
+    "SELECT id FROM wiki_knowledge_bases WHERE user_id=? AND title=?"
+  ).bind(user.uid, cleanTitle).first();
+  if (dup) return json({ error: "已经有同名知识库了，换个名字吧" }, 409);
+
   const now = Date.now();
   const id = uuid();
   await env.DB.prepare("INSERT INTO wiki_knowledge_bases (id, user_id, title, description, created_at, updated_at) VALUES (?,?,?,?,?,?)")
-    .bind(id, user.uid, title, description || '', now, now).run();
-  return json({ id, title, description: description || '', ok: true }, 201);
+    .bind(id, user.uid, cleanTitle, description || '', now, now).run();
+  return json({ id, title: cleanTitle, description: description || '', ok: true }, 201);
 }
 
 export async function handleWikiUpdateKb(request, env, JWT_SECRET, params) {
@@ -188,7 +203,16 @@ export async function handleWikiUpdateKb(request, env, JWT_SECRET, params) {
   const now = Date.now();
   const sets = [];
   const args = [];
-  if (body.title !== undefined) { sets.push('title=?'); args.push(body.title); }
+  if (body.title !== undefined) {
+    const cleanTitle = String(body.title).trim();
+    if (!cleanTitle) return json({ error: "名字不能为空" }, 400);
+    // 改名同样不能和同用户下其它知识库重名
+    const dup = await env.DB.prepare(
+      "SELECT id FROM wiki_knowledge_bases WHERE user_id=? AND title=? AND id<>?"
+    ).bind(user.uid, cleanTitle, params.kb_id).first();
+    if (dup) return json({ error: "已经有同名知识库了，换个名字吧" }, 409);
+    sets.push('title=?'); args.push(cleanTitle);
+  }
   if (body.description !== undefined) { sets.push('description=?'); args.push(body.description); }
   if (sets.length === 0) return json({ ok: true });
   sets.push('updated_at=?');

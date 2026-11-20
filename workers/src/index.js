@@ -1443,6 +1443,35 @@ function selectRelevantSnippet(content, keywords, budget = 800) {
   return out.trim() || text.slice(0, budget);
 }
 
+// ===== 原始资料分块 =====
+// 为什么需要：页面是 LLM 重写过的产物，命令、参数、数字这类细节会被压缩掉；
+// 而且"资料汇入了但还没生成页面"时，原来完全检索不到，用户以为没导进去。
+// 这里把资料原文按段落聚合成 chunk，直接参与关键词检索（与页面检索并列，互不替代）。
+function chunkSourceText(text, size = 600, overlap = 80) {
+  const t = String(text || '').replace(/\r/g, '').trim();
+  if (!t) return [];
+  if (t.length <= size) return [t];
+
+  const paras = t.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+  const chunks = [];
+  let buf = '';
+  for (const p of paras) {
+    if (p.length > size) {
+      if (buf) { chunks.push(buf); buf = ''; }
+      const step = Math.max(1, size - overlap);
+      for (let i = 0; i < p.length; i += step) {
+        chunks.push(p.slice(i, i + size));
+        if (i + size >= p.length) break;
+      }
+      continue;
+    }
+    if (buf && buf.length + p.length + 2 > size) { chunks.push(buf); buf = p; }
+    else buf = buf ? `${buf}\n\n${p}` : p;
+  }
+  if (buf) chunks.push(buf);
+  return chunks;
+}
+
 // ===== 长期记忆 =====
 // MEMORY_ENABLED 开关不再用模块级常量——从 env.MEMORY_ENABLED 读取，在 handleAsk 内判断（默认开；显式设 'false' 才关）
 const MAX_MEMORIES_IN_PROMPT = 15;     // 最多塞进 prompt 的记忆数
@@ -2328,6 +2357,20 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
       } catch {}
     }
 
+    // 2b. 原始资料也参与检索（不必等它被 LLM 改写成页面）
+    //     - 资料汇入了但还没"生成页面" → 原来完全查不到，用户以为没导进去
+    //     - 页面是重写产物，命令/参数/数字这类细节会被压缩掉 → 原文兜底
+    const SOURCE_SCAN = Math.max(5, parseInt(env.WIKI_SOURCE_SCAN || '20', 10) || 20);
+    let sourceRows = { results: [] };
+    try {
+      sourceRows = await env.DB.prepare(
+        `SELECT id, title, kind, substr(raw_text, 1, 6000) AS raw_text
+         FROM wiki_sources WHERE user_id=? AND (kb_id=? OR tags LIKE ?)
+         ORDER BY created_at DESC LIMIT ?`
+      ).bind(user.uid, kb_id, '%' + kb_id + '%', SOURCE_SCAN).all();
+    } catch (e) { console.warn('[wikiAsk] source scan fail:', e?.message || e); }
+    const hasAnySource = sourceRows.results.length > 0;
+
     // ===== 情况 1：import_mode=true → 尝试收集流程 =====
     // import_mode 不再要求 KB 必须空——用户可能想给已有 KB 收集更多内容
     // handleWikiAskImport 内部会做 check-match 预检，low 就返回 null 降级
@@ -2336,7 +2379,7 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
     //    于是跳过检索直接长篇生成 → 行为不可预期。这里只认明确的收集/录入意图，
     //    知识库已有内容时，其余情况静默降级回正常 RAG（无损，不报错）。
     const COLLECT_INTENT = /(收集|帮我找|帮我搜|录入|添加资料|补充资料|新建页面|建个页面)/;
-    if (import_mode && hasAnyPage && !COLLECT_INTENT.test(question)) {
+    if (import_mode && (hasAnyPage || hasAnySource) && !COLLECT_INTENT.test(question)) {
       import_mode = false;
     }
     if (import_mode) {
@@ -2345,8 +2388,9 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
       // importResult 是 null → check-match low → 降级走正常 RAG
     }
 
-    // ===== 情况 2：知识库能答 → 正常 RAG（完全不变）=====
-    if (hasAnyPage) {
+    // ===== 情况 2：知识库能答 → 正常 RAG =====
+    // 注意：只有"资料"没有"页面"的库也走这条路径（原来会掉进"空库"分支，导致资料白导）
+    if (hasAnyPage || hasAnySource) {
 
     // 3. embed question + 关键词提取
     const qVec = await embedText(env, question);
@@ -2447,18 +2491,48 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
       ? (RERANK_MIN <= 0 || rerankerTopScore >= RERANK_MIN)
       : (MIXED_MIN <= 0 || (topCandidates[0]?.score ?? candidates[0]?.score ?? 0) >= MIXED_MIN);
 
-    const contextParts = relevant ? finalTop.map((s, i) => {
+    // 7. 原始资料分块打分（资料里有页面丢掉的细节：命令、参数、数字）
+    const SOURCE_CHUNK = Math.max(300, parseInt(env.WIKI_SOURCE_CHUNK || '600', 10) || 600);
+    const SOURCE_MIN = parseFloat(env.WIKI_SOURCE_MIN || '0.08');
+    let sourceHits = [];
+    if (hasAnySource) {
+      const pool = [];
+      for (const s of sourceRows.results) {
+        const chunks = chunkSourceText(s.raw_text, SOURCE_CHUNK);
+        chunks.forEach((text, idx) => {
+          const sc = keywordScore(text, keywords);
+          if (SOURCE_MIN <= 0 || sc >= SOURCE_MIN) {
+            pool.push({
+              source_id: s.id,
+              title: (s.title && s.title.trim()) || (s.kind === 'diary' ? '日记资料' : '资料'),
+              kind: s.kind || 'text',
+              idx,
+              text,
+              score: sc,
+            });
+          }
+        });
+      }
+      pool.sort((a, b) => b.score - a.score);
+      sourceHits = pool.slice(0, 3);
+    }
+
+    const pageParts = relevant ? finalTop.map((s, i) => {
       const t = (s.title && s.title.trim()) || `页面${i+1}`;
       const c = selectRelevantSnippet(s.content, keywords, CONTEXT_PER_PAGE);
       return `[${i+1}] [[${t}]]\n${c}`;
     }) : [];
-    const hasPagesInDb = hasAnyPage;
-    const context = contextParts.length > 0 ? contextParts.join('\n\n') : '';
-    console.log(`[wikiAsk] gate kb=${kb.title} q="${question.slice(0,30)}" rerankTop=${rerankerTopScore?.toFixed(4) ?? 'null'} min=${RERANK_MIN} relevant=${relevant} pages=${finalTop.length} ctxChars=${context.length}`);
+    const sourceParts = sourceHits.map((s, i) => `[资料${i + 1}] ${s.title}（原文第${s.idx + 1}段）\n${s.text}`);
 
-    // 7. 根据联网开关生成 System Prompt
+    const contextParts = [...pageParts, ...sourceParts];
+    const hasAnyContent = hasAnyPage || hasAnySource;
+    const context = contextParts.length > 0 ? contextParts.join('\n\n') : '';
+    const grounded = pageParts.length > 0 || sourceParts.length > 0;
+    console.log(`[wikiAsk] gate kb=${kb.title} q="${question.slice(0,30)}" rerankTop=${rerankerTopScore?.toFixed(4) ?? 'null'} min=${RERANK_MIN} relevant=${relevant} pages=${pageParts.length} srcHits=${sourceParts.length} ctxChars=${context.length}`);
+
+    // 8. 根据联网开关生成 System Prompt
     let sys;
-    const contextBlock = !hasPagesInDb
+    const contextBlock = !hasAnyContent
       ? '（知识库是空的，还没有任何实体或页面）'
       : (context || '（已检索知识库，但没有命中与这个问题相关的内容）');
 
@@ -2470,12 +2544,13 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
 1. 说"我帮你查了一下「${kb.title}」知识库里的内容"，**不要说"自己的知识库"**
 2. **绝对不许提及/查日记**、**绝对不许说"日记里没找到"**
 3. 优先根据给你的知识页面回答；知识库里没有的，可以用你自己的知识补充
-4. 回答里要区分：哪些来自知识库（用 [[页面名]] 引用），哪些是你的补充
-5. 简洁清晰，结构分明
-6. ⚠️ 如果你认为给你的知识页面和问题**完全无关**，请直接说"「${kb.title}」知识库里暂时没有这个问题的答案"，然后再用你的知识补充。不要假装在知识库里找到了。
-7. 排版：不要输出 --- / *** / ___ 这类装饰线；用简短小标题和加粗分块，段落之间空行分隔
+4. 回答里要区分：哪些来自知识库（页面用 [[页面名]] 引用，资料原文注明「资料N」），哪些是你的补充
+5. `[资料N]` 是用户原始资料的原文，里面通常有具体的命令、参数、数字 —— 这类细节**优先用资料原文**，不要用概括改写
+6. 简洁清晰，结构分明
+7. ⚠️ 如果你认为给你的内容与问题**完全无关**，请直接说"「${kb.title}」知识库里暂时没有这个问题的答案"，然后再用你的知识补充。不要假装在知识库里找到了。
+8. 排版：不要输出 --- / *** / ___ 这类装饰线；用简短小标题和加粗分块，段落之间空行分隔
 
-知识页面：
+知识内容（`[数字]` 是知识页面，`[资料N]` 是资料原文）：
 ${contextBlock}
 
 回答完问题后，另起一行写 <<<SUGGEST>>>，然后下面写3个用户可能接着问的后续问题（每行一个，不要编号）。这3个问题要和当前知识库主题相关、和刚才的回答有延续性。`;
@@ -2486,12 +2561,13 @@ ${contextBlock}
 规则：
 1. 说"我帮你查了一下「${kb.title}」知识库里的内容"，**不要说"自己的知识库"**
 2. **绝对不许提及/查日记**、**绝对不许说"日记里没找到"**
-3. ⛔ **严禁使用你自己的知识**，只能根据给你的知识页面回答！
-4. ⚠️ **最重要的一条**：如果你认为提供的这些页面与问题**完全无关**，请直接说"「${kb.title}」知识库里暂时没有这个问题的答案，可以开启联网查询让我用自己的知识回答"。**不要试图编造答案，不要假装在知识库里找到了。**
-5. 引用用 [[页面名]] 语法；简洁清晰
-6. 排版：不要输出 --- / *** / ___ 这类装饰线；用简短小标题和加粗分块，段落之间空行分隔
+3. ⛔ **严禁使用你自己的知识**，只能根据给你的知识内容回答！
+4. `[资料N]` 是用户原始资料的原文，里面通常有具体的命令、参数、数字 —— 这类细节**优先用资料原文**，不要概括
+5. ⚠️ **最重要的一条**：如果你认为提供的这些内容与问题**完全无关**，请直接说"「${kb.title}」知识库里暂时没有这个问题的答案，可以开启联网查询让我用自己的知识回答"。**不要试图编造答案，不要假装在知识库里找到了。**
+6. 引用用 [[页面名]] 语法，资料原文注明「资料N」；简洁清晰
+7. 排版：不要输出 --- / *** / ___ 这类装饰线；用简短小标题和加粗分块，段落之间空行分隔
 
-知识页面：
+知识内容（`[数字]` 是知识页面，`[资料N]` 是资料原文）：
 ${contextBlock}
 
 回答完问题后，另起一行写 <<<SUGGEST>>>，然后下面写3个用户可能接着问的后续问题（每行一个，不要编号）。这3个问题要和当前知识库主题相关、和刚才的回答有延续性。`;
@@ -2515,8 +2591,10 @@ ${contextBlock}
     try { answer = await callLLM(env, msgs, 800); }
     catch (e) { answer = '抱歉，我暂时答不上来这个问题：' + (e.message || ''); }
 
-    // 9. 返回（title 加兜底）
-    // ⚡ 普通 RAG 也带 can_save：用户问了问题，AI 的回答（不管是查知识库还是联网补充的）都可以一键汇入
+    // 9. 返回
+    // can_save 收紧：只有"完全基于知识库回答"才允许一键汇入。
+    // 旧实现对联网补充的回答也返回 can_save=true → 模型自己的推测被一键存成"我的资料"，
+    // 之后再被当成事实检索出来，错误会自我固化。
     return json({
       answer,
       sources: relevant ? finalTop.map(s => ({
@@ -2525,13 +2603,24 @@ ${contextBlock}
         summary: s.summary || '',
         score: Math.round((s.score || 0) * 1000) / 1000,
       })) : [],
+      source_hits: sourceHits.map(s => ({
+        source_id: s.source_id,
+        title: s.title,
+        kind: s.kind,
+        chunk: s.idx + 1,
+        score: Math.round(s.score * 1000) / 1000,
+      })),
       kb_title: kb.title,
-      can_save: true,
+      can_save: grounded && !web_search,
     });
 
     } else {
       // ===== 情况 3：KB 为空 + import_mode=false → 直接让 AI 回答（联网补）+ 给 can_save 让用户一键汇入 =====
-      // 空知识库用户问了问题 → 用联网知识回答 + 自动带 can_save=true 让用户决定要不要汇入
+      // 空知识库用户问了问题 → 用联网知识回答，但**不给一键汇入**
+      // 原因：库是空的、回答完全来自模型自身知识，没有任何资料可以核验。
+      // 旧实现返回 can_save=true，用户一键就把模型编的内容变成"我自己整理的资料"，
+      // 之后每次问答都会被当成事实检索出来 —— 错误自我固化，且再也分不清真假。
+      // 想把这些内容存进库，走"🧠 帮我收集新知识"（那条路径有生成+人工确认环节）。
       if (web_search) {
         // 联网开 → 让 AI 自由回答
         const sys = `你就是小麦，我的 AI 助手。我在「${kb.title}」知识库里问问题，但知识库还是空的。
@@ -2550,7 +2639,7 @@ ${contextBlock}
         let answer;
         try { answer = await callLLM(env, msgs, 800); }
         catch (e) { answer = '抱歉，我暂时答不上来：' + (e.message || ''); }
-        return json({ answer, sources: [], kb_title: kb.title, can_save: true });
+        return json({ answer, sources: [], kb_title: kb.title, can_save: false, unsourced: true });
       } else {
         // 联网关 → 先引导用户开联网或用收集模式
         return json({ answer: `「${kb.title}」还是空的～要让我先帮你收集一些资料吗？\n\n📎 你可以点右下角的「🧠 帮我收集新知识」，或者开启联网查询让我用自己的知识回答 ✨`, sources: [] });
