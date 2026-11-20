@@ -30,6 +30,48 @@ async function auth(request, env, JWT_SECRET) {
   return authUser(request, JWT_SECRET);
 }
 
+// ====== 页面向量：统一入口 ======
+// 为什么不再"只给新建页面做"：页面被后续汇入改写后，旧向量代表的是旧内容，
+// 检索会按旧语义召回、再拿新内容去回答 → 用户补了资料却问不出新内容。
+// 为什么不再只取前 500 字：长页面的主题通常在后半段，只喂开头等于后半段根本无法被检索。
+const PAGE_VECTOR_MAX_CHARS = 1600;
+
+export function pageVectorText(title, summary, content) {
+  const body = String(content || "");
+  let sample;
+  if (body.length <= PAGE_VECTOR_MAX_CHARS) {
+    sample = body;
+  } else {
+    // 跨小节取样：头段一半 + 中段 + 尾段，比"截前 N 字"覆盖更完整
+    const head = Math.floor(PAGE_VECTOR_MAX_CHARS * 0.5);
+    const piece = Math.floor(PAGE_VECTOR_MAX_CHARS * 0.25);
+    const midStart = Math.max(0, Math.floor(body.length / 2 - piece / 2));
+    sample = [
+      body.slice(0, head),
+      body.slice(midStart, midStart + piece),
+      body.slice(Math.max(0, body.length - piece)),
+    ].join("\n");
+  }
+  return [title || "", summary || "", sample].filter(Boolean).join("\n");
+}
+
+/** 重算单个页面的向量（按当前 title/summary/content）。失败不影响主流程。 */
+export async function refreshPageVector(env, pageId) {
+  try {
+    const row = await env.DB.prepare("SELECT title, summary, content FROM wiki_pages WHERE id=?").bind(pageId).first();
+    if (!row) return false;
+    const text = pageVectorText(row.title, row.summary, row.content);
+    if (!text.trim()) return false;
+    const emb = await env.AI.run('@cf/baai/bge-m3', { text });
+    if (!emb?.data?.[0]) return false;
+    await env.DB.prepare("UPDATE wiki_pages SET vector=? WHERE id=?").bind(JSON.stringify(emb.data[0]), pageId).run();
+    return true;
+  } catch (e) {
+    console.error('[wiki] refreshPageVector fail:', pageId, e?.message || e);
+    return false;
+  }
+}
+
 // ====== AI 调用（优先 DeepSeek，fallback Workers AI，temperature 低保证 JSON 稳定） ======
 const WIKI_LLM_MODEL = 'deepseek-v4-flash';
 const WIKI_WORKERS_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
@@ -573,7 +615,33 @@ export async function handleWikiUpdatePage(request, env, JWT_SECRET, params) {
     `UPDATE wiki_pages SET ${sets.join(",")} WHERE id=? AND kb_id=? AND user_id=? AND is_system=0`
   ).bind(...binds).run();
 
+  // 手动编辑页面后重算向量 —— 否则检索仍按编辑前的语义召回（内容变了、向量没变）
+  // 只在正文/标题/摘要真的改动时才重算，纯改分类不算
+  if (content !== undefined || title !== undefined || summary !== undefined) {
+    await refreshPageVector(env, params.page_id);
+  }
+
   return json({ ok: true });
+}
+
+// POST /api/wiki/kbs/:kb_id/reindex-vectors — 按当前内容重算整个知识库的页面向量
+// 存在的意义：历史上「更新的页面不复算向量」，存量数据需要通过这一次全量重算修掉
+export async function handleWikiReindexVectors(request, env, JWT_SECRET, params) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const kb = await ensureKb(env, user.uid, params.kb_id);
+  if (!kb) return json({ error: "kb not found" }, 404);
+
+  const rows = await env.DB.prepare(
+    "SELECT id FROM wiki_pages WHERE kb_id=? AND user_id=? AND is_system=0 ORDER BY updated_at DESC LIMIT 300"
+  ).bind(params.kb_id, user.uid).all();
+
+  let ok = 0;
+  for (const r of rows.results) {
+    if (await refreshPageVector(env, r.id)) ok++;
+  }
+  await dblog(env, 'ingest', 'REINDEX_VECTORS', { kb_id: params.kb_id, total: rows.results.length, ok });
+  return json({ ok: true, total: rows.results.length, reindexed: ok, failed: rows.results.length - ok });
 }
 
 // DELETE /wiki/:kb_id/pages/:page_id — 删除单个页面（同时清理 wiki_links 关联）
@@ -656,6 +724,9 @@ ${source_text.slice(0, 3000)}
   await env.DB.prepare(
     "INSERT INTO wiki_pages (id, kb_id, user_id, category_id, title, content, summary, is_system, created_at, updated_at) VALUES (?,?,?,?,?,?,?,0,?,?)"
   ).bind(id, params.kb_id, user.uid, category_id || null, entity_name, md, summary, now, now).run();
+
+  // 生成页面后立即建向量，否则这个页面对检索是"隐身"的
+  await refreshPageVector(env, id);
 
   // 加链接（source_text 里应该提到了这个实体）
   const sourceTitleMatch = source_text.match(/^#\s+([^\n]+)/m);
@@ -1082,6 +1153,8 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   const slugToCatId = Object.fromEntries(categories.map(c => [c.slug, c.id]));
   const pendingSourceIds = pending.map(s => s.id);
   const newPages = [];
+  // 需要重算向量的页面：新建的 + 被本次汇入改写的（改写后旧向量就过期了）
+  const pagesToEmbed = [];
   let createdCount = 0, updatedCount = 0;
   const pageDebug = []; // 每一页的处理轨迹
   await dblog(env, 'ingest', 'BEFORE_PAGE_LOOP', { allPages: allPages.length, allLinks: allLinks.length });
@@ -1128,6 +1201,7 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
           "UPDATE wiki_pages SET content=?, category_id=?, source_ids=?, summary=?, updated_at=? WHERE id=?"
         ).bind(p.content, catId, JSON.stringify(allSources), summary || null, now, existing.id).run();
         updatedCount++;
+        pagesToEmbed.push(existing.id);
         pageDebug[pageDebug.length-1].branch = 'update';
       } else {
         const id = uuid();
@@ -1136,6 +1210,7 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
           "INSERT INTO wiki_pages (id, kb_id, user_id, category_id, title, content, summary, source_ids, is_system, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,0,?,?)"
         ).bind(id, params.kb_id, user.uid, catId, p.title, p.content, summary || null, JSON.stringify(pendingSourceIds), now, now).run();
         newPages.push({ id, title: p.title });
+        pagesToEmbed.push(id);
         createdCount++;
         pageDebug[pageDebug.length-1].branch = 'insert';
       }
@@ -1282,15 +1357,13 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
     } catch (e) { console.error('[wiki] mark ingested fail:', e.message, 'source=', s.id); }
   }
 
-  // embedding（只给新建页面做，更新的跳过）
-  for (const p of newPages) {
-    try {
-      const row = await env.DB.prepare("SELECT title, content FROM wiki_pages WHERE id=?").bind(p.id).first();
-      if (!row) continue;
-      const emb = await env.AI.run('@cf/baai/bge-m3', { text: row.title + '\n' + row.content.slice(0,500) });
-      if (emb?.data?.[0]) await env.DB.prepare("UPDATE wiki_pages SET vector=? WHERE id=?").bind(JSON.stringify(emb.data[0]), p.id).run();
-    } catch { /* skip */ }
+  // 向量重建：新建 + 被改写的页面都要重算
+  // （旧实现只给 newPages 做，页面被后续汇入改写后向量一直是旧的 → 新内容检索不到）
+  let embeddedCount = 0;
+  for (const pageId of pagesToEmbed) {
+    if (await refreshPageVector(env, pageId)) embeddedCount++;
   }
+  await dblog(env, 'ingest', 'EMBEDDED', { pages: pagesToEmbed.length, ok: embeddedCount });
 
   await dblog(env, 'ingest', 'DONE', { ingested: processedSourceIds.size, totalPending: pending.length, created: createdCount, updated: updatedCount, links: linkPairs.size });
 

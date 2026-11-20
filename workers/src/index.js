@@ -28,6 +28,7 @@ import {
   saveDiaryToWikiSources,
   handleWikiListPages, handleWikiGetPage, handleWikiUpdatePage, handleWikiDeletePage, handleWikiGenerateEntity, handleWikiSearch, handleWikiGraph,
   handleWikiIngestAll,
+  handleWikiReindexVectors, pageVectorText,
   handleWikiListTemplates, handleWikiAddTemplate, handleWikiDeleteTemplate, handleWikiBindTemplate,
   handleWikiListOfficialPresets, handleWikiSeedOfficialPreset,
   handleWikiDebugLog,
@@ -171,6 +172,7 @@ export default {
       ["PATCH",  "/api/wiki/kbs/:kb_id/categories",            handleWikiUpdateCategory],
       ["DELETE", "/api/wiki/kbs/:kb_id/categories",            handleWikiDeleteCategory],
       ["GET",    "/api/wiki/kbs/:kb_id/sources",               handleWikiListSources],
+      ["POST",   "/api/wiki/kbs/:kb_id/reindex-vectors",       handleWikiReindexVectors],
       ["POST",   "/api/wiki/kbs/:kb_id/sources/text",          handleWikiAddSourceText],
       ["POST",   "/api/wiki/kbs/:kb_id/sources/file",          handleWikiUploadSourceFile],
       ["DELETE", "/api/wiki/kbs/:kb_id/sources/batch",         handleWikiBatchDeleteSources],
@@ -1341,36 +1343,60 @@ const STOPWORDS = new Set(['的', '了', '是', '在', '我', '你', '他', '她
 function extractKeywords(query) {
   if (!query) return [];
   const tokens = new Set();
-  const cleaned = query.replace(/[，。！？、；：""''（）【】《》…\s]/g, '').trim();
-  // 英文/数字
-  (query.match(/[a-zA-Z0-9]+/g) || []).forEach(t => tokens.add(t.toLowerCase()));
-  // 中文 n-gram (4→3→2 字，长的优先)
-  for (let len = Math.min(4, cleaned.length); len >= 2; len--) {
-    for (let i = 0; i <= cleaned.length - len; i++) {
-      const gram = cleaned.slice(i, i + len);
-      // 完全由停用词组成的才跳过（保留含实字的）
-      if ([...gram].every(ch => STOPWORDS.has(ch))) continue;
-      tokens.add(gram);
+  // 中文 n-gram 只在纯中文部分切：英文/数字单独走整词，避免把 "VPN" 切成 "VP"、"PN" 这种噪声
+  const cleaned = query.replace(/[，。！？、；：""''（）【】《》…\s]/g, '').replace(/[a-zA-Z0-9]+/g, ' ').replace(/\s+/g, '').trim();
+
+  // 英文/数字：整词（单字母忽略）
+  (query.match(/[a-zA-Z0-9]+/g) || []).forEach(t => {
+    if (t.length > 1) tokens.add(t.toLowerCase());
+  });
+
+  // 中文：先出 2 字词（召回主力），再补 3 字词（精准），最后整句短语
+  // 旧实现是 4→3→2 生成后 slice(0,12)，结果 12 个配额被"问题开头几个四字串"占满；
+  // 四字串几乎不会在文档里原样出现，而真正能命中的两字词全被截掉 → 关键词通道等于失效。
+  if (cleaned.length >= 2) {
+    const bi = new Set();
+    for (let i = 0; i <= cleaned.length - 2; i++) {
+      const g = cleaned.slice(i, i + 2);
+      if ([...g].every(ch => STOPWORDS.has(ch))) continue;
+      bi.add(g);
     }
+    [...bi].slice(0, 14).forEach(g => tokens.add(g));
+
+    if (cleaned.length >= 3) {
+      const tri = new Set();
+      for (let i = 0; i <= cleaned.length - 3; i++) {
+        const g = cleaned.slice(i, i + 3);
+        if ([...g].every(ch => STOPWORDS.has(ch))) continue;
+        tri.add(g);
+      }
+      [...tri].slice(0, 8).forEach(g => tokens.add(g));
+    }
+    // 短问句（≤12 字）整句也当一个词，命中标题时很准
+    if (cleaned.length <= 12) tokens.add(cleaned);
   }
-  return [...tokens].slice(0, 12); // 最多 12 个
+  return [...tokens].slice(0, 24);
 }
 
 // 算 content 里的关键词匹配分：频率 + 位置加权（前面出现权重高）
+// 词长加权：2 字词噪声大、3 字以上更可信，命中时给更高分
 function keywordScore(content, keywords) {
   if (!keywords.length || !content) return 0;
+  // 统一小写后匹配：英文缩写常一边大写一边小写（VPN vs vpn），否则整条英文命中全丢
+  const hay = content.toLowerCase();
   let score = 0;
+  let weightSum = 0;
   for (const kw of keywords) {
-    let pos = content.indexOf(kw);
+    const w = kw.length >= 3 ? 1.5 : 1;
+    weightSum += w;
+    const k = kw.toLowerCase();
+    const pos = hay.indexOf(k);
     if (pos === -1) continue;
-    // 频率：出现次数
-    const count = content.split(kw).length - 1;
-    // 位置：越靠前权重越高（0~1）
-    const posBonus = Math.max(0, 1 - pos / Math.max(content.length, 1));
-    score += count * 0.3 + posBonus * 0.5;
+    const count = hay.split(k).length - 1;
+    const posBonus = Math.max(0, 1 - pos / Math.max(hay.length, 1));
+    score += (count * 0.3 + posBonus * 0.5) * w;
   }
-  // 归一化（除以关键词数，让分数在 0~1 区间）
-  return Math.min(1, score / keywords.length);
+  return Math.min(1, score / Math.max(weightSum, 1));
 }
 
 // ===== 知识库问答：页面片段选取 =====
@@ -2277,13 +2303,30 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
     if (!kb) return json({ answer: '这个知识库不存在了，请换一个试试', sources: [] });
 
     // 2. 拉 wiki_pages（过滤掉 is_system 的模板页）
+    // 改成两段式：先只取「标题/摘要/向量」做粗排（便宜、内存小），
+    // 再给粗排前几名补正文。旧实现一次把 200 页正文全拉进内存，既慢又只能扫 200 页。
+    const SCAN_MAX = Math.max(50, parseInt(env.WIKI_SCAN_MAX || '600', 10) || 600);
     const pages = await env.DB.prepare(
-      `SELECT id, title, content, summary, vector, is_system
+      `SELECT id, title, summary, vector
        FROM wiki_pages WHERE kb_id=? AND user_id=? AND is_system=0
-       ORDER BY updated_at DESC LIMIT 200`
-    ).bind(kb_id, user.uid).all();
+       ORDER BY updated_at DESC LIMIT ?`
+    ).bind(kb_id, user.uid, SCAN_MAX).all();
 
     const hasAnyPage = pages.results.length > 0;
+
+    // 扫描上限兜底：页数超上限时只能扫到最近的 SCAN_MAX 页（D1 没有向量索引，
+    // 真正无限量要上 Cloudflare Vectorize）。至少让这件事在日志里可见。
+    if (hasAnyPage) {
+      try {
+        const cnt = await env.DB.prepare(
+          "SELECT COUNT(*) AS n FROM wiki_pages WHERE kb_id=? AND user_id=? AND is_system=0"
+        ).bind(kb_id, user.uid).first();
+        const total = cnt?.n || 0;
+        if (total > SCAN_MAX) {
+          console.warn(`[wikiAsk] page overflow kb=${kb.title} total=${total} scanned=${SCAN_MAX}`);
+        }
+      } catch {}
+    }
 
     // ===== 情况 1：import_mode=true → 尝试收集流程 =====
     // import_mode 不再要求 KB 必须空——用户可能想给已有 KB 收集更多内容
@@ -2309,7 +2352,7 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
     const qVec = await embedText(env, question);
     const keywords = extractKeywords(question);
 
-    // 4. 混合检索：向量 (0.7) + 关键词 (0.3)
+    // 4. 混合检索粗排：向量 (0.7) + 关键词 (0.3)。此时候选只有标题/摘要
     const USE_VECTOR_W = 0.7, USE_KW_W = 0.3;
 
     const candidates = pages.results.map(p => {
@@ -2317,40 +2360,74 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
       if (p.vector && qVec) {
         try { vecRaw = cosineSimilarity(qVec, jsonToFloat32(p.vector)); } catch {}
       }
-      const searchText = (p.content || '') + ' ' + (p.summary || '') + ' ' + (p.title || '');
-      const kwRaw = keywordScore(searchText, keywords);
+      const headText = (p.summary || '') + ' ' + (p.title || '');
+      const kwRaw = keywordScore(headText, keywords);
       const score = USE_VECTOR_W * vecRaw + USE_KW_W * kwRaw;
-      return { ...p, score, vecScore: vecRaw };
+      return { ...p, content: '', score, vecScore: vecRaw };
     }).sort((a, b) => b.score - a.score);
 
-    // 5. reranker 精排 — 始终跑！（评审意见：reranker score 是最可靠的相关性信号）
+    // 5. 精排候选 + 补正文
     const CANDIDATE_COUNT = Math.min(12, candidates.length);
-    let finalTop = candidates.slice(0, Math.min(5, candidates.length));
     const topCandidates = candidates.slice(0, CANDIDATE_COUNT);
+    let finalTop = candidates.slice(0, Math.min(5, candidates.length));
 
-    let rerankerTopScore = null; // 🆕 收集 reranker top1 分数
-    if (topCandidates.length >= 3) {
+    // 粗排时看不到正文，会出现"正文强命中、标题不含关键词"的页面被排到后面。
+    // 这里给前 12 名补上正文并重算关键词分，再排一次。
+    if (topCandidates.length) {
+      try {
+        const ph = topCandidates.map(() => '?').join(',');
+        const bodyR = await env.DB.prepare(
+          `SELECT id, content FROM wiki_pages WHERE id IN (${ph})`
+        ).bind(...topCandidates.map(c => c.id)).all();
+        const bodyById = Object.fromEntries(bodyR.results.map(r => [r.id, r.content || '']));
+        for (const c of topCandidates) {
+          c.content = bodyById[c.id] || '';
+          // 自愈：老页面/漏算的页面没有向量 → 就地补一条并写回，否则它永远无法被向量召回
+          if (!c.vector && c.content && qVec) {
+            try {
+              const emb = await env.AI.run(EMBEDDING_MODEL, { text: pageVectorText(c.title, c.summary, c.content) });
+              if (emb?.data?.[0]) {
+                c.vector = JSON.stringify(emb.data[0]);
+                c.vecScore = cosineSimilarity(qVec, emb.data[0]);
+                await env.DB.prepare("UPDATE wiki_pages SET vector=? WHERE id=?").bind(c.vector, c.id).run();
+                console.log('[wikiAsk] backfilled vector page=', c.id);
+              }
+            } catch (e) { console.warn('[wikiAsk] backfill vector fail:', c.id, e?.message || e); }
+          }
+          const kwFull = keywordScore((c.content || '') + ' ' + (c.summary || '') + ' ' + (c.title || ''), keywords);
+          c.score = USE_VECTOR_W * (c.vecScore || 0) + USE_KW_W * kwFull;
+        }
+        topCandidates.sort((a, b) => b.score - a.score);
+        finalTop = topCandidates.slice(0, Math.min(5, topCandidates.length));
+      } catch (e) { console.warn('[wikiAsk] load body fail:', e?.message || e); }
+    }
+
+    // 6. reranker 精排 — 始终跑，候选只有 1 个也跑
+    //    旧实现在 candidates < 3 时直接跳过 reranker，而闸门在"没有 reranker 分数"时默认放行，
+    //    结果 1~2 页的小知识库等于完全没有相关性判断：任何问题都把这几页硬塞给模型。
+    let rerankerTopScore = null;
+    if (topCandidates.length >= 1) {
       try {
         const contexts = topCandidates.map(c => ({
-          text: ((c.title || '') + ' ' + ((c.summary || c.content || '').slice(0, 300)))
+          text: ((c.title || '') + ' ' + (c.summary || '') + ' ' + ((c.content || '').slice(0, 300))).trim(),
         }));
         const rerankResp = await Promise.race([
           env.AI.run('@cf/baai/bge-reranker-base', { query: question, contexts, top_k: Math.min(5, topCandidates.length) }),
           new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 4000)),
         ]);
         if (rerankResp?.response?.length) {
-          rerankerTopScore = rerankResp.response[0]?.score ?? null; // 🆕 记录 top1 分数
+          rerankerTopScore = rerankResp.response[0]?.score ?? null;
           const reranked = rerankResp.response.map(r => ({
             ...topCandidates[r.id],
             score: r.score ?? topCandidates[r.id].score,
           })).filter(Boolean);
-          if (reranked.length >= 3) finalTop = reranked;
+          if (reranked.length >= 1) finalTop = reranked;
         }
-      } catch {}
+      } catch (e) { console.warn('[wikiAsk] rerank fail:', e?.message || e); }
     }
 
-    // 🆕 日志：收集分数分布，为阈值定标提供数据
-    const mixedTopScore = candidates[0]?.score ?? 0;
+    // 日志：收集分数分布，为阈值定标提供数据
+    const mixedTopScore = topCandidates[0]?.score ?? candidates[0]?.score ?? 0;
     console.log(`[wikiAsk] scores kb=${kb.title} q="${question.slice(0,30)}" mixedTop=${mixedTopScore.toFixed(4)} rerankTop=${rerankerTopScore?.toFixed(4) ?? 'null'} candidates=${candidates.length}`);
 
     // 6. 拼知识上下文
@@ -2358,13 +2435,17 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
     //    代价是长页面第 2 节之后的内容模型根本看不到，于是误答"知识库里没有"。
     //    现在：每页预算 800 字，并且按小节挑最相关片段（短页面行为与旧版一致）。
     const CONTEXT_PER_PAGE = Math.max(300, parseInt(env.WIKI_CONTEXT_PER_PAGE || '800', 10) || 800);
-    // 🆕 相关性闸门：reranker top1 分数是比混合检索分更可靠的信号。
-    //    默认 0.08 —— 刻意取低：只拦"几乎完全不相关"的候选，宁可漏拦也不误杀。
-    //    在日志里积累真实分布后再往上调；env.WIKI_RERANK_MIN=0 即完全关闭闸门。
-    //    reranker 未跑/无分数时不拦（保持旧行为，避免小知识库退化）。
+    // 相关性闸门：reranker top1 分数是比混合检索分更可靠的信号。
+    //    - 有 reranker 分数 → 用 WIKI_RERANK_MIN（默认 0.08，刻意取低，只拦"几乎完全不相关"）
+    //    - reranker 超时/失败 → 用混合分兜底门槛 WIKI_MIXED_MIN（默认 0.05）
+    //      旧行为是"没有 reranker 分数就放行"，等于把无关内容硬塞给模型让它编。
+    //    - 任一阈值设为 0 即关闭该通道的拦截
     const RERANK_MIN = parseFloat(env.WIKI_RERANK_MIN || '0.08');
+    const MIXED_MIN = parseFloat(env.WIKI_MIXED_MIN || '0.05');
     const rerankAvailable = typeof rerankerTopScore === 'number';
-    const relevant = !rerankAvailable || !(RERANK_MIN > 0) || rerankerTopScore >= RERANK_MIN;
+    const relevant = rerankAvailable
+      ? (RERANK_MIN <= 0 || rerankerTopScore >= RERANK_MIN)
+      : (MIXED_MIN <= 0 || (topCandidates[0]?.score ?? candidates[0]?.score ?? 0) >= MIXED_MIN);
 
     const contextParts = relevant ? finalTop.map((s, i) => {
       const t = (s.title && s.title.trim()) || `页面${i+1}`;
