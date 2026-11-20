@@ -2393,7 +2393,8 @@ async function handleWikiAsk(env, user, question, history, kb_id, web_search = f
     if (hasAnyPage || hasAnySource) {
 
     // 3. embed question + 关键词提取
-    const qVec = await embedText(env, question);
+    //    只有资料、没有页面的库不必花一次 embedding 调用（页面通道为空，算了也用不上）
+    const qVec = hasAnyPage ? await embedText(env, question) : null;
     const keywords = extractKeywords(question);
 
     // 4. 混合检索粗排：向量 (0.7) + 关键词 (0.3)。此时候选只有标题/摘要
