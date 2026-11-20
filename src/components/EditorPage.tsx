@@ -3280,7 +3280,6 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
                       onChange={(e) => setManualBookTitle(e.target.value)}
                       placeholder="《书名》"
                       className="w-full rounded-xl border border-paper-line bg-paper-surface/70 px-3 py-2.5 text-sm text-paper-ink placeholder:text-paper-ink3 outline-none focus:border-paper-accent transition"
-                      autoFocus={!aiRecommendLoading && readingBooks.length === 0}
                     />
                     <div className="flex gap-2">
                       <button

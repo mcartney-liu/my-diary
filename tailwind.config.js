@@ -1,6 +1,12 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  // 触屏设备没有 hover：手机上点一下之后 hover 样式会一直"粘"在元素上，
+  // 看起来像被选中。开启后所有 hover: 工具类自动包进 @media (hover: hover)，
+  // 只在有鼠标的设备生效（纯 CSS 行为变化，不改任何交互逻辑）。
+  future: {
+    hoverOnlyWhenSupported: true,
+  },
   theme: {
     extend: {
       colors: {
