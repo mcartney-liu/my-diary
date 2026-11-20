@@ -316,7 +316,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
                 <textarea value={ingestText} onChange={e => setIngestText(e.target.value)}
                   placeholder="粘贴一段文字，或者直接写你想记的内容..."
                   rows={6}
-                  className="w-full px-3 py-2 rounded-md border border-paper-line text-sm resize-none" autoFocus />
+                  className="w-full px-3 py-2 rounded-md border border-paper-line text-sm resize-none" />
               </div>
             </div>
             <div className="flex gap-2 justify-end mt-4">
@@ -538,7 +538,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
           <div>
             <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
             <input value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="如：我的美食菜谱"
-              className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" autoFocus />
+              className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" />
           </div>
           <div>
             <label className="text-xs text-paper-ink2 block mb-0.5">说明 * — 小麦会根据它帮你设计分类</label>
@@ -857,7 +857,7 @@ function SettingsTab(props: {
           <div className="p-5 space-y-3">
             <div>
               <label className="text-xs text-paper-ink2 block mb-0.5">名称 *</label>
-              <input autoFocus value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="输入知识库名称"
+              <input value={newKbName} onChange={e => setNewKbName(e.target.value)} placeholder="输入知识库名称"
                 className="w-full px-3 py-2 rounded-lg border border-paper-line text-sm focus:outline-none focus:border-paper-accent/60" />
             </div>
             <div>

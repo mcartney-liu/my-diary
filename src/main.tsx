@@ -2,6 +2,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./AuthContext";
+import { installKeyboardSafeFocus } from "./keyboardSafeFocus";
 import "./index.css";
 
 // 🖋️ 启动时立即恢复用户选择的字体（避免首屏闪烁）
@@ -23,6 +24,9 @@ if ((document as any).fonts?.ready) {
   // 老浏览器 fallback：3 秒后强制重绘
   setTimeout(() => document.documentElement.classList.add("fonts-loaded"), 3000);
 }
+
+// ⌨️ 键盘遮挡兜底：输入框被软键盘盖住时，自动滚到可视区中间
+installKeyboardSafeFocus();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <BrowserRouter>
