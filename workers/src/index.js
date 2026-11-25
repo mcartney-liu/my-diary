@@ -3008,6 +3008,50 @@ ${memoriesText ? '\n【你记得关于 TA 的事】\n' + memoriesText : ''}${rec
   }
 }
 
+// 规则兜底：按关键词给新闻贴分类（AI 挑选失败时用）
+const NEWS_TAGS = ['生活', '科技', '国际', '财经', '社会', '体育', '文娱', '健康'];
+function guessNewsTag(title) {
+  const t = String(title || '');
+  if (/神舟|航天|火箭|卫星|芯片|AI|人工智能|机器人|科技|5G|手机|量子/.test(t)) return '科技';
+  if (/油价|房价|物价|天气|降温|出行|高铁|假期|快递|社保|公积金|医保|学校|高考/.test(t)) return '生活';
+  if (/央行|股|基金|GDP|经济|降息|汇率|MLF|逆回购|财政|关税/.test(t)) return '财经';
+  if (/美国|俄罗斯|乌克兰|日本|欧盟|联合国|总统|外长|以色列|巴基斯坦|朝鲜|印度/.test(t)) return '国际';
+  if (/足球|篮球|奥运|冠军|比赛|联赛|世界杯/.test(t)) return '体育';
+  if (/电影|票房|演唱会|综艺|剧|明星/.test(t)) return '文娱';
+  if (/医院|疫苗|健康|流感|病/.test(t)) return '健康';
+  return '社会';
+}
+
+// 小麦从 15 条里挑 3 条和生活相关、轻松一点的，缩短标题、配一句话（结果随 /api/news 缓存 30 分钟，所有用户共用）
+async function pickNewsWithXiaomai(env, items) {
+  if (!items?.length) return null;
+  const list = items.slice(0, 15).map((n, i) => `${i}. ${n.title}`).join('\n');
+  const sys = '你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。从用户给的新闻里挑 3 条：优先和普通人生活相关、积极或有趣的；避开灾难、伤亡、犯罪、政治争议。'
+    + '每条输出：i（原序号）、tag（只能是 ' + NEWS_TAGS.join('/') + ' 之一）、title（改写成 20 字以内的短标题，保留关键数字，不加引号）、say（小麦的一句话，20 字以内，可带 1 个 emoji，给建议或感受，不要重复标题）。'
+    + '只输出 JSON：{"picks":[{"i":0,"tag":"生活","title":"...","say":"..."}]}';
+  const raw = await callLLM(env, [
+    { role: 'system', content: sys },
+    { role: 'user', content: list },
+  ], 400);
+  const m = String(raw || '').match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  let j; try { j = JSON.parse(m[0]); } catch { return null; }
+  const out = [];
+  for (const p of (j?.picks || [])) {
+    const src = items[Number(p?.i)];
+    if (!src || out.some((o) => o.full === src.title)) continue;
+    out.push({
+      title: String(p.title || src.title).slice(0, 40),
+      full: src.title,
+      link: src.link,
+      tag: NEWS_TAGS.includes(p.tag) ? p.tag : guessNewsTag(src.title),
+      say: String(p.say || '').slice(0, 40),
+    });
+    if (out.length >= 3) break;
+  }
+  return out.length ? out : null;
+}
+
 // ===== GET /api/news — 「今天」页的新闻标题（用户自己开启，默认关闭）=====
 // 新闻源由部署者配置：Worker 环境变量 NEWS_RSS_URL（一个 RSS/Atom 地址）
 // 没配置时返回 enabled:false，前端显示"暂未开放"；结果用 Cache API 缓存 30 分钟
@@ -3019,7 +3063,7 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   if (!src) return json({ enabled: false, items: [] });
 
   const cache = caches.default;
-  const cacheKey = new Request('https://cache.mydiary.internal/news?src=' + encodeURIComponent(src));
+  const cacheKey = new Request('https://cache.mydiary.internal/news-v2?src=' + encodeURIComponent(src));
   const hit = await cache.match(cacheKey);
   if (hit) return json(await hit.json());
 
@@ -3041,7 +3085,8 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
       const items = list.map((n) => typeof n === 'string' ? { title: n, link: '' } : { title: n?.title || '', link: n?.link || '' })
         .map((n) => ({ title: String(n.title).replace(/^\d+[、.．]\s*/, '').replace(/[；;。]$/, '').slice(0, 80), link: /^https?:\/\//.test(n.link) ? n.link : '' }))
         .filter((n) => n.title).slice(0, 15);
-      const out = { enabled: true, items, tip: String(d.tip || '').slice(0, 120) };
+      const picked = await pickNewsWithXiaomai(env, items).catch(() => null);
+      const out = { enabled: true, items: picked || items.slice(0, 3).map((n) => ({ ...n, tag: guessNewsTag(n.title) })), tip: String(d.tip || '').slice(0, 120), picked: !!picked };
       ctx?.waitUntil?.(cache.put(cacheKey, new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=1800' } })));
       return json(out);
     }

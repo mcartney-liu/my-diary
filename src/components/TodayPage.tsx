@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { computeStreak, fmtDate, moodById, MOOD_TAGS, PROMPTS, onThisDay } from "../data";
 import { templateById } from "../templates";
-import { getProfile, listMilestones, listPlans, diaryReply, dailyNote, listNews, getToken, lifeOverview, lifeRecent, type Milestone, type Plan, type LifeItem, type LifeLink } from "../api";
+import { getProfile, listMilestones, listPlans, diaryReply, dailyNote, listNews, getToken, lifeOverview, lifeRecent, type Milestone, type Plan, type LifeItem, type LifeLink, type NewsData } from "../api";
 import { fetchLocationAuto, fetchWeather } from "../weather";
 import { dayEvents, springFestivalCountdown, weatherTip } from "../today";
 import type { WeatherInfo } from "../types";
@@ -50,6 +50,18 @@ function firstText(d: Diary): string {
   const t = d.blocks.find((b) => (b.kind === "text" || b.kind === "quote") && b.content?.trim())?.content ?? "";
   return t.trim();
 }
+// 今日看点的分类标签样式
+const NEWS_TAG_STYLE: Record<string, { icon: string; cls: string }> = {
+  生活: { icon: "🏠", cls: "bg-amber-50 text-amber-800" },
+  科技: { icon: "🚀", cls: "bg-sky-50 text-sky-700" },
+  国际: { icon: "🌏", cls: "bg-indigo-50 text-indigo-700" },
+  财经: { icon: "💰", cls: "bg-emerald-50 text-emerald-700" },
+  社会: { icon: "📌", cls: "bg-stone-100 text-stone-700" },
+  体育: { icon: "⚽", cls: "bg-orange-50 text-orange-700" },
+  文娱: { icon: "🎬", cls: "bg-pink-50 text-pink-700" },
+  健康: { icon: "🍎", cls: "bg-rose-50 text-rose-700" },
+};
+
 function firstImage(d: Diary): string | null {
   const b = d.blocks.find((x) => x.kind === "image" && x.content);
   return b ? b.content : null;
@@ -182,7 +194,7 @@ export default function TodayPage({ diaries }: Props) {
   const [note, setNote] = useState<string>("");
   // 新闻：默认关闭，用户自己打开
   const [newsOn, setNewsOn] = useState(() => { try { return localStorage.getItem("mydiary.today.news") === "1"; } catch { return false; } });
-  const [news, setNews] = useState<{ enabled: boolean; items: { title: string; link: string }[] } | null>(null);
+  const [news, setNews] = useState<NewsData | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showTour, setShowTour] = useState(false);
 
@@ -622,10 +634,13 @@ export default function TodayPage({ diaries }: Props) {
         {/* 📰 新闻：默认关闭；打开后每天看几条标题，也可以拿来当写作引子 */}
         {newsOn ? (
           <section className="card px-4 py-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="section-label">📰 今日看点</span>
-              <button type="button" onClick={() => setNewsOn(false)} className="text-xs text-paper-ink3 hover:text-paper-ink">关闭</button>
+            <div className="flex items-center justify-between gap-2">
+              <span className="section-label shrink-0">📰 今日看点</span>
+              <span className="flex-1" />
+              <button type="button" onClick={() => setNewsOn(false)} className="shrink-0 text-xs text-paper-ink3 hover:text-paper-ink">关闭</button>
             </div>
+            {/* 每日微语放顶上、单独一行完整显示，当成今天想说的话 */}
+            {news?.tip ? <div className="mt-1 mb-2 text-xs text-paper-ink2 leading-relaxed">💭 {news.tip}</div> : <div className="mb-2" />}
             {!news ? (
               <div className="text-xs text-paper-ink2 animate-pulse">加载中…</div>
             ) : !news.enabled ? (
@@ -633,20 +648,29 @@ export default function TodayPage({ diaries }: Props) {
             ) : news.items.length === 0 ? (
               <div className="text-xs text-paper-ink2">暂时没有新内容</div>
             ) : (
-              <>
-              <ul className="space-y-1.5">
-                {news.items.slice(0, 3).map((n) => (
-                  <li key={n.link || n.title} className="flex items-start gap-2">
-                    {n.link
-                      ? <a href={n.link} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 text-sm text-paper-ink hover:underline line-clamp-2">{n.title}</a>
-                      : <span className="flex-1 min-w-0 text-sm text-paper-ink line-clamp-2">{n.title}</span>}
-                    <button type="button" onClick={() => openEditorWith(nav, { prompt: `今天看到：${n.title}。我的想法是……` })}
-                      className="shrink-0 text-[11px] text-paper-accent hover:underline mt-0.5">聊聊</button>
-                  </li>
-                ))}
+              <ul className="divide-y divide-paper-line/50">
+                {news.items.slice(0, 3).map((n) => {
+                  const tag = NEWS_TAG_STYLE[n.tag || ""] || NEWS_TAG_STYLE["社会"];
+                  const title = n.link
+                    ? <a href={n.link} target="_blank" rel="noopener noreferrer" title={n.full || n.title} className="hover:underline">{n.title}</a>
+                    : <span title={n.full || n.title}>{n.title}</span>;
+                  return (
+                    <li key={n.link || n.title} className="py-2 first:pt-0 last:pb-0">
+                      <div className="flex items-center gap-2">
+                        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${tag.cls}`}>{tag.icon} {n.tag || "社会"}</span>
+                        <span className="flex-1 min-w-0 truncate text-sm text-paper-ink">{title}</span>
+                      </div>
+                      <div className="mt-1 flex items-center gap-2 pl-0.5">
+                        {n.say
+                          ? <span className="flex-1 min-w-0 text-xs text-paper-ink2 truncate">🌾 {n.say}</span>
+                          : <span className="flex-1" />}
+                        <button type="button" onClick={() => openEditorWith(nav, { prompt: `今天看到：${n.full || n.title}。我的想法是……` })}
+                          className="shrink-0 text-[11px] text-paper-accent hover:underline">💬 写写看法</button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
-              {(news as any).tip ? <div className="mt-2 pt-2 border-t border-paper-line/60 text-xs text-paper-ink2">💭 {(news as any).tip}</div> : null}
-              </>
             )}
           </section>
         ) : (

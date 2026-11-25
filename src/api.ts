@@ -431,8 +431,11 @@ export function diaryReply(diaryId: string) {
 export function dailyNote(payload: { date: string; weather?: { temp: number; description: string } | null; events?: string[] }) {
   return request<{ note: string }>("/api/ai/daily-note", { method: "POST", body: JSON.stringify(payload) });
 }
+// 今日看点：items 由小麦挑过（tag 分类 / title 短标题 / full 原标题 / say 小麦的一句话），挑选失败时只有 tag
+export type NewsItem = { title: string; link: string; tag?: string; full?: string; say?: string };
+export type NewsData = { enabled: boolean; items: NewsItem[]; tip?: string; picked?: boolean; error?: string };
 export function listNews() {
-  return request<{ enabled: boolean; items: { title: string; link: string }[] }>("/api/news");
+  return request<NewsData>("/api/news");
 }
 
 // ====== 👤 人物页（「我的生活」知识库）======
