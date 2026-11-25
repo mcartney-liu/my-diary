@@ -27,7 +27,7 @@ import {
   handleWikiListSources, handleWikiAddSourceText, handleWikiUploadSourceFile, handleWikiDeleteSource, handleWikiBatchDeleteSources, handleWikiGlobalListSources, handleWikiGlobalAddSource, handleWikiGlobalDeleteSource, handleWikiUpdateSourceTags,
   saveDiaryToWikiSources, removeDiaryFromWiki, autoIngestLifeKbs,
   handleLifeOverview, handleLifePage, handleLifeRename, handleLifeMerge, handleLifeDelete,
-  handleLifeByDiaries, handleLifeRecent, handleKbOverview, handleKbQuickCreate, handleKbCollect,
+  handleLifeByDiaries, handleLifeRecent, handleKbOverview, handleKbQuickCreate, handleKbCollect, handleLifeRepairLinks,
   handleWikiListPages, handleWikiGetPage, handleWikiUpdatePage, handleWikiDeletePage, handleWikiGenerateEntity, handleWikiSearch, handleWikiGraph,
   handleWikiIngestAll,
   handleWikiReindexVectors, pageVectorText,
@@ -227,6 +227,7 @@ export default {
       ["DELETE", "/api/life/pages/:page_id",              handleLifeDelete],
       ["POST",   "/api/life/by-diaries",                  handleLifeByDiaries],
       ["GET",    "/api/life/recent",                      handleLifeRecent],
+      ["POST",   "/api/life/repair-links",                handleLifeRepairLinks],
       // 🧭 知识：统一入口 + 一句话建库 + 收进知识库
       ["GET",    "/api/kb/overview",                      handleKbOverview],
       ["POST",   "/api/kb/quick-create",                  handleKbQuickCreate],

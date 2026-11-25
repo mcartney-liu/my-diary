@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, lazy, Suspense } from "react";
 import { Routes, Route, Navigate, useParams, useSearchParams, useNavigate } from "react-router-dom";
 import type { Diary, MoodId, DiaryBlock } from "./types";
 import { fmtDateLocal } from "./data";
@@ -11,20 +11,43 @@ import { closeTopModal } from "./uiModalStack";
 import UiFeedbackHost from "./UiFeedbackHost";
 import LoginPage from "./components/LoginPage";
 import CalendarPage from "./components/CalendarPage";
-import EditorPage from "./components/EditorPage";
-import TrashPage from "./components/TrashPage";
-import TagsPage from "./components/TagsPage";
-import CapsulePage from "./components/CapsulePage";
-import MilestonesPage from "./components/MilestonesPage";
-import PlanPage from "./components/PlanPage";
-import FinancePage from "./components/FinancePage";
-import ProfilePage from "./components/ProfilePage";
-import BookShelfPage from "./components/BookShelfPage";
 import DiaryListPage from "./components/DiaryListPage";
-import SourcesPanel from "./components/SourcesPanel";
-import XiaomaiPage from "./components/XiaomaiPage";
-import PeoplePage from "./components/PeoplePage";
 import TodayPage from "./components/TodayPage";
+
+// ⚡ 按需加载：原来 19 个页面全部打进一个 1MB 的 JS，首屏要一次解析完。
+// 底栏常用的 今天 / 时间线 / 月历 直接导入；其它页面拆成独立的包，
+// 并在首屏渲染完后的空闲时间预加载（见下方 prefetchPages），切 Tab 时不用等下载。
+const loadEditor = () => import("./components/EditorPage");
+const loadXiaomai = () => import("./components/XiaomaiPage");
+const loadPeople = () => import("./components/PeoplePage");
+const loadProfile = () => import("./components/ProfilePage");
+const loadShelf = () => import("./components/BookShelfPage");
+const EditorPage = lazy(loadEditor);
+const XiaomaiPage = lazy(loadXiaomai);
+const PeoplePage = lazy(loadPeople);
+const ProfilePage = lazy(loadProfile);
+const BookShelfPage = lazy(loadShelf);
+const TrashPage = lazy(() => import("./components/TrashPage"));
+const TagsPage = lazy(() => import("./components/TagsPage"));
+const CapsulePage = lazy(() => import("./components/CapsulePage"));
+const MilestonesPage = lazy(() => import("./components/MilestonesPage"));
+const PlanPage = lazy(() => import("./components/PlanPage"));
+const FinancePage = lazy(() => import("./components/FinancePage"));
+const SourcesPanel = lazy(() => import("./components/SourcesPanel"));
+
+let prefetched = false;
+function prefetchPages() {
+  if (prefetched) return;
+  prefetched = true;
+  const run = () => { loadXiaomai(); loadPeople(); loadProfile(); loadShelf(); loadEditor(); };
+  if ("requestIdleCallback" in window) (window as any).requestIdleCallback(run, { timeout: 3000 });
+  else setTimeout(run, 1500);
+}
+
+// 页面包还在下载时的占位：不整屏转圈，只留背景色，避免闪一下
+function PageFallback() {
+  return <div className="min-h-screen bg-paper-bg" />;
+}
 
 // 后台写入 localStorage（不阻塞主线程）
 let saveQueue = Promise.resolve();
@@ -206,8 +229,10 @@ export default function App() {
   }, []);
 
   // 过滤：正常日记（未软删）和回收站（已软删）
-  const diaries = allDiaries.filter((d) => !d.deletedAt);
-  const deletedDiaries = allDiaries.filter((d) => !!d.deletedAt);
+  // useMemo：原来每次渲染都生成新数组，所有页面依赖 diaries 的计算（月历、本周、心情统计…）都会重算
+  const diaries = useMemo(() => allDiaries.filter((d) => !d.deletedAt), [allDiaries]);
+  const deletedDiaries = useMemo(() => allDiaries.filter((d) => !!d.deletedAt), [allDiaries]);
+  useEffect(() => { prefetchPages(); }, []);
 
   useEffect(() => {
     async function init() {
@@ -608,6 +633,7 @@ export default function App() {
         </div>
       )}
 
+      <Suspense fallback={<PageFallback />}>
       <Routes>
         <Route path="/" element={<TodayPage diaries={diaries} />} />
         <Route path="/calendar" element={<CalendarPage diaries={diaries} onSoftDelete={handleSoftDelete} />} />
@@ -634,6 +660,7 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </Suspense>
 
       {/* 页内反馈层：toast / 提示弹窗 / 确认弹窗（替代原生 alert、confirm） */}
       <UiFeedbackHost />

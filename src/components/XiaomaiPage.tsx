@@ -1,17 +1,17 @@
 import AiChatView from "./AiChatView";
 import BottomDock from "./BottomDock";
 
-// 小麦：从首页的第 4 个 Tab 升级为底栏一级入口（信息架构改版阶段 1）
+// 小麦：底栏一级入口。对话区铺满整页，输入框固定在底栏上方
 export default function XiaomaiPage() {
   return (
-    <div className="min-h-screen bg-paper-bg pb-28">
-      <header className="sticky top-0 z-30 bg-paper-bg/90 backdrop-blur-md border-b border-paper-line/60 px-4 py-3 header-safe">
-        <div className="max-w-3xl mx-auto">
-          <h1 className="text-xl font-bold text-paper-ink leading-tight">🌾 小麦</h1>
-          <p className="text-xs text-paper-ink2">问问你的日记，或者随便聊聊</p>
+    <div className="h-[100dvh] bg-paper-bg flex flex-col">
+      <header className="shrink-0 bg-paper-bg/90 backdrop-blur-md header-safe">
+        <div className="max-w-2xl mx-auto px-4 pt-4 pb-1">
+          <h1 className="text-[26px] font-bold text-paper-ink leading-tight tracking-wide">小麦</h1>
         </div>
       </header>
-      <main className="max-w-3xl mx-auto px-4 pt-4">
+      {/* pb-24：给浮动底栏留位置，输入框停在底栏上方 */}
+      <main className="flex-1 min-h-0 w-full max-w-2xl mx-auto pb-24">
         <AiChatView />
       </main>
       <BottomDock active="xiaomai" />
