@@ -89,7 +89,7 @@ export default function TrashPage({ diaries, onRestore, onPermanentDelete, onBat
           <button
             onClick={() => {
               if (selectMode) exitSelectMode();
-              else nav("/", { replace: true });
+              else nav("/calendar", { replace: true });
             }}
             className="p-2 -ml-2 rounded-full hover:bg-paper-surface active:scale-95"
           >

@@ -8,8 +8,6 @@ import { toast, notify, confirmAsync } from "../uiFeedback";
 import TemplateLibrary from "./TemplateLibrary";
 import PaperLibrary from "./PaperLibrary";
 import WikiTemplatesView from "./WikiTemplatesView";
-import KnowledgeBase from "./KnowledgeBase";
-import SourcesPanel from "./SourcesPanel";
 import Captcha from "./Captcha";
 import BottomDock from "./BottomDock";
 
@@ -549,13 +547,22 @@ export default function ProfilePage() {
           </div>
         </section>
 
-        {/* Tab bar — 模板/信纸合并进个人，只剩 4 个 */}
+        {/* 知识库入口统一到「回忆 → 知识」 */}
+        <button type="button" onClick={() => nav("/people")}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-paper-card border border-paper-line/70 shadow-card text-left hover:shadow-cardHover transition">
+          <span className="text-xl">📚</span>
+          <span className="flex-1 min-w-0">
+            <span className="block text-sm font-medium text-paper-ink">知识</span>
+            <span className="block text-xs text-paper-ink2">我的生活、我的知识库，都搬到了「回忆 → 知识」</span>
+          </span>
+          <span className="text-paper-ink3">›</span>
+        </button>
+
+        {/* Tab bar — 资料 / 知识已并入「回忆 → 知识」 */}
         <div className="flex gap-1 p-1 bg-paper-card rounded-card shadow-card border border-paper-line/50">
           {[
             { k: "profile", label: "👤 个人" },
             { k: "memory", label: "🧠 记忆" },
-            { k: "sources", label: "📎 资料" },
-            { k: "knowledge", label: "🌳 知识" },
           ].map((t) => (
             <button
               key={t.k}
@@ -723,13 +730,7 @@ export default function ProfilePage() {
           </section>
         )}
 
-        {activeTab === "sources" && (
-          <SourcesPanel />
-        )}
 
-        {activeTab === "knowledge" && (
-          <KnowledgeBase />
-        )}
 
         <p className="text-center text-paper-ink3 text-xs pt-2">
           MyDiary · 纸风格日记 · Powered by Cloudflare

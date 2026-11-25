@@ -1,19 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus } from "lucide-react";
 import type { Diary } from "../types";
 import { getProfile, listPlans, listMilestones } from "../api";
 import { cachedGet, peek } from "../dataCache";
 import { monthCells, moodById, fmtDate } from "../data";
 import { TEMPLATES } from "../templates";
-import StreakBadge from "./StreakBadge";
-import SearchBar from "./SearchBar";
 import OnThisDay from "./OnThisDay";
 import MoodHeatmap from "./MoodHeatmap";
 import DayList from "./DayList";
 import BottomDock from "./BottomDock";
-import AiChatView from "./AiChatView";
-import KnowledgeBase from "./KnowledgeBase";
+import { MemoriesHeader } from "./MemoriesSwitch";
 import OnboardingWizard from "./OnboardingWizard";
 import FeatureTour, { hasSeenTour, markTourSeen, type TourStep } from "./FeatureTour";
 
@@ -36,7 +32,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   const [year, setYear] = useState(Number(initialDate.slice(0, 4)));
   const [month, setMonth] = useState(Number(initialDate.slice(5, 7)) - 1);
   const [selectedDate, setSelectedDate] = useState<string>(initialDate);
-  const [view, setView] = useState<"monthly" | "yearly" | "ai" | "wiki">("monthly");
+  const [view, setView] = useState<"monthly" | "yearly">("monthly");
   const [showDayDetail, setShowDayDetail] = useState<string | null>(null);
   // 🔑 首帧优先用缓存：进过一次之后，再回到这个页面不再出现整屏「正在加载…」
   const [avatarKey, setAvatarKey] = useState<string | null>(
@@ -79,130 +75,10 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
       if (!u) return;
       setUserProfile(u);
       setAvatarKey(u.avatar || null);
-      // 新用户（onboarding_done === 0）→ 弹身份兴趣问卷
-      // 老用户但没看过引导 → 直接弹 FeatureTour
-      if (u.onboarding_done === 0) {
-        setShowOnboarding(true);
-      } else if (!hasSeenTour()) {
-        setShowTour(true);
-      }
+      // 新手引导已搬到「今天」页（TodayPage）——月历不再是首页，这里不再弹
     }).catch(() => {}).finally(() => setBootLoading(false));
   }, []);
 
-  // 监听小麦来源点击 → 切到知识库 tab + 延迟重派事件（给 KnowledgeBase 时间 mount）
-  useEffect(() => {
-    const handler = (ev: Event) => {
-      const detail = (ev as CustomEvent).detail;
-      // 已经是我们延迟重派过的事件 → 只 setView，不再重派（避免无限循环）
-      if (detail?.__reopened) { setView("wiki"); return; }
-      setView("wiki");
-      setTimeout(() => {
-        window.dispatchEvent(new CustomEvent('kb-open-page', {
-          detail: { ...detail, __reopened: true }
-        }));
-      }, 300);
-    };
-    window.addEventListener('kb-open-page', handler);
-    return () => window.removeEventListener('kb-open-page', handler);
-  }, []);
-
-  // 🎠 跑马灯 touch 手势：手指拖时停动画 + 手动跟手，松手继续自动跑（接回当前位置）
-  const marqueeRef = useRef<HTMLDivElement>(null);
-  const trackRef = useRef<HTMLDivElement>(null);
-  const [marqueePaused, setMarqueePaused] = useState(false);
-  const dragStartX = useRef(0);
-  const dragOffset = useRef(0);        // 本轮手势累计偏移
-  const baseOffset = useRef(0);        // touchstart 时的"冻结位置"
-  const autoOffset = useRef(0);        // 松手后自动循环的当前位置（JS 驱动）
-  const lastFrameTime = useRef(0);
-  const rafId = useRef<number | null>(null);
-
-  // 自动循环速度：25s 一轮，换算成 px/ms
-  const AUTO_SPEED = useMemo(() => {
-    if (typeof window === "undefined") return 0;
-    const track = trackRef.current;
-    const half = track ? track.scrollWidth / 2 : 150;
-    return half / 25000; // px per ms
-  }, []);
-
-  const stopAutoLoop = () => {
-    if (rafId.current !== null) {
-      cancelAnimationFrame(rafId.current);
-      rafId.current = null;
-    }
-  };
-
-  const startAutoLoopFromCurrent = () => {
-    // 从当前 transform 位置开始，用 JS rAF 驱动（不再用 CSS keyframes，避免重置到 0 弹回）
-    stopAutoLoop();
-    const track = trackRef.current;
-    if (!track) return;
-    track.style.animation = "none"; // 关掉 CSS animation，完全手动
-    lastFrameTime.current = performance.now();
-
-    const tick = (now: number) => {
-      const dt = now - lastFrameTime.current;
-      lastFrameTime.current = now;
-      // 左移 = 负方向，速度 * dt
-      autoOffset.current -= AUTO_SPEED * dt;
-      // 循环：滑到 -halfWidth 时重置到 0
-      const half = track.scrollWidth / 2;
-      if (autoOffset.current <= -half) autoOffset.current += half;
-      track.style.transform = `translateX(${autoOffset.current}px)`;
-      rafId.current = requestAnimationFrame(tick);
-    };
-    rafId.current = requestAnimationFrame(tick);
-  };
-
-  const handleMarqueeTouchStart = (e: React.TouchEvent) => {
-    stopAutoLoop();
-    dragStartX.current = e.touches[0].clientX;
-    dragOffset.current = 0;
-    const track = trackRef.current;
-    if (track) {
-      // 冻结当前位置——不管是 CSS animation 还是 JS rAF 驱动的
-      const anim = track.getAnimations()[0];
-      if (anim) {
-        // CSS animation 还在跑：读进度算当前 translate
-        const totalMs = 25000;
-        const progress = Math.min(1, Math.max(0, (anim.currentTime as number) / totalMs));
-        const half = track.scrollWidth / 2;
-        baseOffset.current = -half * progress;
-        track.style.animationPlayState = "paused";
-      } else if (autoOffset.current !== 0 || track.style.transform) {
-        // JS rAF 驱动中：用 autoOffset
-        baseOffset.current = autoOffset.current;
-      }
-    }
-    setMarqueePaused(true);
-  };
-
-  const handleMarqueeTouchMove = (e: React.TouchEvent) => {
-    e.preventDefault();
-    const dx = e.touches[0].clientX - dragStartX.current;
-    dragStartX.current = e.touches[0].clientX;
-    dragOffset.current += dx;
-    if (trackRef.current) {
-      trackRef.current.style.animation = "none";
-      trackRef.current.style.transform = `translateX(${baseOffset.current + dragOffset.current}px)`;
-    }
-  };
-
-  const handleMarqueeTouchEnd = () => {
-    if (trackRef.current) {
-      // 把当前手动拖动的最终位置保存为 autoOffset 起点
-      autoOffset.current = baseOffset.current + dragOffset.current;
-      // 清掉 inline transform（startAutoLoopFromCurrent 会重新写）
-      trackRef.current.style.transform = "";
-      trackRef.current.style.animation = "";
-      trackRef.current.style.animationPlayState = "";
-    }
-    dragOffset.current = 0;
-    baseOffset.current = 0;
-    setMarqueePaused(false);
-    // 从当前用户松手的位置接回自动循环
-    startAutoLoopFromCurrent();
-  };
 
   const cells = useMemo(() => monthCells(year, month), [year, month]);
 
@@ -257,177 +133,34 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   }
 
   return (
-    <div className="min-h-screen pb-24">
-      {/* 顶部导航 */}
-      <header className="sticky top-0 z-20 backdrop-blur-sm bg-[#faf6ef]/85 border-b border-paper-line/60 header-safe">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-paper-ink text-paper-bg flex items-center justify-center text-lg">
-              📔
-            </div>
-            <span className="text-paper-ink font-semibold text-lg tracking-wide">MyDiary</span>
-          </div>
-          <div
-            id="tour-marquee"
-            ref={marqueeRef}
-            className={`marquee-wrapper overflow-hidden max-w-[46%] md:max-w-none shrink min-w-0 select-none ${marqueePaused ? "marquee-paused" : ""}`}
-            onTouchStart={handleMarqueeTouchStart}
-            onTouchMove={handleMarqueeTouchMove}
-            onTouchEnd={handleMarqueeTouchEnd}
-          >
-            <div ref={trackRef} className="flex gap-1.5 marquee-track whitespace-nowrap">
-              {/* 第一份 */}
-              <button
-                onClick={() => nav("/tags")}
-                title="标签"
-                className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95 flex-shrink-0"
-              >
-                🏷️
-              </button>
-              <button
-                onClick={() => nav("/milestones")}
-                title="纪念日"
-                className="px-2.5 py-1.5 rounded-full border border-rose-200 bg-rose-50 text-sm hover:bg-rose-100 transition active:scale-95 flex-shrink-0"
-              >
-                🎈
-              </button>
-              <button
-                onClick={() => nav("/plans")}
-                title="计划"
-                className="px-2.5 py-1.5 rounded-full border border-blue-200 bg-blue-50 text-sm hover:bg-blue-100 transition active:scale-95 flex-shrink-0"
-              >
-                🎯
-              </button>
-              <button
-                onClick={() => nav("/finance")}
-                title="记账统计"
-                className="px-2.5 py-1.5 rounded-full border border-emerald-200 bg-emerald-50 text-sm hover:bg-emerald-100 transition active:scale-95 flex-shrink-0"
-              >
-                💰
-              </button>
-              <button
-                onClick={() => nav("/capsule")}
-                title="时间胶囊"
-                className="px-2.5 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-sm hover:bg-paper-surface transition active:scale-95 flex-shrink-0"
-              >
-                🫧
-              </button>
-              <button
-                onClick={() => nav("/trash")}
-                title="回收站"
-                className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95 flex-shrink-0"
-              >
-                🗑️
-              </button>
-              {/* 第二份（复制一份让动画无缝循环） */}
-              <button
-                onClick={() => nav("/tags")}
-                title="标签"
-                className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95 flex-shrink-0"
-              >
-                🏷️
-              </button>
-              <button
-                onClick={() => nav("/milestones")}
-                title="纪念日"
-                className="px-2.5 py-1.5 rounded-full border border-rose-200 bg-rose-50 text-sm hover:bg-rose-100 transition active:scale-95 flex-shrink-0"
-              >
-                🎈
-              </button>
-              <button
-                onClick={() => nav("/plans")}
-                title="计划"
-                className="px-2.5 py-1.5 rounded-full border border-blue-200 bg-blue-50 text-sm hover:bg-blue-100 transition active:scale-95 flex-shrink-0"
-              >
-                🎯
-              </button>
-              <button
-                onClick={() => nav("/finance")}
-                title="记账统计"
-                className="px-2.5 py-1.5 rounded-full border border-emerald-200 bg-emerald-50 text-sm hover:bg-emerald-100 transition active:scale-95 flex-shrink-0"
-              >
-                💰
-              </button>
-              <button
-                onClick={() => nav("/capsule")}
-                title="时间胶囊"
-                className="px-2.5 py-1.5 rounded-full border border-amber-200 bg-amber-50 text-sm hover:bg-paper-surface transition active:scale-95 flex-shrink-0"
-              >
-                🫧
-              </button>
-              <button
-                onClick={() => nav("/trash")}
-                title="回收站"
-                className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95 flex-shrink-0"
-              >
-                🗑️
-              </button>
-            </div>
-          </div>
-          {/* 写日记：顶栏右上角（与「日记」页同一位置，取代贴底栏的 FAB） */}
-          <button
-            onClick={() => nav("/editor")}
-            aria-label="写新日记"
-            title="写新日记"
-            className="shrink-0 ml-2 w-9 h-9 rounded-full bg-paper-accent text-white flex items-center justify-center shadow-sm hover:opacity-90 active:scale-95 transition"
-          >
-            <Plus size={18} strokeWidth={2.6} />
-          </button>
-        </div>
-      </header>
+    <div className="min-h-screen bg-paper-bg pb-40">
+      <MemoriesHeader current="calendar" subtitle={`共 ${diaries.length} 篇日记`} />
 
-      <main className="max-w-3xl mx-auto px-4 pt-4 space-y-4">
-        {/* 搜索栏 */}
-          <div id="tour-search-bar"><SearchBar diaries={diaries} /></div>
-
-          {/* 打卡徽章 */}
-          <div id="tour-streak-badge"><StreakBadge diaries={diaries} /></div>
-
+      <main className="max-w-2xl mx-auto px-4 pt-3 space-y-4">
           {/* 视图切换 — 手机横向可滚，PC 正常 */}
           <div className="overflow-x-auto no-scrollbar -mx-1 px-1">
-            <div id="tour-tabs" className="flex items-center gap-1 p-1 rounded-full bg-paper-surface border border-paper-line w-fit min-w-full">
+            <div id="tour-tabs" className="flex items-center gap-1.5">
               <button
                 id="tour-tab-monthly"
                 onClick={() => setView("monthly")}
-              className={`shrink-0 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition ${
+              className={`shrink-0 h-7 px-3 rounded-full text-xs border transition ${
                 view === "monthly"
-                  ? "bg-paper-ink text-paper-bg shadow-sm"
-                  : "text-paper-ink2 hover:text-paper-ink"
+                  ? "bg-paper-ink text-paper-bg border-paper-ink"
+                  : "bg-paper-card text-paper-ink2 border-paper-line/70"
               }`}
             >
-              📅 月历
+              📅 按月
             </button>
             <button
               id="tour-tab-yearly"
               onClick={() => setView("yearly")}
-              className={`shrink-0 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition ${
+              className={`shrink-0 h-7 px-3 rounded-full text-xs border transition ${
                 view === "yearly"
-                  ? "bg-paper-ink text-paper-bg shadow-sm"
-                  : "text-paper-ink2 hover:text-paper-ink"
+                  ? "bg-paper-ink text-paper-bg border-paper-ink"
+                  : "bg-paper-card text-paper-ink2 border-paper-line/70"
               }`}
             >
-              📊 年度回顾
-            </button>
-            <button
-              id="tour-tab-wiki"
-              onClick={() => setView("wiki")}
-              className={`shrink-0 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition ${
-                view === "wiki"
-                  ? "bg-paper-ink text-paper-bg shadow-sm"
-                  : "text-paper-ink2 hover:text-paper-ink"
-              }`}
-            >
-              🌳 知识库
-            </button>
-            <button
-              onClick={() => setView("ai")}
-              className={`shrink-0 px-2.5 sm:px-3.5 py-1.5 rounded-full text-xs sm:text-sm transition ${
-                view === "ai"
-                  ? "bg-paper-ink text-paper-bg shadow-sm"
-                  : "text-paper-ink2 hover:text-paper-ink"
-              }`}
-            >
-              💬 小麦
+              📊 按年
             </button>
           </div>
         </div>
@@ -435,7 +168,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
         {view === "monthly" ? (
           <>
         {/* 月历卡片 */}
-        <section className="card p-4 md:p-6 animate-fade-up">
+        <section className="rounded-3xl bg-paper-card border border-paper-line/70 shadow-card p-4 md:p-6 animate-fade-up">
           {/* 月份切换 */}
           <div className="flex items-center justify-between mb-4">
             <button onClick={goPrev} className="btn-ghost w-9 h-9 p-0 flex items-center justify-center text-lg">‹</button>
@@ -517,6 +250,24 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
           </div>
         </section>
 
+        {/* 快捷入口（原顶部跑马灯）*/}
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          {[
+            { icon: "🏷️", label: "标签", path: "/tags" },
+            { icon: "🎈", label: "纪念日", path: "/milestones" },
+            { icon: "🎯", label: "计划", path: "/plans" },
+            { icon: "💰", label: "记账", path: "/finance" },
+            { icon: "🫧", label: "时光胶囊", path: "/capsule" },
+            { icon: "🗑️", label: "回收站", path: "/trash" },
+          ].map((q) => (
+            <button key={q.path} type="button" onClick={() => nav(q.path)}
+              className="flex flex-col items-center gap-1 py-2.5 rounded-2xl bg-paper-card border border-paper-line/70 shadow-card hover:shadow-cardHover active:scale-95 transition">
+              <span className="text-xl leading-none">{q.icon}</span>
+              <span className="text-[11px] text-paper-ink2">{q.label}</span>
+            </button>
+          ))}
+        </div>
+
         {/* On This Day */}
         <OnThisDay diaries={diaries} />
 
@@ -527,12 +278,8 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
 
 
           </>
-        ) : view === "yearly" ? (
-          <MoodHeatmap diaries={diaries} />
-        ) : view === "ai" ? (
-          <AiChatView />
         ) : (
-          <KnowledgeBase minimal />
+          <MoodHeatmap diaries={diaries} />
         )}
       </main>
 
@@ -585,7 +332,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
       })()}
 
       {/* 🫧 悬浮胶囊底栏（共享组件，书柜/日记/我的 页也会渲染，Tab 切换时不再消失） */}
-      <BottomDock active="home" avatarKey={avatarKey} />
+      <BottomDock active="memories" avatarKey={avatarKey} />
 
       {/* === 新手指引 === */}
       {showOnboarding && (
@@ -618,24 +365,9 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   /** 主界面引导步骤 — 覆盖整个首页从上到下 */
 const TOUR_STEPS: TourStep[] = [
   {
-    selector: "#tour-marquee",
-    title: "🏷️ 功能跑马灯",
-    description: "顶部滚动的小胶囊是你的快捷入口：标签、纪念日、计划、记账、胶囊日记。",
-  },
-  {
-    selector: "#tour-search-bar",
-    title: "🔍 搜索日记",
-    description: "写完的日记可以按关键词快速搜回来，再也不怕找不到～",
-  },
-  {
-    selector: "#tour-streak-badge",
-    title: "🔥 连续打卡",
-    description: "每天都来写一写，连续天数会越积越高。哪怕只写一句话也算数。",
-  },
-  {
     selector: "#tour-tabs",
-    title: "🗂️ 四种视图",
-    description: "月历看每天、年度回顾看心情热力图、知识库整理资料、小麦随时问答。",
+    title: "🗂️ 两种视图",
+    description: "按月看每天，按年看心情变化。",
   },
   {
     selector: "#tour-month-grid",
@@ -648,14 +380,14 @@ const TOUR_STEPS: TourStep[] = [
     description: "想看看一整年的心情变化？点这里切换年度回顾视图。",
   },
   {
-    selector: "#tour-tab-wiki",
-    title: "🌳 知识库",
-    description: "切到知识库 Tab，把读书笔记、旅行攻略、菜谱都整理成可搜索的实体。小麦帮你自动分类。",
+    selector: "#tour-dock-memories",
+    title: "🕰️ 回忆",
+    description: "写过的所有日记都在这里，按时间线翻看，也可以切到书柜，像读书一样回顾。",
   },
   {
-    selector: "#tour-dock-write",
-    title: "🖊️ 写日记",
-    description: "点击这里，选择模板开始写你的第一篇日记。文字、图片、心情标签都能记录。",
+    selector: "#tour-dock-xiaomai",
+    title: "🌾 小麦",
+    description: "想不起哪天发生了什么？问小麦就行。它读过你所有的日记，帮你找、帮你回忆。",
   },
   {
     selector: "#tour-dock-voice",

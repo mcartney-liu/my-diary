@@ -57,6 +57,8 @@ interface Props {
   onSave: (d: Diary) => Promise<void>;
   onSoftDelete: (d: Diary) => void;
   onCancel: () => void;
+  /** 新建日记第一次保存成功后调用（App 里用来跳回「今天」页看小麦的回应） */
+  onCreated?: (d: Diary) => void;
   allDiaries?: Diary[];  // 记账月汇总需要
 }
 
@@ -415,9 +417,10 @@ const BlockRow = memo(function BlockRow({
   );
 });
 
-export default function EditorPage({ initialDiary, initialTemplateId, initialPolished, onSave, onSoftDelete, onCancel, allDiaries }: Props) {
+export default function EditorPage({ initialDiary, initialTemplateId, initialPolished, onSave, onSoftDelete, onCancel, onCreated, allDiaries }: Props) {
   const [title, setTitle] = useState(initialPolished?.title ?? initialDiary?.title ?? "");
-  const [date] = useState(initialDiary?.date ?? today());
+  // 日期可以改：补写昨天、出游回来补几天（不能选未来）
+  const [date, setDate] = useState(initialDiary?.date ?? today());
   const [moodId, setMoodId] = useState<MoodId | null>(initialPolished?.moodId ?? initialDiary?.moodId ?? null);
   const [blocks, setBlocksRaw] = useState<DiaryBlock[]>(() => {
     const raw = initialPolished?.blocks?.length      ? initialPolished.blocks
@@ -809,8 +812,65 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
   const imageInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const savedIdRef = useRef<string | null>(initialDiary?.id ?? null);
+  // 📝 本地草稿：每次改动 1.5 秒后写一次 localStorage，保存成功就删掉
+  // 新建日记共用一个草稿位；编辑已有日记按 id 各存一份
+  const draftKey = `mydiary.draft.v1.${initialDiary?.id ?? "new"}`;
+  const [dirty, setDirty] = useState(false);          // 有没有没保存的改动
+  const dirtyArmedRef = useRef(false);                 // 首次渲染不算改动
+  const [draftOffer, setDraftOffer] = useState<any>(() => {
+    // 从语音快记 / 今天页带内容进来的，不提示恢复（避免覆盖）
+    if (initialPolished) return null;
+    try {
+      const d = JSON.parse(localStorage.getItem(`mydiary.draft.v1.${initialDiary?.id ?? "new"}`) || "null");
+      if (!d) return null;
+      if (Date.now() - d.at > 7 * 86400000) return null;                     // 超过 7 天的草稿不提示
+      if (initialDiary && d.at <= (initialDiary.updatedAt ?? 0)) return null; // 日记在别处更新过
+      const hasText = (d.title || "").trim() || (d.blocks || []).some((b: any) => String(b.content || "").trim());
+      return hasText ? d : null;
+    } catch { return null; }
+  });
   const toastTimerRef = useRef<number | null>(null);
+  const savedOnceRef = useRef(false);
   const prompt = promptForDate(date);
+
+  // 有改动 → 标记 dirty + 防抖写草稿
+  useEffect(() => {
+    if (!dirtyArmedRef.current) { dirtyArmedRef.current = true; return; }
+    setDirty(true);
+    const t = window.setTimeout(() => {
+      try {
+        // 图片 / 音频是很大的 dataURL，不放进草稿（会撑爆 localStorage）
+        const lite = blocks.filter((b) => b.kind !== "image" && b.kind !== "audio" && !b.deleted);
+        localStorage.setItem(draftKey, JSON.stringify({ at: Date.now(), title, date, moodId, tags, blocks: lite, templateId }));
+      } catch { /* 存不下就算了，不影响写 */ }
+    }, 1500);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, date, moodId, tags, blocks]);
+
+  // 有没保存的改动时，关闭 / 刷新页面先提醒
+  useEffect(() => {
+    if (!dirty) return;
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [dirty]);
+
+  const restoreDraft = () => {
+    const d = draftOffer;
+    if (!d) return;
+    setTitle(d.title || "");
+    if (d.date && d.date <= today()) setDate(d.date);
+    setMoodId(d.moodId ?? null);
+    if (Array.isArray(d.tags)) setTags(d.tags);
+    if (Array.isArray(d.blocks) && d.blocks.length) setBlocks(d.blocks);
+    setDraftOffer(null);
+    toast("已恢复上次没保存的内容", "ok");
+  };
+  const discardDraft = () => {
+    try { localStorage.removeItem(draftKey); } catch {}
+    setDraftOffer(null);
+  };
 
   // Web Speech API（浏览器原生语音转写，PM-OS 同款）
   const speechRecRef = useRef<any>(null);
@@ -1684,6 +1744,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
   const handleSave = async () => {
     if (savingRef.current) return; // 防重复
+    if (date > today()) { toast("不能写未来的日记哦～"); return; }
 
     // 🛡️ 防线 B：空模板拦截 — 阻止"默认标题 + 所有模板字段都没填值"的误保存
     // 这是重复数据的主要来源：用户点新建 → 改了标题/没改 → 直接点保存 → 新 uid → 后端 INSERT
@@ -1711,8 +1772,9 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
             (b.kind === "checkbox" && b.checked) ||
             (b.kind === "finance_item" && (b.value ?? 0) > 0)
         );
-        if (!hasRealContent) {
-          toast("📝 还没写内容哦，写点什么再保存吧～");
+        // 只选了心情也算记过（「今天」页一键记心情会走到这里）
+        if (!hasRealContent && !moodId) {
+          toast("📝 还没写内容哦，写点什么或选个心情再保存吧～");
           return;
         }
       }
@@ -1888,8 +1950,14 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
     console.log("[editor] 📦 保存 payload milestone_info:", milestoneInfo ? JSON.stringify(milestoneInfo) : "(无)");
     setSaving(true);
     savingRef.current = true;
+    const isFirstSave = !initialDiary && !savedOnceRef.current;
     try {
       await onSave(diary);
+      savedOnceRef.current = true;
+      setDirty(false);
+      try { localStorage.removeItem(draftKey); } catch {}
+      // 新建日记第一次保存 → 回「今天」页，让用户马上看到小麦的回应
+      if (isFirstSave && onCreated) { onCreated(diary); return; }
       // ✅ 只有云端也确认了才显示"已保存"（之前是不管云端成没成都先 toast，误导用户）
       setSaveToast(true);
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
@@ -2020,8 +2088,8 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
         <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center justify-between">
           <button
             onClick={() => {
-              // 新建 + 有内容 + 从没保存过 → 提示放弃；其他情况直接放行
-              if (!initialDiary && hasContent && !savedIdRef.current) {
+              // 有没保存的改动（新建 or 编辑都算）→ 提示；内容已经自动存成草稿，下次能恢复
+              if (dirty && hasContent) {
                 setConfirmLeave(true);
                 return;
               }
@@ -2061,6 +2129,16 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       )}
 
       <div className="max-w-2xl w-full mx-auto px-4 pt-1">
+        {/* 📝 上次没保存的草稿 */}
+        {draftOffer && (
+          <div className="mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-sm">
+            <span className="flex-1 min-w-0 text-amber-900 truncate">
+              📝 有一份 {new Date(draftOffer.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 没保存的内容
+            </span>
+            <button type="button" onClick={restoreDraft} className="shrink-0 px-2.5 py-1 rounded-full bg-amber-600 text-white text-xs">恢复</button>
+            <button type="button" onClick={discardDraft} className="shrink-0 px-2 py-1 rounded-full text-amber-800 text-xs hover:bg-amber-100">不要了</button>
+          </div>
+        )}
         {/* 标题 */}
         <input
           type="text"
@@ -2072,7 +2150,20 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
 
         {/* 只读日期 + 心情 + 天气胶囊 */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <span className="text-sm text-paper-ink2">{dateStr(date)}</span>
+          {/* 日期：点一下可以改（补写） */}
+          <label className="relative inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-sm text-paper-ink2 border border-transparent hover:border-paper-line hover:bg-paper-surface cursor-pointer transition">
+            {dateStr(date)}
+            {date !== today() && <span className="text-[10px] px-1.5 rounded-full bg-amber-100 text-amber-800">补写</span>}
+            <span className="text-[10px] opacity-60">▾</span>
+            <input
+              type="date"
+              value={date}
+              max={today()}
+              onChange={(e) => { if (e.target.value && e.target.value <= today()) setDate(e.target.value); }}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+              aria-label="修改日期"
+            />
+          </label>
 
           {/* 天气/位置 chip */}
           {weatherLoading || locationLoading ? (
@@ -3120,11 +3211,13 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
         <ConfirmDialog
           open={confirmLeave}
           title="放弃编辑？"
-          message="内容还没保存，确定放弃吗？"
-          confirmText="放弃并返回"
+          message="内容还没保存。离开后草稿会保留 7 天，下次打开可以恢复。"
+          confirmText="先离开"
           cancelText="留下来写"
           confirmTone="danger"
           onConfirm={() => { setConfirmLeave(false); onCancel(); }}
+          secondaryText="不要了"
+          onSecondary={() => { setConfirmLeave(false); discardDraft(); setDirty(false); onCancel(); }}
           onCancel={() => setConfirmLeave(false)}
         />
 

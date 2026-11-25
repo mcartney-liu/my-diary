@@ -109,7 +109,7 @@ export default function TagsPage({ diaries, onDiariesChange }: Props) {
       <header className="sticky top-0 z-10 bg-[#faf6ef]/95 backdrop-blur border-b border-paper-line">
         <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center gap-2">
           <button
-            onClick={() => { setSelectedTag(null); nav("/", { replace: true }); }}
+            onClick={() => { setSelectedTag(null); nav("/calendar", { replace: true }); }}
             className="p-2 -ml-2 rounded-full hover:bg-paper-surface active:scale-95"
           >
             <ArrowLeft size={20} className="text-paper-ink" />

@@ -420,6 +420,67 @@ export async function askDiaryStream(
   if (!received) throw new AskStreamError("empty response", false);
 }
 
+// ====== 🌾 写完日记，小麦回一句 ======
+export function diaryReply(diaryId: string) {
+  return request<{ reply: string; ref: { diary_id: string; date: string } | null }>("/api/ai/reply", {
+    method: "POST", body: JSON.stringify({ diary_id: diaryId }),
+  });
+}
+
+// ====== ☀️ 今天页的动态信息 ======
+export function dailyNote(payload: { date: string; weather?: { temp: number; description: string } | null; events?: string[] }) {
+  return request<{ note: string }>("/api/ai/daily-note", { method: "POST", body: JSON.stringify(payload) });
+}
+export function listNews() {
+  return request<{ enabled: boolean; items: { title: string; link: string }[] }>("/api/news");
+}
+
+// ====== 👤 人物页（「我的生活」知识库）======
+export type LifeKind = "person" | "place" | "event" | "other";
+export interface LifeItem { id: string; title: string; summary: string; kind: LifeKind; mentions: number; updated_at: number }
+export interface LifePageDetail {
+  page: { id: string; title: string; summary: string; content: string; kind: LifeKind; updated_at: number };
+  diaries: { id: string; date: string; title: string; mood_id?: string; snippet: string }[];
+  related: { id: string; title: string; kind: LifeKind }[];
+}
+export function lifeOverview() {
+  return request<{ kb_id: string; items: LifeItem[]; pending: number }>("/api/life/overview");
+}
+export function lifePage(pageId: string) {
+  return request<LifePageDetail>("/api/life/pages/" + pageId);
+}
+export function lifeRename(pageId: string, title: string) {
+  return request<{ ok: boolean; title?: string }>("/api/life/pages/" + pageId + "/rename", { method: "POST", body: JSON.stringify({ title }) });
+}
+export function lifeMerge(pageId: string, intoId: string) {
+  return request<{ ok: boolean; into_id: string; title: string }>("/api/life/pages/" + pageId + "/merge", { method: "POST", body: JSON.stringify({ into_id: intoId }) });
+}
+export function lifeDelete(pageId: string) {
+  return request<{ ok: boolean }>("/api/life/pages/" + pageId, { method: "DELETE" });
+}
+
+// ====== 🧭 知识：把成果带到日常页面 + 统一入口 + 简化添加 ======
+export type LifeLink = { id: string; title: string; kind: LifeKind };
+export function lifeByDiaries(ids: string[]) {
+  return request<{ links: Record<string, LifeLink[]> }>("/api/life/by-diaries", { method: "POST", body: JSON.stringify({ ids }) });
+}
+export function lifeRecent(days = 3) {
+  return request<{ created: LifeLink[]; updated: LifeLink[] }>("/api/life/recent?days=" + days);
+}
+export interface KbCard { id: string; title: string; description: string; pages: number; pending: number; last_at: number | null }
+export function kbOverview() {
+  return request<{ life: KbCard | null; kbs: KbCard[]; presets?: KbCard[] }>("/api/kb/overview");
+}
+export function kbQuickCreate(name: string, purpose: string) {
+  return request<{ ok: boolean; kb: { id: string; title: string; description: string } }>("/api/kb/quick-create", {
+    method: "POST", body: JSON.stringify({ name, purpose }),
+  });
+}
+export function kbCollect(payload: { text: string; title?: string; kb_id?: string }) {
+  return request<{ ok: boolean; kb?: { id: string; title: string }; need_kb?: boolean; suggest_name?: string; kbs?: { id: string; title: string }[] }>(
+    "/api/kb/collect", { method: "POST", body: JSON.stringify(payload) });
+}
+
 // AI 知识库问答（小麦内部切换 source_type 使用）
 export function askWiki(question: string, kbId: string, history?: { role: "user" | "assistant"; content: string }[], web_search = false, import_mode = false) {
   return request<{

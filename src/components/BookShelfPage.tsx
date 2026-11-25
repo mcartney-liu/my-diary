@@ -4,6 +4,7 @@ import type { Diary } from "../types";
 import { TEMPLATES } from "../templates";
 import BookReader, { BOOK_THEMES } from "./BookReader";
 import BottomDock from "./BottomDock";
+import { MemoriesHeader } from "./MemoriesSwitch";
 import { parseDate } from "../data";
 
 interface Props {
@@ -318,15 +319,10 @@ export default function BookShelfPage({ diaries }: Props) {
 
   // ====== 书柜主页 ======
   return (
-    <div className="min-h-screen bg-paper-bg pb-24">
-      <header className="sticky top-0 z-20 bg-paper-bg/85 backdrop-blur-md border-b border-paper-line/60 header-safe">
-        <div className="flex items-center gap-3 px-4 py-3 max-w-xl mx-auto">
-          <h1 className="text-lg font-semibold text-paper-ink">📚 我的书柜</h1>
-          <span className="text-xs text-paper-ink2/60">· {diaries.filter((d) => !d.deletedAt).length} 篇</span>
-        </div>
-      </header>
+    <div className="min-h-screen bg-paper-bg pb-40">
+      <MemoriesHeader current="shelf" subtitle={`按模板装订成册 · 共 ${diaries.filter((d) => !d.deletedAt).length} 篇`} />
 
-      <main className="px-4 pt-6 max-w-xl mx-auto">
+      <main className="px-4 pt-4 max-w-2xl mx-auto">
         {groups.length === 0 ? (
           <div className="text-center py-20 text-paper-ink2/60">
             <div className="text-5xl mb-4">📚</div>
@@ -334,7 +330,7 @@ export default function BookShelfPage({ diaries }: Props) {
             <p className="text-xs mt-1">去写一篇吧～</p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {groups.map((g) => (
               <button
                 key={g.id}
@@ -355,7 +351,7 @@ export default function BookShelfPage({ diaries }: Props) {
       </main>
 
       {/* Tab 页：底栏常驻（原来是跳到独立页面、返回才见底栏） */}
-      <BottomDock active="shelf" />
+      <BottomDock active="memories" />
     </div>
   );
 }

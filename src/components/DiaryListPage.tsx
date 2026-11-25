@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, ChevronRight, Search, X, Volume2, Image, FileText, Mic } from "lucide-react";
+import { ChevronRight, Search, X, Volume2, Image, FileText, Mic } from "lucide-react";
 import type { Diary } from "../types";
 import { moodById } from "../data";
 import BottomDock from "./BottomDock";
+import { MemoriesHeader } from "./MemoriesSwitch";
+import LifeLinks from "./LifeLinks";
 
 interface Props {
   diaries: Diary[];
@@ -136,29 +138,10 @@ export default function DiaryListPage({ diaries }: Props) {
   const todayWeekday = weekdayCN(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`);
 
   return (
-    <div className="min-h-screen bg-paper-bg pb-32">
-      {/* 顶部栏 */}
-      <header className="sticky top-0 z-30 bg-paper-bg/90 backdrop-blur-md border-b border-paper-line/60 px-4 py-3 header-safe">
-        <div className="flex items-center gap-3">
-          <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-bold text-paper-ink leading-tight">{todayDate}</h1>
-            <p className="text-xs text-paper-ink2">星期{todayWeekday} · {totalCount} 篇日记</p>
-          </div>
-          {/* 写日记：顶栏右上角（原贴底栏的右下角 FAB 与常驻底栏叠在一起，已撤掉） */}
-          <button
-            onClick={() => nav("/editor")}
-            aria-label="写新日记"
-            title="写新日记"
-            className="shrink-0 w-10 h-10 rounded-full bg-paper-accent text-white flex items-center justify-center shadow-sm hover:opacity-90 active:scale-95 transition"
-          >
-            <Plus className="w-5 h-5" strokeWidth={2.4} />
-          </button>
-        </div>
-      </header>
-
-      {/* 搜索框 */}
-      <div className="px-4 pt-3">
-        <div className="flex items-center gap-2 h-11 px-3 rounded-xl bg-paper-surface border border-paper-line/80 focus-within:border-paper-accent transition">
+    <div className="min-h-screen bg-paper-bg pb-40">
+      <MemoriesHeader current="timeline" subtitle={`${todayDate} 星期${todayWeekday} · 共 ${totalCount} 篇`}>
+        {/* 搜索 */}
+        <div className="mt-3 flex items-center gap-2 h-10 px-3 rounded-xl bg-paper-card border border-paper-line/70 focus-within:border-paper-accent transition">
           <Search className="w-4 h-4 text-paper-ink3 shrink-0" />
           <input
             type="text"
@@ -176,82 +159,67 @@ export default function DiaryListPage({ diaries }: Props) {
             </button>
           )}
         </div>
-      </div>
 
-      {/* 心情 chip 行 */}
-      <div className="flex gap-2 px-4 pt-3 overflow-x-auto no-scrollbar">
-        <button
-          onClick={() => setMoodFilter(null)}
-          className={`shrink-0 h-8 px-3 text-xs font-medium rounded-full border transition ${
-            moodFilter === null
-              ? "bg-paper-ink text-paper-bg border-paper-ink"
-              : "bg-paper-surface text-paper-ink2 border-paper-line hover:border-paper-ink3"
-          }`}
-        >
-          全部 · {activeDiaries.length}
-        </button>
-        {moodList.map((m) => {
-          const count = moodStats[m.id] ?? 0;
-          if (count === 0 && !moodFilter) return null;
-          return (
-            <button
-              key={m.id}
-              onClick={() => setMoodFilter(moodFilter === m.id ? null : m.id)}
-              className={`shrink-0 h-8 px-3 text-xs font-medium rounded-full border transition flex items-center gap-1.5 ${
-                moodFilter === m.id
-                  ? "bg-paper-ink text-paper-bg border-paper-ink"
-                  : "bg-paper-surface text-paper-ink2 border-paper-line hover:border-paper-ink3"
-              }`}
-            >
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ background: m.color }}
-              />
-              {m.label}
-              <span className="opacity-60">· {count}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 模板 + 媒体筛选 chip 行 */}
-      <div className="flex gap-2 px-4 pt-2 overflow-x-auto no-scrollbar">
-        {[
-          { id: null, label: "全部模板" },
-          { id: "finance", label: "💰 记账" },
-          { id: "plan", label: "🎯 计划" },
-          { id: "milestone", label: "🎈 纪念日" },
-          { id: "books", label: "📚 读书笔记" },
-          { id: "calendar", label: "📅 倒计时" },
-          { id: "capsule", label: "🕰️ 时间胶囊" },
-        ].map((t) => (
+        {/* 筛选：心情 | 模板 | 媒体，合并成一行横向滑动 */}
+        <div className="mt-2.5 -mx-4 px-4 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
           <button
-            key={t.id ?? "all"}
-            onClick={() => setTemplateFilter(t.id)}
-            className={`shrink-0 h-7 px-2.5 text-[11px] font-medium rounded-full border transition ${
-              templateFilter === t.id
-                ? "bg-paper-accent text-paper-card border-paper-accent"
-                : "bg-paper-surface text-paper-ink2 border-paper-line hover:border-paper-ink3"
+            onClick={() => { setMoodFilter(null); setTemplateFilter(null); setMediaFilter("all"); }}
+            className={`shrink-0 h-7 px-3 text-xs rounded-full border transition ${
+              moodFilter === null && templateFilter === null && mediaFilter !== "with-media"
+                ? "bg-paper-ink text-paper-bg border-paper-ink"
+                : "bg-paper-card text-paper-ink2 border-paper-line/70"
             }`}
           >
-            {t.label}
+            全部 {activeDiaries.length}
           </button>
-        ))}
-        <div className="w-px bg-paper-line/60 shrink-0 mx-1" />
-        <button
-          onClick={() => setMediaFilter(mediaFilter === "with-media" ? "all" : "with-media")}
-          className={`shrink-0 h-7 px-2.5 text-[11px] font-medium rounded-full border transition ${
-            mediaFilter === "with-media"
-              ? "bg-paper-accent text-paper-card border-paper-accent"
-              : "bg-paper-surface text-paper-ink2 border-paper-line hover:border-paper-ink3"
-          }`}
-        >
-          📎 仅含图片/语音
-        </button>
-      </div>
+          {moodList.map((m) => {
+            const count = moodStats[m.id] ?? 0;
+            if (count === 0 && moodFilter !== m.id) return null;
+            return (
+              <button
+                key={m.id}
+                onClick={() => setMoodFilter(moodFilter === m.id ? null : m.id)}
+                className={`shrink-0 h-7 px-2.5 text-xs rounded-full border transition flex items-center gap-1 ${
+                  moodFilter === m.id ? "bg-paper-ink text-paper-bg border-paper-ink" : "bg-paper-card text-paper-ink2 border-paper-line/70"
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full" style={{ background: m.color }} />
+                {m.label}<span className="opacity-60">{count}</span>
+              </button>
+            );
+          })}
+          <span className="shrink-0 w-px h-4 bg-paper-line mx-1" />
+          {[
+            { id: "finance", label: "💰 记账" },
+            { id: "plan", label: "🎯 计划" },
+            { id: "milestone", label: "🎈 纪念日" },
+            { id: "books", label: "📚 读书" },
+            { id: "calendar", label: "📅 倒计时" },
+            { id: "capsule", label: "🕰️ 胶囊" },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTemplateFilter(templateFilter === t.id ? null : t.id)}
+              className={`shrink-0 h-7 px-2.5 text-xs rounded-full border transition ${
+                templateFilter === t.id ? "bg-paper-accent text-white border-paper-accent" : "bg-paper-card text-paper-ink2 border-paper-line/70"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+          <button
+            onClick={() => setMediaFilter(mediaFilter === "with-media" ? "all" : "with-media")}
+            className={`shrink-0 h-7 px-2.5 text-xs rounded-full border transition ${
+              mediaFilter === "with-media" ? "bg-paper-accent text-white border-paper-accent" : "bg-paper-card text-paper-ink2 border-paper-line/70"
+            }`}
+          >
+            📎 有图/语音
+          </button>
+        </div>
+      </MemoriesHeader>
 
       {/* 日记列表 */}
-      <div className="px-4 pt-4 space-y-5">
+      <div className="max-w-2xl mx-auto px-4 pt-3 space-y-5">
         {grouped.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
             <div className="w-14 h-14 rounded-full bg-paper-surface border border-paper-line flex items-center justify-center">
@@ -264,7 +232,7 @@ export default function DiaryListPage({ diaries }: Props) {
         ) : (
           grouped.map((group) => (
             <section key={group.date}>
-              <h2 className="text-xs font-semibold text-paper-ink2 mb-2 flex items-center gap-1.5">
+              <h2 className="px-1 pt-1 text-xs font-semibold text-paper-ink2 mb-2 flex items-center gap-1.5">
                 {formatDate({ date: group.date } as Diary)}
                 <span className="opacity-60">· {weekdayCN(group.date)} · {group.items.length} 篇</span>
               </h2>
@@ -279,7 +247,7 @@ export default function DiaryListPage({ diaries }: Props) {
                     <button
                       key={d.id}
                       onClick={() => nav(`/editor/${d.id}`)}
-                      className="w-full text-left p-3.5 rounded-xl bg-paper-surface border border-paper-line/70 hover:border-paper-ink3 transition active:scale-[0.99] shadow-sm hover:shadow-md"
+                      className="w-full text-left p-4 rounded-2xl bg-paper-card border border-paper-line/70 shadow-card hover:shadow-cardHover transition active:scale-[0.99]"
                     >
                       {/* 头部：心情 + 日期 + 时间 + 箭头 */}
                       <div className="flex items-center justify-between mb-2">
@@ -316,7 +284,11 @@ export default function DiaryListPage({ diaries }: Props) {
                         )}
                       </div>
 
+                      {/* 小麦关联的人物 / 地点 */}
+                      <LifeLinks diaryId={d.id} max={3} className="mt-2" />
+
                       {/* 底部：标签 + 媒体计数 */}
+                      {((d.tags?.length ?? 0) > 0 || imgCount > 0 || hasAud) && (
                       <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-paper-line/50">
                         <div className="flex flex-wrap gap-1.5 min-w-0">
                           {d.tags?.slice(0, 3).map((tag) => (
@@ -347,6 +319,7 @@ export default function DiaryListPage({ diaries }: Props) {
                           )}
                         </div>
                       </div>
+                      )}
                     </button>
                   );
                 })}
@@ -357,7 +330,7 @@ export default function DiaryListPage({ diaries }: Props) {
       </div>
 
       {/* Tab 页：底栏常驻 */}
-      <BottomDock active="diaries" />
+      <BottomDock active="memories" />
     </div>
   );
 }
