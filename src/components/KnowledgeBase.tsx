@@ -28,15 +28,16 @@ const MAIN_TABS: { k: MainTab; label: string }[] = [
   { k: "list", label: "📋 列表" },
 ];
 
-export default function KnowledgeBase({ minimal = false, defaultTab, onlyKbId }: { minimal?: boolean; defaultTab?: MainTab; onlyKbId?: string }) {
+export default function KnowledgeBase({ minimal = false, defaultTab, onlyKbId, initialView }: { minimal?: boolean; defaultTab?: MainTab; onlyKbId?: string; initialView?: 'detail' | 'graph' }) {
   const [kbs, setKbs] = useState<WikiKB[]>([]);
   const [kbLoading, setKbLoading] = useState(true);
   const [curKbId, setCurKbId] = useState<string | null>(null);
-  const [mainTab, setMainTab] = useState<MainTab>(defaultTab || (minimal ? "list" : "card"));
-  const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  // onlyKbId（从「知识」页点进某个库）：用卡片视图并自动展开 —— 列表视图没有图谱和删除/配置按钮
+  const [mainTab, setMainTab] = useState<MainTab>(onlyKbId ? "card" : (defaultTab || (minimal ? "list" : "card")));
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(onlyKbId ?? null);
   const [cardDetail, setCardDetail] = useState<Record<string, { cats: WikiCategory[]; pages: WikiPage[] }>>({});
   const [selectedCatByCard, setSelectedCatByCard] = useState<Record<string, string | null>>({});
-  const [cardViewMode, setCardViewMode] = useState<Record<string, 'detail' | 'graph'>>({});
+  const [cardViewMode, setCardViewMode] = useState<Record<string, 'detail' | 'graph'>>(() => (onlyKbId && initialView ? { [onlyKbId]: initialView } : {}));
   const [cardGraphData, setCardGraphData] = useState<Record<string, { nodes: WikiGraphNode[]; links: WikiGraphEdge[] }>>({});
   const [ingestFor, setIngestFor] = useState<string | null>(null);
   const [ingestText, setIngestText] = useState("");
@@ -98,6 +99,11 @@ export default function KnowledgeBase({ minimal = false, defaultTab, onlyKbId }:
     }
   }
   useEffect(() => { loadKbs(); }, []);
+  // 直接以图谱打开（「我的生活 → 关系图」）：预先拉图谱数据
+  useEffect(() => {
+    if (!onlyKbId || initialView !== 'graph') return;
+    wikiGraph(onlyKbId).then((g) => setCardGraphData((d) => ({ ...d, [onlyKbId]: g }))).catch(() => setCardGraphData((d) => ({ ...d, [onlyKbId]: { nodes: [], links: [] } })));
+  }, [onlyKbId, initialView]);
   useEffect(() => {
     wikiListOfficialPresets().then(r => setOfficialPresets(r.presets)).catch(() => {});
   }, []);
@@ -270,8 +276,8 @@ export default function KnowledgeBase({ minimal = false, defaultTab, onlyKbId }:
   return (
     <>
     <section className={minimal ? "" : "bg-paper-card rounded-card shadow-card border border-paper-line/50 p-5"}>
-      {/* minimal 模式 — 顶部说明 */}
-      {minimal && (
+      {/* minimal 模式 — 顶部说明（单库模式不显示） */}
+      {minimal && !onlyKbId && (
         <div className="card p-3 mb-3 flex items-start gap-2">
           <span className="text-lg shrink-0">🌳</span>
           <div className="text-xs text-paper-ink2 leading-relaxed">
@@ -395,10 +401,10 @@ export default function KnowledgeBase({ minimal = false, defaultTab, onlyKbId }:
                 const detail = cardDetail[kb.id];
                 return (
                   <div key={kb.id} className={`group border border-paper-line bg-paper-card rounded-xl hover:shadow-md transition relative ${expanded ? 'sm:col-span-2 lg:col-span-3' : 'cursor-pointer p-4 hover:border-paper-accent/40'}`}
-                    onClick={() => expanded ? setExpandedCardId(null) : setExpandedCardId(kb.id)}>
+                    onClick={() => { if (onlyKbId) return; expanded ? setExpandedCardId(null) : setExpandedCardId(kb.id); }}>
                     {/* 卡片头部 */}
                     <div className={`flex items-center gap-3 ${expanded ? 'p-4 cursor-pointer' : ''}`}
-                      onClick={() => expanded ? setExpandedCardId(null) : null}>
+                      onClick={() => { if (!onlyKbId && expanded) setExpandedCardId(null); }}>
                       <div className="w-10 h-10 rounded-lg bg-paper-accent/10 flex items-center justify-center text-xl shrink-0">
                         {kb.is_official ? '🎁' : '📁'}
                       </div>
@@ -481,7 +487,7 @@ export default function KnowledgeBase({ minimal = false, defaultTab, onlyKbId }:
                       </div>
                     )}
                     {/* 卡片右上角按钮组（竖排）—— 所有 KB 都显示录入；官方 KB 仅录入，个人 KB 额外有删除+配置 */}
-                    <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition">
+                    <div className={`absolute top-2 right-2 flex gap-1 transition ${onlyKbId ? "flex-row opacity-100" : "flex-col opacity-0 group-hover:opacity-100"}`}>
                       <button
                         onClick={(e) => { e.stopPropagation(); openIngestModal(kb.id); }}
                         className="w-6 h-6 flex items-center justify-center rounded text-paper-ink3 hover:text-green-600 hover:bg-green-50 transition"

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, type ReactNode } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "../uiFeedback";
 import { askDiary, askDiaryStream, AskStreamError, askWiki, addMemory, upsertDiary, listTemplates, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, chatListSessions, chatUpsertSessions, chatDeleteSession, wikiAddSourceText, wikiIngestAll, wikiGetPage, type WikiKB, type WikiPage } from "../api";
 import Modal from "./Modal";
@@ -6,6 +7,26 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { callChatCompletion, getAiProvider, detectTemplate } from "../ai";
 import { useAuth } from "../AuthContext";
+import { listMemory, lifeOverview, getToken, type LifeItem } from "../api";
+import { cachedGet, peek } from "../dataCache";
+
+// 回答用 Markdown 渲染（原来是纯文本，**加粗**、- 列表 会原样露出来）
+const MD_COMPONENTS = {
+  p: ({ children }: { children?: ReactNode }) => <p className="my-1 first:mt-0 last:mb-0">{children}</p>,
+  ul: ({ children }: { children?: ReactNode }) => <ul className="list-disc pl-5 my-1 space-y-0.5">{children}</ul>,
+  ol: ({ children }: { children?: ReactNode }) => <ol className="list-decimal pl-5 my-1 space-y-0.5">{children}</ol>,
+  strong: ({ children }: { children?: ReactNode }) => <strong className="font-semibold text-paper-ink">{children}</strong>,
+  h1: ({ children }: { children?: ReactNode }) => <div className="font-semibold mt-2 mb-1">{children}</div>,
+  h2: ({ children }: { children?: ReactNode }) => <div className="font-semibold mt-2 mb-1">{children}</div>,
+  h3: ({ children }: { children?: ReactNode }) => <div className="font-semibold mt-2 mb-1">{children}</div>,
+  a: ({ children, href }: { children?: ReactNode; href?: string }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-paper-accent underline">{children}</a>,
+  code: ({ children }: { children?: ReactNode }) => <code className="bg-paper-line/50 px-1 rounded text-xs">{children}</code>,
+};
+function fmtMD(d?: string) {
+  if (!d) return "";
+  const [, m, dd] = d.split("-").map(Number);
+  return m && dd ? `${m}月${dd}日` : d;
+}
 
 interface DiarySource { diary_id: string; date?: string; score: number; content?: string; }
 interface WikiSource { page_id: string; title: string; summary: string; score: number; }
@@ -69,7 +90,7 @@ function RememberButton({ content }: { content: string }) {
     <button
       onClick={handleSave}
       disabled={saved || saving}
-      className="mt-1.5 text-[11px] text-paper-bg/70 hover:text-paper-bg transition opacity-60 hover:opacity-100"
+      className="mt-1.5 text-[11px] text-paper-bg/70 hover:text-paper-bg opacity-0 group-hover:opacity-100 focus:opacity-100 transition opacity-60 hover:opacity-100"
       title="把这句话原样存进小麦的记忆"
     >
       {saved ? `💾 已记住：${memContent || ""} 🌟` : saving ? "保存中…" : "💾 记住这句话"}
@@ -146,8 +167,6 @@ export default function AiChatView() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  // AI 气泡操作菜单：点哪个 AI 气泡就浮出菜单（汇入/删除）
-  const [activeMsgIdx, setActiveMsgIdx] = useState<number | null>(null);
   // 收集模式：用户手动开启的收集并汇入模式（知识 tab 才显示）
   const [collectionMode, setCollectionMode] = useState(false);
   // 收集气泡弹层开关
@@ -171,6 +190,28 @@ export default function AiChatView() {
   const [creatingKb, setCreatingKb] = useState<null | "collecting" | "creating" | "done">(null);
 
   const active = sessions.find((s) => s.id === activeId) || sessions[0];
+  const nav = useNavigate();
+
+  // 欢迎页：按用户自己的数据生成推荐问题，并带一句"小麦记得的事"
+  const [people, setPeople] = useState<LifeItem[]>(() => peek<any>("life:overview")?.items ?? []);
+  const [memories, setMemories] = useState<string[]>(() => (peek<any>("memory:all")?.memories ?? []).map((m: any) => m.content));
+  useEffect(() => {
+    if (!getToken()) return;
+    cachedGet<any>("life:overview", lifeOverview).then((r) => setPeople(r?.items ?? [])).catch(() => {});
+    cachedGet<any>("memory:all", listMemory, { ttl: 60_000 }).then((r) => setMemories((r?.memories ?? []).filter((m: any) => m.status !== "archived").map((m: any) => m.content))).catch(() => {});
+  }, [userId]);
+  const personalSuggestions = useMemo(() => {
+    const out: string[] = [];
+    const topPerson = people.find((p) => p.kind === "person");
+    if (topPerson) out.push(`我和${topPerson.title}最近都做了什么？`);
+    out.push("这个月我的心情怎么样？");
+    out.push("去年的今天我在做什么？");
+    const topPlace = people.find((p) => p.kind === "place");
+    if (topPlace) out.push(`我上次去${topPlace.title}是什么时候？`);
+    out.push("最近有什么让我开心的事？");
+    return out.slice(0, 4);
+  }, [people]);
+  const rememberLine = memories.length ? memories[Math.floor(Date.now() / 86400000) % memories.length] : "";
 
   // 切换账号时重新加载（本地 + 云端）
   useEffect(() => {
@@ -735,7 +776,6 @@ export default function AiChatView() {
       newMsgs.splice(idx, 1);
       return { ...s, msgs: newMsgs };
     });
-    setActiveMsgIdx(null);
   }
 
   // ===== openWikiPage：在弹窗中打开知识页面（不再跳转知识库 tab） =====
@@ -827,80 +867,52 @@ export default function AiChatView() {
     });
   }
 
-  // 进入引导创建 KB 模式 → 新开空会话 + collecting 状态
-  function startCreateKb() {
-    setCreatingKb("collecting");
-    const s: Session = {
-      id: uid(),
-      title: "新对话",
-      msgs: [],
-      createdAt: Date.now(),
-      source_type: "wiki",
-      kb_id: undefined,
-    };
-    setSessions((list) => [s, ...list]);
-    setActiveId(s.id);
-  }
-
-  // 用户在空状态点了虚线"创建新知识库"按钮 → 追加引导气泡
-  function appendCreatePrompt() {
-    updateActive((s) => ({
-      ...s,
-      msgs: [...s.msgs, {
-        role: "ai", source_type: "wiki",
-        content: "好呀！📚\n\n告诉我你想建个什么样的知识库：\n• **名字**叫什么？（比如：我的路亚笔记）\n• 主要**用来记录什么**？（比如：钓法技巧、装备评测、钓点分享）\n\n直接一句话说就行，比如：「路亚笔记，记录钓鱼经验和装备评测」",
-      }],
-    }));
-  }
-
   const activeType = active?.source_type || "diary";
   const activeKb = kbs.find((k) => k.id === active?.kb_id);
 
   return (
-    <section className="card p-0 animate-fade-up overflow-hidden flex flex-col relative" style={{ minHeight: "60vh", maxHeight: "70vh" }}>
+    <section className="flex flex-col relative h-full min-h-0">
       {/* 顶部操作栏 */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-paper-line bg-paper-surface/60 gap-2">
-        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+      <div className="flex items-center justify-between px-4 py-2.5 gap-2">
+        <div className="flex items-center gap-2 flex-1 min-w-0">
           <button
             onClick={() => setShowHistory((v) => !v)}
-            className="text-xs px-2 py-1 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition active:scale-95 shrink-0"
+            className={`h-8 px-3 rounded-full text-xs border transition active:scale-95 shrink-0 ${showHistory ? "bg-paper-ink text-paper-bg border-paper-ink" : "bg-paper-card text-paper-ink2 border-paper-line/70 hover:text-paper-ink"}`}
             title="历史对话"
           >
-            ☰
+            🕘 历史
           </button>
-          {/* source_type 切换器 */}
-          <div className="flex items-center bg-paper-bg rounded-full px-0.5 py-0.5 border border-paper-line shrink-0">
+          {/* 问日记 / 问知识库 */}
+          <div className="grid grid-cols-2 p-0.5 rounded-full bg-paper-line/40 shrink-0">
             <button
               onClick={() => setSourceTypeForActive("diary")}
-              className={`text-[11px] px-2 py-0.5 rounded-full transition ${
-                activeType === "diary" ? "bg-paper-card text-paper-ink shadow-sm" : "text-paper-ink2 hover:text-paper-ink"
+              className={`h-7 px-3 text-xs rounded-full transition ${
+                activeType === "diary" ? "bg-paper-card text-paper-ink font-medium shadow-sm" : "text-paper-ink2 hover:text-paper-ink"
               }`}
             >
-              📖 日记
+              问日记
             </button>
             <button
               onClick={() => setSourceTypeForActive("wiki")}
-              className={`text-[11px] px-2 py-0.5 rounded-full transition ${
-                activeType === "wiki" ? "bg-paper-card text-paper-ink shadow-sm" : "text-paper-ink2 hover:text-paper-ink"
+              className={`h-7 px-3 text-xs rounded-full transition ${
+                activeType === "wiki" ? "bg-paper-card text-paper-ink font-medium shadow-sm" : "text-paper-ink2 hover:text-paper-ink"
               }`}
             >
-              🌳 知识
+              问知识库
             </button>
           </div>
           {/* 知识库模式：KB 下拉 —— 永远不空 */}
           {activeType === "wiki" && (
             <select
-              value={creatingKb !== null && creatingKb !== "done" ? "__create__" : (active?.kb_id || "__none__")}
+              value={active?.kb_id || "__none__"}
               onChange={(e) => {
                 const v = e.target.value;
-                if (v === "__create__") { startCreateKb(); }
-                else if (v && v !== "__none__") { setKbForActive(v); }
+                if (v && v !== "__none__") { setKbForActive(v); }
               }}
-              className="text-[11px] border border-paper-line bg-paper-card rounded-full px-2 py-0.5 text-paper-ink2 min-w-0 max-w-[160px] focus:outline-none focus:border-paper-ink"
+              className="h-7 text-xs border border-paper-line/70 bg-paper-card rounded-full px-2 text-paper-ink2 min-w-0 max-w-[140px] focus:outline-none focus:border-paper-ink"
               title="选择知识库"
             >
               <option value="__none__" disabled>选知识库…</option>
-              <option value="__create__">🆕 + 创建知识库</option>
               {kbs.map((kb) => (
                 <option key={kb.id} value={kb.id}>{kb.title}</option>
               ))}
@@ -909,10 +921,10 @@ export default function AiChatView() {
         </div>
         <button
           onClick={newChat}
-          className="text-xs px-2.5 py-1 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition active:scale-95 shrink-0"
+          className="h-8 px-3 rounded-full text-xs bg-paper-card border border-paper-line/70 text-paper-ink2 hover:text-paper-ink transition active:scale-95 shrink-0"
           title="新建对话"
         >
-          ＋
+          ＋ 新对话
         </button>
       </div>
 
@@ -969,56 +981,43 @@ export default function AiChatView() {
       )}
 
       {/* 对话区 */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-5 space-y-4">
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 pt-2 pb-4 space-y-4">
         {active?.msgs.length === 0 && activeType === "diary" && (
-          <>
-            <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line">
-              💬 这是小麦，你的智能助手。写下的每一篇日记都可以被我找到。试试问点什么吧～
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {SUGGESTIONS.map((s) => (
+          <div className="pt-6 flex flex-col items-center text-center">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-200 to-amber-400 flex items-center justify-center text-3xl shadow-md">🌾</div>
+            <div className="mt-3 text-lg font-semibold text-paper-ink">嗨，我是小麦</div>
+            <div className="mt-1 text-sm text-paper-ink2 max-w-xs">你写过的每一篇日记我都读过，想不起哪天的事，随时问我</div>
+            {rememberLine && (
+              <div className="mt-3 text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-full px-3 py-1 max-w-full truncate">
+                🌾 我记得：{rememberLine}
+              </div>
+            )}
+            <div className="mt-6 w-full grid grid-cols-1 sm:grid-cols-2 gap-2 text-left">
+              {(personalSuggestions.length ? personalSuggestions : SUGGESTIONS).map((q) => (
                 <button
-                  key={s}
-                  onClick={() => send(s)}
-                  className="text-xs px-3 py-1.5 rounded-full border border-paper-line bg-paper-card text-paper-ink2 hover:bg-paper-line/40 transition"
+                  key={q}
+                  onClick={() => send(q)}
+                  className="px-4 py-3 rounded-2xl bg-paper-card border border-paper-line/70 shadow-card text-sm text-paper-ink hover:shadow-cardHover active:scale-[0.99] transition"
                 >
-                  {s}
+                  {q}
                 </button>
               ))}
             </div>
-          </>
-        )}
-
-        {/* 创建知识库专属空状态 */}
-        {active?.msgs.length === 0 && activeType === "wiki" && creatingKb === "collecting" && (
-          <div className="space-y-3">
-            <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line whitespace-pre-wrap">
-              📚 **创建新知识库**
-
-告诉我这几个信息，我全程帮你定：
-1. **你是什么职业/职位？**（比如：产品经理、钓鱼爱好者、健身教练）
-2. **知识库叫什么名字？**（比如：我的路亚笔记）
-3. **里面包含什么？想解决什么问题？**（比如：记录钓鱼经验、装备评测，解决选装备纠结）
-
-直接一句话说就行～
-            </div>
-            <button
-              onClick={appendCreatePrompt}
-              className="w-full rounded-xl border border-paper-accent/30 bg-paper-accent/5 hover:bg-paper-accent/10 px-4 py-3 text-sm text-paper-accent font-medium transition cursor-pointer"
-            >
-              💬 开始对话引导
-            </button>
           </div>
         )}
 
+
         {/* 没选 KB 的空状态 —— KB 卡片列表 */}
-        {active?.msgs.length === 0 && activeType === "wiki" && !activeKb && creatingKb === null && (
+        {active?.msgs.length === 0 && activeType === "wiki" && !activeKb && (
           <div className="space-y-3">
-            <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line">
-              🌳 我是小麦，你的知识小助手 📚
-              {kbs.length > 0
-                ? `\n\n已接入 **${kbs.length}** 个知识库，选一个开始提问，或者创建新知识库（通过上方下拉框选择「🆕 + 创建知识库」）吧～`
-                : "\n\n还没有知识库呢，通过上方下拉框选择「🆕 + 创建知识库」来创建第一个吧！"}
+            <div className="pt-4 text-center">
+              <div className="text-base font-semibold text-paper-ink">想问哪个知识库？</div>
+              <div className="text-xs text-paper-ink2 mt-1">
+                {kbs.length > 0 ? "选一个，我在里面帮你找" : "还没有知识库，去「回忆 → 知识」建一个吧"}
+              </div>
+              {kbs.length === 0 && (
+                <button type="button" onClick={() => nav("/people")} className="mt-3 text-xs px-3 py-1.5 rounded-full bg-paper-accent text-white">去建知识库</button>
+              )}
             </div>
 
             {kbs.length > 0 && (
@@ -1027,7 +1026,7 @@ export default function AiChatView() {
                   <button
                     key={kb.id}
                     onClick={() => setKbForActive(kb.id)}
-                    className="text-left rounded-xl border border-paper-line bg-paper-card hover:border-paper-accent/40 hover:bg-paper-surface px-4 py-3 transition cursor-pointer"
+                    className="text-left rounded-2xl border border-paper-line/70 bg-paper-card shadow-card hover:shadow-cardHover px-4 py-3 transition cursor-pointer"
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-lg">📁</span>
@@ -1045,35 +1044,32 @@ export default function AiChatView() {
 
         {/* 首次对话：欢迎语 + 气泡 */}
         {active?.msgs.length === 0 && activeType === "wiki" && activeKb && (
-          <div className="text-paper-ink2 text-sm leading-relaxed bg-paper-surface rounded-xl p-4 border border-paper-line">
-            🌳 我在「**{activeKb.title}**」知识库里，问我点什么吧～
-            {activeKb.description && `\n\n${activeKb.description}`}
+          <div className="pt-4 text-center">
+            <div className="text-base font-semibold text-paper-ink">📚 {activeKb.title}</div>
+            {activeKb.description && <div className="text-xs text-paper-ink2 mt-1 max-w-sm mx-auto">{activeKb.description}</div>}
+            <div className="text-xs text-paper-ink3 mt-2">问我这个知识库里的任何事</div>
           </div>
         )}
 
         {active?.msgs.map((m, i) => (
-          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "flex-col items-start"}`}>
+          <div key={i} className={`group flex ${m.role === "user" ? "justify-end" : "flex-col items-start"}`}>
             <div
-              onClick={() => {
-                // AI 回答：点一下浮出操作菜单（日记和知识 tab 都支持）
-                if (m.role === "ai") {
-                  setActiveMsgIdx((prev) => prev === i ? null : i);
-                }
-              }}
-              className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap ${
+              className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                 m.role === "user"
-                  ? "bg-paper-ink text-paper-bg rounded-br-sm"
-                  : "bg-paper-card border border-paper-line text-paper-ink rounded-bl-sm"
-              } ${m.role === "ai" ? "cursor-pointer hover:border-paper-accent/40 transition" : ""}`}
+                  ? "bg-paper-ink text-paper-bg rounded-br-md whitespace-pre-wrap"
+                  : "bg-paper-card border border-paper-line/70 shadow-card text-paper-ink rounded-bl-md"
+              }`}
             >
               {m.streaming && !m.content
-                ? <span className="inline-block animate-pulse text-paper-ink2">思考中…</span>
-                : m.content}
+                ? <span className="inline-block animate-pulse text-paper-ink2">🌾 小麦在翻日记…</span>
+                : m.role === "ai"
+                  ? <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS as any}>{m.content}</ReactMarkdown>
+                  : m.content}
               {m.streaming && m.content ? <span className="inline-block w-1.5 h-4 ml-0.5 align-text-bottom bg-paper-ink2/60 animate-pulse" /> : null}
               {m.sources?.length ? (
                 <div className="mt-2 pt-2 border-t border-paper-line/60 space-y-1.5">
-                  <div className="text-[11px] text-paper-ink2">
-                    📎 引用 {m.sources.length} {m.source_type === "wiki" ? "个知识页面" : "篇日记"}
+                  <div className="text-[11px] text-paper-ink3">
+                    {m.source_type === "wiki" ? `来自 ${m.sources.length} 个知识页面` : `来自 ${m.sources.length} 篇日记`}
                   </div>
                   {m.source_type === "wiki"
                     ? // WikiSource 渲染（可点击跳转知识库页面）
@@ -1087,26 +1083,24 @@ export default function AiChatView() {
                           }}
                           className="w-full text-left rounded-lg border border-paper-line/60 bg-paper-surface/40 px-2.5 py-1.5 text-[11px] text-paper-ink2 hover:bg-paper-surface hover:border-paper-accent/40 transition cursor-pointer"
                         >
-                          <span className="text-paper-accent">[[{s.title}]]</span>
-                          <span className="text-paper-ink2/60 ml-1">· 相关度 {Math.round(s.score * 100)}%</span>
+                          <span className="text-paper-accent">📄 {s.title}</span>
                           {s.summary && <div className="mt-0.5 text-paper-ink2/70 truncate">{s.summary}</div>}
                         </button>
                       ))
                     : // DiarySource 渲染
                       (m.sources as DiarySource[]).map((s, i) => (
-                        <details key={i} className="group rounded-lg border border-paper-line/60 bg-paper-surface/40 overflow-hidden">
-                          <summary className="cursor-pointer list-none px-2.5 py-1.5 text-[11px] text-paper-ink2 flex items-center justify-between hover:bg-paper-surface/80 transition-colors">
-                            <span className="flex items-center gap-1.5">
-                              <span className="text-paper-accent">{s.date?.slice(5) || '未知'}</span>
-                              <span className="text-paper-ink2/60">·</span>
-                              <span>相关度 {Math.round(s.score * 100)}%</span>
-                            </span>
-                            <span className="text-paper-ink2/40 transition-transform group-open:rotate-180">▾</span>
-                          </summary>
-                          <div className="px-2.5 py-2 text-[11px] leading-relaxed text-paper-ink2 border-t border-paper-line/40 bg-paper-card/60">
-                            {s.content}
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => nav(`/editor/${s.diary_id}`)}
+                          className="w-full text-left rounded-xl border border-paper-line/60 bg-paper-surface/60 px-3 py-2 hover:bg-paper-surface hover:border-paper-accent/40 transition"
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className="text-paper-accent font-medium">📖 {fmtMD(s.date) || "一篇日记"}</span>
+                            <span className="text-paper-ink3">打开 ›</span>
                           </div>
-                        </details>
+                          {s.content && <div className="mt-0.5 text-[11px] leading-relaxed text-paper-ink2 line-clamp-2">{s.content}</div>}
+                        </button>
                       ))}
                 </div>
               ) : null}
@@ -1114,44 +1108,54 @@ export default function AiChatView() {
                 <RememberButton content={m.content} />
               )}
               {/* wiki 模式的 AI 回答底部：纯状态展示 */}
-              {m.role === "ai" && !m.importing && !m.imported && (
-                <div className="mt-2 pt-2 border-t border-paper-line/60">
-                  {m.web_search ? (
-                    <span className="text-[10px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">🔎 联网搜索 + {m.source_type === "wiki" ? "知识库" : "日记"}</span>
-                  ) : (
-                    <span className="text-[10px] text-paper-ink2 bg-paper-surface/60 px-1.5 py-0.5 rounded">
-                      {m.source_type === "wiki" ? "📚 仅知识库" : "📓 仅日记"}
-                    </span>
-                  )}
+              {m.role === "ai" && m.web_search && !m.streaming && (
+                <div className="mt-2">
+                  <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">🌐 含联网信息</span>
                 </div>
               )}
             </div>
             {/* AI 操作按钮：扁平文字按钮条（跟内容气泡/推荐气泡视觉区分开）*/}
-            {activeMsgIdx === i && m.role === "ai" && !m.importing && !m.imported && (
-              <div className="mt-1.5 flex items-center gap-3 px-1 text-[11px] text-paper-ink2/70">
+            {m.role === "ai" && !m.streaming && !m.importing && !m.imported && (
+              <div className="mt-1.5 flex items-center gap-3 px-1 text-[11px] text-paper-ink3">
                 <button
-                  onClick={(e) => { e.stopPropagation(); retryWikiAnswer(i, m.web_search || false); setActiveMsgIdx(null); }}
+                  onClick={(e) => { e.stopPropagation(); navigator.clipboard?.writeText(m.content).then(() => toast("已复制", "ok")).catch(() => {}); }}
+                  className="hover:text-paper-accent transition"
+                >
+                  复制
+                </button>
+                <span className="text-paper-line">·</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (m.source_type === "wiki") { retryWikiAnswer(i, m.web_search || false); return; }
+                    // 日记：找到对应的提问，删掉这条回答后重新问
+                    let q = "";
+                    for (let j = i - 1; j >= 0; j--) if (active.msgs[j].role === "user") { q = active.msgs[j].content; break; }
+                    if (!q) return;
+                    updateActive((cur) => ({ ...cur, msgs: cur.msgs.filter((_, k) => k !== i && k !== i - 1) }));
+                    setTimeout(() => send(q), 0);
+                  }}
                   disabled={loading}
                   className="hover:text-paper-accent disabled:opacity-50 transition"
                 >
-                  🔄 重新回答
+                  重新回答
                 </button>
                 <span className="text-paper-line/60">·</span>
                 {m.source_type === "wiki" ? (
                   <button
-                    onClick={(e) => { e.stopPropagation(); saveAiAnswerToWiki(i); setActiveMsgIdx(null); }}
+                    onClick={(e) => { e.stopPropagation(); saveAiAnswerToWiki(i); }}
                     disabled={loading || !active?.kb_id}
                     className="hover:text-emerald-600 disabled:opacity-50 transition"
                   >
-                    📥 汇入知识库
+                    收进知识库
                   </button>
                 ) : (
                   <button
-                    onClick={(e) => { e.stopPropagation(); saveAiAnswerAsDiary(i); setActiveMsgIdx(null); }}
+                    onClick={(e) => { e.stopPropagation(); saveAiAnswerAsDiary(i); }}
                     disabled={loading}
                     className="hover:text-emerald-600 disabled:opacity-50 transition"
                   >
-                    📝 存入日记
+                    存成日记
                   </button>
                 )}
                 <span className="text-paper-line/60">·</span>
@@ -1159,11 +1163,11 @@ export default function AiChatView() {
                   onClick={(e) => { e.stopPropagation(); deleteAiMessage(i); }}
                   className="hover:text-red-500 transition"
                 >
-                  🗑️ 删除
+                  删除
                 </button>
               </div>
             )}
-            {activeMsgIdx === i && m.role === "ai" && (m.importing || m.imported) && (
+            {m.role === "ai" && (m.importing || m.imported) && (
               <div className="mt-1 px-1">
                 {m.importing && (
                   <span className="text-[11px] text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">📥 汇入中…</span>
@@ -1179,7 +1183,7 @@ export default function AiChatView() {
         {loading && !active?.msgs.some((m) => m.streaming) && (
           <div className="flex justify-start">
             <div className="bg-paper-card border border-paper-line rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-paper-ink2">
-              <span className="inline-block animate-pulse">思考中…</span>
+              <span className="inline-block animate-pulse">🌾 小麦在翻日记…</span>
             </div>
           </div>
         )}
@@ -1232,43 +1236,46 @@ export default function AiChatView() {
       </div>
 
       {/* 输入区 */}
-      <div className="px-5 py-3 border-t border-paper-line bg-paper-surface/50">
+      <div className="px-4 pt-2 pb-3 bg-paper-bg/90 backdrop-blur-md">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             send();
           }}
-          className="flex gap-2 items-center"
+          className="flex gap-2 items-center rounded-full bg-paper-card border border-paper-line/70 shadow-card pl-4 pr-1.5 py-1.5 focus-within:border-paper-accent transition"
         >
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
               activeType === "wiki"
-                ? (webSearchMode ? "联网 + 知识库回答…" : "仅知识库回答…")
-                : (webSearchMode ? "联网 + 日记回答…" : "仅用日记回答…")
+                ? (activeKb ? `问问「${activeKb.title}」…` : "先在上面选一个知识库")
+                : "问问小麦，比如：上周我去哪了？"
             }
-            className="flex-1 px-4 py-2.5 rounded-full border border-paper-line bg-paper-card text-sm focus:outline-none focus:border-paper-ink/50"
+            className="flex-1 min-w-0 bg-transparent text-sm text-paper-ink placeholder:text-paper-ink3 outline-none py-1.5"
           />
           {/* 联网图标按钮（日记和知识 tab 都显示）*/}
           <button
             type="button"
             onClick={() => setWebSearchMode((v) => !v)}
-            className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center border transition text-lg ${
+            className={`shrink-0 h-8 px-2.5 rounded-full flex items-center gap-1 text-xs transition ${
               webSearchMode
-                ? "border-blue-300 bg-blue-50 text-blue-500 hover:bg-blue-100"
-                : "border-paper-line bg-paper-card text-paper-ink3 hover:text-paper-ink2 hover:bg-paper-surface"
+                ? "bg-blue-50 text-blue-600 border border-blue-200"
+                : "text-paper-ink3 hover:text-paper-ink2 border border-transparent"
             }`}
             title={webSearchMode ? "联网搜索已开启（点一下关闭）" : (activeType === "wiki" ? "仅用知识库（点一下开启联网）" : "仅用日记（点一下开启联网）")}
           >
-            🌐
+            🌐 <span>联网</span>
           </button>
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="px-4 py-2.5 rounded-full bg-paper-ink text-paper-bg text-sm disabled:opacity-40 hover:opacity-80 transition"
+            aria-label="发送"
+            className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-base transition active:scale-95 ${
+              input.trim() && !loading ? "bg-paper-accent text-white shadow-md" : "bg-paper-line/60 text-paper-ink3"
+            }`}
           >
-            发送
+            ↑
           </button>
         </form>
       </div>

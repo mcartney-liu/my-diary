@@ -43,7 +43,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
   );
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showTour, setShowTour] = useState(false);
-  const [bootLoading, setBootLoading] = useState(() => peek("profile") === undefined);
+
   const [plansByDate, setPlansByDate] = useState<Map<string, number>>(new Map());
   const [milestonesByDate, setMilestonesByDate] = useState<Map<string, number>>(new Map());
 
@@ -76,7 +76,7 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
       setUserProfile(u);
       setAvatarKey(u.avatar || null);
       // 新手引导已搬到「今天」页（TodayPage）——月历不再是首页，这里不再弹
-    }).catch(() => {}).finally(() => setBootLoading(false));
+    }).catch(() => {});
   }, []);
 
 
@@ -120,17 +120,6 @@ export default function CalendarPage({ diaries, onSoftDelete }: Props) {
 
   const todayStr = fmtDate(now);
 
-  // 启动中：等 getProfile 返回再渲染主界面（避免先闪主界面再弹问卷）
-  if (bootLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#faf6ef]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-paper-line border-amber-700/50 border-t-amber-700 rounded-full animate-spin" />
-          <p className="text-paper-ink3 text-sm">正在加载…</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-paper-bg pb-40">

@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronRight, Search, X, Volume2, Image, FileText, Mic } from "lucide-react";
 import type { Diary } from "../types";
-import { moodById } from "../data";
+import { moodById, MOOD_TAGS } from "../data";
+import { templateById } from "../templates";
 import BottomDock from "./BottomDock";
 import { MemoriesHeader } from "./MemoriesSwitch";
 import LifeLinks from "./LifeLinks";
@@ -89,7 +90,8 @@ export default function DiaryListPage({ diaries }: Props) {
     let list = activeDiaries;
 
     if (moodFilter) list = list.filter((d) => (d.moodId ?? "neutral") === moodFilter);
-    if (templateFilter) list = list.filter((d) => (d.templateId ?? null) === templateFilter);
+    if (templateFilter === "__capsule") list = list.filter((d) => !!d.capsuleUnlockAt);
+    else if (templateFilter) list = list.filter((d) => (d.templateId || "diary") === templateFilter);
     if (mediaFilter === "with-media") {
       list = list.filter((d) => d.blocks.some((b) => b.kind === "image" || b.kind === "audio"));
     }
@@ -125,13 +127,37 @@ export default function DiaryListPage({ diaries }: Props) {
     return map;
   }, [activeDiaries]);
 
-  const moodList = [
-    { id: "happy", label: "开心", color: "#ffd93d" },
-    { id: "calm", label: "平静", color: "#7bc47f" },
-    { id: "anxious", label: "焦虑", color: "#f0a04b" },
-    { id: "sad", label: "难过", color: "#6c8ebf" },
-    { id: "angry", label: "生气", color: "#d7263d" },
-  ];
+  // 类型：按实际写过的模板统计，没写过的类型不显示（旧版写死了 7 个，其中几个 id 和真实模板对不上，点了永远是空）
+  const typeList = useMemo(() => {
+    const count: Record<string, number> = {};
+    let capsule = 0;
+    for (const d of activeDiaries) {
+      const t = d.templateId || "diary";
+      count[t] = (count[t] ?? 0) + 1;
+      if (d.capsuleUnlockAt) capsule++;
+    }
+    const list = Object.entries(count)
+      .map(([id, n]) => {
+        const tpl = templateById(id);
+        const custom = id.startsWith("custom-");
+        return { id, n, label: tpl?.name ?? (custom ? "自定义" : id), icon: tpl?.icon ?? (custom ? "🧩" : "📄") };
+      })
+      .sort((a, b) => b.n - a.n);
+    if (capsule) list.push({ id: "__capsule", n: capsule, label: "时光胶囊", icon: "🫧" });
+    return list;
+  }, [activeDiaries]);
+  const mediaCount = useMemo(
+    () => activeDiaries.filter((d) => d.blocks.some((b) => b.kind === "image" || b.kind === "audio")).length,
+    [activeDiaries]
+  );
+  const hasFilter = !!(moodFilter || templateFilter || mediaFilter === "with-media" || search.trim());
+  const clearFilters = () => { setMoodFilter(null); setTemplateFilter(null); setMediaFilter("all"); setSearch(""); };
+  const filterLabel = [
+    moodFilter ? `${moodById(moodFilter)?.icon ?? ""} ${moodById(moodFilter)?.name ?? ""}` : "",
+    templateFilter ? (() => { const t = typeList.find((x) => x.id === templateFilter); return t ? `${t.icon} ${t.label}` : ""; })() : "",
+    mediaFilter === "with-media" ? "📎 有图/语音" : "",
+    search.trim() ? `"${search.trim()}"` : "",
+  ].filter(Boolean).join(" + ");
 
   const today = new Date();
   const todayDate = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
@@ -160,73 +186,78 @@ export default function DiaryListPage({ diaries }: Props) {
           )}
         </div>
 
-        {/* 筛选：心情 | 模板 | 媒体，合并成一行横向滑动 */}
-        <div className="mt-2.5 -mx-4 px-4 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          <button
-            onClick={() => { setMoodFilter(null); setTemplateFilter(null); setMediaFilter("all"); }}
-            className={`shrink-0 h-7 px-3 text-xs rounded-full border transition ${
-              moodFilter === null && templateFilter === null && mediaFilter !== "with-media"
-                ? "bg-paper-ink text-paper-bg border-paper-ink"
-                : "bg-paper-card text-paper-ink2 border-paper-line/70"
-            }`}
-          >
-            全部 {activeDiaries.length}
-          </button>
-          {moodList.map((m) => {
-            const count = moodStats[m.id] ?? 0;
-            if (count === 0 && moodFilter !== m.id) return null;
-            return (
+        {/* 筛选：心情 / 类型 各一行，左边带标题；每项显示篇数，没有的不显示 */}
+        <div className="mt-2.5 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 w-8 text-[11px] text-paper-ink3">心情</span>
+            <div className="-mr-4 pr-4 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
               <button
-                key={m.id}
-                onClick={() => setMoodFilter(moodFilter === m.id ? null : m.id)}
-                className={`shrink-0 h-7 px-2.5 text-xs rounded-full border transition flex items-center gap-1 ${
-                  moodFilter === m.id ? "bg-paper-ink text-paper-bg border-paper-ink" : "bg-paper-card text-paper-ink2 border-paper-line/70"
-                }`}
+                onClick={() => setMoodFilter(null)}
+                className={`shrink-0 h-7 px-2.5 text-xs rounded-full border transition flex items-center gap-1 ${moodFilter === null ? "bg-paper-ink text-paper-bg border-paper-ink" : "bg-paper-card text-paper-ink2 border-paper-line/70"}`}
               >
-                <span className="w-2 h-2 rounded-full" style={{ background: m.color }} />
-                {m.label}<span className="opacity-60">{count}</span>
+                全部
               </button>
-            );
-          })}
-          <span className="shrink-0 w-px h-4 bg-paper-line mx-1" />
-          {[
-            { id: "finance", label: "💰 记账" },
-            { id: "plan", label: "🎯 计划" },
-            { id: "milestone", label: "🎈 纪念日" },
-            { id: "books", label: "📚 读书" },
-            { id: "calendar", label: "📅 倒计时" },
-            { id: "capsule", label: "🕰️ 胶囊" },
-          ].map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTemplateFilter(templateFilter === t.id ? null : t.id)}
-              className={`shrink-0 h-7 px-2.5 text-xs rounded-full border transition ${
-                templateFilter === t.id ? "bg-paper-accent text-white border-paper-accent" : "bg-paper-card text-paper-ink2 border-paper-line/70"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-          <button
-            onClick={() => setMediaFilter(mediaFilter === "with-media" ? "all" : "with-media")}
-            className={`shrink-0 h-7 px-2.5 text-xs rounded-full border transition ${
-              mediaFilter === "with-media" ? "bg-paper-accent text-white border-paper-accent" : "bg-paper-card text-paper-ink2 border-paper-line/70"
-            }`}
-          >
-            📎 有图/语音
-          </button>
+              {MOOD_TAGS.map((m) => {
+                const count = moodStats[m.id] ?? 0;
+                if (count === 0 && moodFilter !== m.id) return null;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setMoodFilter(moodFilter === m.id ? null : m.id)}
+                    className={`shrink-0 h-7 px-2.5 text-xs rounded-full border transition flex items-center gap-1 ${moodFilter === m.id ? "bg-paper-ink text-paper-bg border-paper-ink" : "bg-paper-card text-paper-ink2 border-paper-line/70"}`}
+                  >
+                    {m.icon} {m.name}<span className="opacity-60">{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 w-8 text-[11px] text-paper-ink3">类型</span>
+            <div className="-mr-4 pr-4 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+              <button
+                onClick={() => { setTemplateFilter(null); setMediaFilter("all"); }}
+                className={`shrink-0 h-7 px-2.5 text-xs rounded-full border transition flex items-center gap-1 ${templateFilter === null && mediaFilter !== "with-media" ? "bg-paper-ink text-paper-bg border-paper-ink" : "bg-paper-card text-paper-ink2 border-paper-line/70"}`}
+              >
+                全部
+              </button>
+              {typeList.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTemplateFilter(templateFilter === t.id ? null : t.id)}
+                  className={`shrink-0 h-7 px-2.5 text-xs rounded-full border transition flex items-center gap-1 ${templateFilter === t.id ? "bg-paper-ink text-paper-bg border-paper-ink" : "bg-paper-card text-paper-ink2 border-paper-line/70"}`}
+                >
+                  {t.icon} {t.label}<span className="opacity-60">{t.n}</span>
+                </button>
+              ))}
+              {mediaCount > 0 && (
+                <button
+                  onClick={() => setMediaFilter(mediaFilter === "with-media" ? "all" : "with-media")}
+                  className={`shrink-0 h-7 px-2.5 text-xs rounded-full border transition flex items-center gap-1 ${mediaFilter === "with-media" ? "bg-paper-ink text-paper-bg border-paper-ink" : "bg-paper-card text-paper-ink2 border-paper-line/70"}`}
+                >
+                  📎 有图/语音<span className="opacity-60">{mediaCount}</span>
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </MemoriesHeader>
 
       {/* 日记列表 */}
       <div className="max-w-2xl mx-auto px-4 pt-3 space-y-5">
+        {hasFilter && (
+          <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-100 text-xs">
+            <span className="min-w-0 truncate text-amber-900">找到 <b>{filtered.length}</b> 篇 · {filterLabel}</span>
+            <button onClick={clearFilters} className="shrink-0 px-2 py-0.5 rounded-full text-amber-800 hover:bg-amber-100">清除筛选</button>
+          </div>
+        )}
         {grouped.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
             <div className="w-14 h-14 rounded-full bg-paper-surface border border-paper-line flex items-center justify-center">
               <FileText className="w-6 h-6 text-paper-ink3" />
             </div>
             <p className="text-sm text-paper-ink2">
-              {search || moodFilter ? "没有匹配的日记" : "还没有日记，点 + 写第一篇吧"}
+              {hasFilter ? "没有符合条件的日记，换个条件试试" : "还没有日记，点 + 写第一篇吧"}
             </p>
           </div>
         ) : (

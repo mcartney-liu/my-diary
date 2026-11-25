@@ -7,7 +7,7 @@ import { MemoriesHeader } from "./MemoriesSwitch";
 import { toast, confirmAsync, promptAsync } from "../uiFeedback";
 import { moodById } from "../data";
 import {
-  lifeOverview, lifePage, lifeRename, lifeMerge, lifeDelete, kbOverview, kbQuickCreate,
+  lifeOverview, lifePage, lifeRename, lifeMerge, lifeDelete, kbOverview, kbQuickCreate, wikiDeleteKb, lifeRepairLinks,
   type LifeItem, type LifeKind, type LifePageDetail, type KbCard,
 } from "../api";
 import CollectSheet from "./CollectSheet";
@@ -49,7 +49,7 @@ function KnowledgeHub() {
   const [loadError, setLoadError] = useState(false);
   const [life, setLife] = useState<KbCard | null>(null);
   const [collectFor, setCollectFor] = useState<string | undefined | null>(null);   // null = 关闭；undefined = 让小麦选
-  const [openKb, setOpenKb] = useState<KbCard | null>(null);
+  const [openKb, setOpenKb] = useState<(KbCard & { official?: boolean; graph?: boolean }) | null>(null);
   const [creating, setCreating] = useState(false);
 
   const load = () => {
@@ -59,7 +59,15 @@ function KnowledgeHub() {
       // 失败（比如后端还没部署新接口）≠ 没有知识库：显示错误，不显示"建一个"的空状态
       .catch(() => { setLoadError(true); setCards([]); });
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // 一次性修复旧数据：每个人物 / 地点只挂在真正提到 TA 的日记上（v1 = 2026-11-25 的修复）
+    try {
+      if (localStorage.getItem("mydiary.life.repair") !== "v1") {
+        lifeRepairLinks().then(() => { try { localStorage.setItem("mydiary.life.repair", "v1"); } catch {} }).catch(() => {});
+      }
+    } catch {}
+  }, []);
 
   async function createKb() {
     const name = (await promptAsync({ title: "新建知识库", message: "起个名字，比如「家常菜谱」「读书笔记」「宝宝成长」", placeholder: "名字" }))?.trim();
@@ -82,11 +90,23 @@ function KnowledgeHub() {
           <div className="mt-2.5 flex items-center gap-2">
             <button type="button" onClick={() => { setOpenKb(null); load(); }} className="h-7 px-3 rounded-full text-xs border border-paper-line/70 bg-paper-card text-paper-ink2">‹ 返回知识</button>
             <button type="button" onClick={() => setCollectFor(openKb.id)} className="h-7 px-3 rounded-full text-xs bg-paper-accent text-white">📥 收进这里</button>
+            {!openKb.official && (
+              <button type="button" onClick={async () => {
+                const ok = await confirmAsync({
+                  title: `删除「${openKb.title}」？`,
+                  message: "这个知识库里的页面、资料和分类都会一起删除，不能恢复。你的日记不受影响。",
+                  confirmText: "删除", confirmTone: "danger",
+                });
+                if (!ok) return;
+                try { await wikiDeleteKb(openKb.id); toast("已删除", "ok"); setOpenKb(null); load(); }
+                catch { toast("删除失败，稍后再试", "error"); }
+              }} className="ml-auto h-7 px-3 rounded-full text-xs border border-rose-200 bg-rose-50 text-rose-700">删除</button>
+            )}
           </div>
         </MemoriesHeader>
         <main className="max-w-2xl mx-auto px-4 pt-3">
           {/* 复用原有知识库组件的列表 / 图谱 / 详情（只展示这一个库） */}
-          <KnowledgeBase minimal defaultTab="list" onlyKbId={openKb.id} />
+          <KnowledgeBase minimal defaultTab="list" onlyKbId={openKb.id} initialView={openKb.graph ? "graph" : "detail"} />
         </main>
         <CollectSheet open={collectFor !== null} defaultKbId={collectFor ?? undefined} onClose={() => setCollectFor(null)} />
         <BottomDock active="memories" />
@@ -102,9 +122,15 @@ function KnowledgeHub() {
         <section>
           <div className="flex items-baseline justify-between mb-2 px-1">
             <h2 className="text-sm font-semibold text-paper-ink">🌾 我的生活</h2>
-            <span className="text-[11px] text-paper-ink3">
-              {life ? `${life.pages} 页${life.pending ? ` · 还有 ${life.pending} 篇日记在整理` : ""}` : "从日记里自动整理"}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-paper-ink3">
+                {life ? `${life.pages} 页${life.pending ? ` · 还有 ${life.pending} 篇在整理` : ""}` : "从日记里自动整理"}
+              </span>
+              {life && life.pages > 0 && (
+                <button type="button" onClick={() => setOpenKb({ ...life, title: "🌾 我的生活 · 关系图", official: true, graph: true })}
+                  className="h-6 px-2.5 rounded-full text-[11px] border border-paper-line/70 bg-paper-card text-paper-ink2 hover:text-paper-ink">🕸️ 关系图</button>
+              )}
+            </div>
           </div>
           <PeopleList embedded />
         </section>
@@ -159,7 +185,7 @@ function KnowledgeHub() {
             </div>
             <div className="grid grid-cols-2 gap-2.5">
               {presets.map((k) => (
-                <button key={k.id} type="button" onClick={() => setOpenKb(k)}
+                <button key={k.id} type="button" onClick={() => setOpenKb({ ...k, official: true })}
                   className="text-left rounded-2xl bg-paper-surface border border-dashed border-paper-line px-3.5 py-3 hover:bg-paper-card hover:border-solid transition">
                   <div className="text-sm text-paper-ink truncate">{k.title}</div>
                   {k.description && <div className="text-[11px] text-paper-ink2 mt-0.5 line-clamp-2">{k.description}</div>}

@@ -464,6 +464,9 @@ export type LifeLink = { id: string; title: string; kind: LifeKind };
 export function lifeByDiaries(ids: string[]) {
   return request<{ links: Record<string, LifeLink[]> }>("/api/life/by-diaries", { method: "POST", body: JSON.stringify({ ids }) });
 }
+export function lifeRepairLinks() {
+  return request<{ ok: boolean; fixed: number; removed: number }>("/api/life/repair-links", { method: "POST" });
+}
 export function lifeRecent(days = 3) {
   return request<{ created: LifeLink[]; updated: LifeLink[] }>("/api/life/recent?days=" + days);
 }
