@@ -1111,6 +1111,21 @@ export async function handleLifeRepairLinks(request, env, JWT_SECRET) {
   return json({ ok: true, fixed, removed, pages: pages.length });
 }
 
+// POST /api/kb/clean-descriptions — 一次性清洗当前用户所有知识库的说明（去掉 → 模板名、编号）
+export async function handleKbCleanDescriptions(request, env, JWT_SECRET) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const rows = (await env.DB.prepare("SELECT id, description FROM wiki_knowledge_bases WHERE user_id=?").bind(user.uid).all()).results || [];
+  let fixed = 0;
+  for (const r of rows) {
+    const d = String(r.description || '');
+    if (!/(→|->|=>)\s*[A-Za-z_]|\n\s*\d+[.、]/.test(d)) continue;
+    await env.DB.prepare("UPDATE wiki_knowledge_bases SET description=? WHERE id=?").bind(cleanKbDescription(d), r.id).run();
+    fixed++;
+  }
+  return json({ ok: true, fixed });
+}
+
 // ⏰ 定时任务：把「我的生活」里待整理的日记自动汇入（不用用户手动点「汇入」）
 // 每次最多处理 AUTO_INGEST_USERS 个用户、每人 AUTO_INGEST_SOURCES 份，控制单次耗时和 AI 成本
 const AUTO_INGEST_USERS = 5;
@@ -2500,6 +2515,18 @@ ${tplList.map(t => `- ${t.builtin_key} → ${t.name} → ${t.description}`).join
 }
 
 // ====== 优化知识库描述（口语化 → 结构化，和内置模板对齐） ======
+// 知识库说明清洗：去掉「→ topic」这类内部模板名、编号列表，压成一两句话
+export function cleanKbDescription(raw) {
+  let t = String(raw || '').trim().replace(/^["“'「]+|["”'」]+$/g, '');
+  t = t.replace(/\s*(?:→|->|=>)\s*[A-Za-z_][\w-]*/g, '');          // → topic / -> ops_qa
+  t = t.replace(/(^|\s)\d+[.、)]\s*/g, '$1');                         // 1. 2、 3)
+  // 原来是「一句定位 + 多行场景列表」：只保留开头那句定位；没有换行就整段保留
+  const lines = t.split(/\n+/).map((x) => x.trim()).filter(Boolean);
+  t = lines.length > 1 ? lines[0] : (lines[0] || '');
+  if (t.length > 80) t = t.slice(0, 78).replace(/[，；、\s]+[^，；、\s]*$/, '') + '…';
+  return t;
+}
+
 export async function handleWikiOptimizeDescription(request, env, JWT_SECRET, params) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
@@ -2520,22 +2547,15 @@ export async function handleWikiOptimizeDescription(request, env, JWT_SECRET, pa
 
   await dblog(env, 'optimize_desc', 'START', { title: kb_title?.slice(0, 50), descLen: description.length });
 
-  const sys = `你是一个知识库设计助手。用户给你一段口语化的描述，你要把它优化成"结构化的知识库设计说明"。
+  // ⚠️ 这段输出会直接存成知识库的「说明」展示给用户（知识页、小麦对话页都会显示），
+  // 所以只能是用户看得懂的话。旧版要求每行写「→ 模板名」，结果说明里全是 topic / habit / ops_qa 这种内部 key
+  const sys = `你帮用户把一段口语化的描述，改写成知识库的「简介」。这段简介会直接展示给用户看。
 
-核心规则：
-1. 保持用户原意，不要瞎加内容
-2. 用简洁的结构列出知识库要覆盖的核心场景，每个场景暗示它最可能用到的内置模板
-3. 输出 3-8 个场景，每个场景一句话
-4. 语言自然、清晰、好读
-
-内置模板参考（用于暗示场景可能用到的模板）：
-${tplList}
-
-输出格式（直接给纯文本，不要 Markdown 标题、不要 JSON）：
-知识库一句话定位。
-1. 场景一描述 → 暗示模板名
-2. 场景二描述 → 暗示模板名
-...`;
+规则：
+1. 保持用户原意，不要编造用户没提到的内容
+2. 一到两句话，总共不超过 60 个字，读起来自然
+3. 说清楚「这个库收什么、用来干什么」
+4. 只输出简介本身：不要编号、不要列表、不要标题、不要引号，绝对不要出现任何英文代号或模板名`;
 
   const userMsg = kb_title
     ? `知识库名称：${kb_title}\n用户的原始描述：${description}`
@@ -2552,7 +2572,7 @@ ${tplList}
     return json({ error: "AI 暂时打盹了" }, 500);
   }
 
-  const optimized = String(raw || '').trim();
+  const optimized = cleanKbDescription(raw) || description.trim().slice(0, 120);
   await dblog(env, 'optimize_desc', 'DONE', { len: optimized.length });
 
   return json({ description: optimized });

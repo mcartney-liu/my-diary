@@ -282,7 +282,78 @@
 
 @tailwind base;
 @tailwind components;
+
+/* ============================================================
+   🎨 统一组件样式（2026-11-25）—— 纯 CSS，跟随主题变量
+   之前 230+ 处用了 .card / .btn-ghost 但从没定义过
+   ============================================================ */
+@layer components {
+  .card {
+    background-color: var(--paper-card, #fff);
+    border: 1px solid color-mix(in srgb, var(--paper-line, #e8e0cc) 70%, transparent);
+    box-shadow: var(--shadow-card, 0 2px 12px -2px rgba(45,31,20,0.08));
+    border-radius: 1rem;
+  }
+  .btn-primary, .btn-secondary, .btn-danger, .btn-ghost {
+    display: inline-flex; align-items: center; justify-content: center; gap: .375rem;
+    border-radius: 9999px; transition: all .15s ease; cursor: pointer;
+  }
+  .btn-primary, .btn-secondary, .btn-danger { height: 2.25rem; padding: 0 1rem; font-size: .875rem; }
+  .btn-primary { background: var(--paper-accent, #8b6f47); color: #fff; font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .btn-primary:hover { opacity: .9; }
+  .btn-secondary { background: var(--paper-card, #fff); color: var(--paper-ink2, #7a6a54); border: 1px solid color-mix(in srgb, var(--paper-line, #e8e0cc) 70%, transparent); }
+  .btn-secondary:hover { color: var(--paper-ink, #2d1f14); background: var(--paper-surface, #fdfaf3); }
+  .btn-danger { background: #fff1f2; color: #be123c; border: 1px solid #fecdd3; }
+  .btn-danger:hover { background: #ffe4e6; }
+  .btn-ghost { color: var(--paper-ink2, #7a6a54); }
+  .btn-ghost:hover { color: var(--paper-ink, #2d1f14); background: var(--paper-surface, #fdfaf3); }
+  .btn-primary:active, .btn-secondary:active, .btn-danger:active, .btn-ghost:active { transform: scale(.95); }
+  .btn-primary:disabled, .btn-secondary:disabled, .btn-danger:disabled { opacity: .5; pointer-events: none; }
+  .chip {
+    flex-shrink: 0; display: inline-flex; align-items: center; gap: .25rem; height: 1.75rem; padding: 0 .75rem;
+    border-radius: 9999px; font-size: .75rem; border: 1px solid color-mix(in srgb, var(--paper-line, #e8e0cc) 70%, transparent);
+    background: var(--paper-card, #fff); color: var(--paper-ink2, #7a6a54); transition: all .15s ease;
+  }
+  .chip-on { background: var(--paper-ink, #2d1f14); color: var(--paper-bg, #faf6ef); border-color: var(--paper-ink, #2d1f14); }
+  .section-label { font-size: 11px; font-weight: 500; letter-spacing: .05em; color: var(--paper-accent, #8b6f47); }
+}
 @tailwind utilities;
+
+/* ============================================================
+   ✨ 微动效（2026-11-25）—— 都在 0.35s 以内；系统开了「减少动态效果」就全部关掉
+   ============================================================ */
+@keyframes pop-in { 0% { opacity: 0; transform: scale(.92) translateY(4px); } 100% { opacity: 1; transform: none; } }
+@keyframes tap-bounce { 0% { transform: scale(1); } 40% { transform: scale(1.25); } 100% { transform: scale(1); } }
+@keyframes flame { 0%,100% { transform: scale(1) rotate(0); } 50% { transform: scale(1.18) rotate(-6deg); } }
+@keyframes xm-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+@keyframes xm-think { 0%,100% { transform: rotate(0); } 25% { transform: rotate(-6deg); } 75% { transform: rotate(6deg); } }
+@keyframes sprout-sway { 0%,100% { transform: rotate(0); } 50% { transform: rotate(5deg); } }
+@keyframes wheat-fall {
+  0% { opacity: 0; transform: translateY(-20px) rotate(0); }
+  15% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(70vh) rotate(var(--r, 180deg)); }
+}
+@keyframes drift { 0% { transform: translateY(-10%); } 100% { transform: translateY(110%); } }
+
+.animate-pop-in { animation: pop-in .3s cubic-bezier(.2,.8,.2,1) both; }
+.tap-bounce:active > span:first-child, .tap-bounce.is-bounce > span:first-child { animation: tap-bounce .3s ease-out; }
+.flame { display: inline-block; animation: flame 1.6s ease-in-out infinite; transform-origin: 50% 80%; }
+.xiaomai { animation: xm-bob 3s ease-in-out infinite; }
+.xiaomai-think { animation: xm-think 1.2s ease-in-out infinite; transform-origin: 50% 90%; }
+.xiaomai-bounce { animation: xm-bob 1s ease-in-out infinite; }
+.xiaomai-sprout { transform-origin: 50% 26px; animation: sprout-sway 2.4s ease-in-out infinite; }
+.wheat-fall { position: fixed; top: 0; z-index: 60; pointer-events: none; font-size: 22px; animation: wheat-fall 1.4s ease-in forwards; }
+
+/* 今天页氛围头图里的雨 / 雪 */
+.sky-particles { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.sky-particles i { position: absolute; top: 0; display: block; animation: drift linear infinite; }
+.sky-rain i { width: 1px; height: 14px; background: rgba(255,255,255,.55); }
+.sky-snow i { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,.9); }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop-in, .flame, .xiaomai, .xiaomai-think, .xiaomai-bounce, .xiaomai-sprout, .wheat-fall, .sky-particles i,
+  .tap-bounce:active > span:first-child { animation: none !important; }
+}
 
 html, body, #root { height: 100%; }
 
@@ -809,6 +880,13 @@ html.fonts-loaded * {
    env(safe-area-inset-*) 在非刘海设备上为 0，等于没有任何副作用。 */
 .dock-safe   { bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)); }
 .snack-safe  { bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px)); }
+/* 底栏占用的高度（底栏 ~3.5rem + 离底 1.5rem + 间距 .75rem + 安全区），整页布局的页面用它留位置 */
+.dock-space  { padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px)); }
+/* 小麦页：优先用 dvh（随地址栏伸缩），不支持就退回 100% */
+.xiaomai-page { height: 100%; height: 100dvh; }
+/* 键盘弹起时（keyboardSafeFocus 会给 html 加 .kb-open）：隐藏底栏，输入框贴着键盘 */
+html.kb-open nav[aria-label="主导航"] { display: none; }
+html.kb-open .dock-space { padding-bottom: env(safe-area-inset-bottom, 0px); }
 .header-safe { padding-top: env(safe-area-inset-top, 0px); }
 /* 底部固定条 / 编辑器浮动元素的安全区补充 */
 .footer-safe   { padding-bottom: env(safe-area-inset-bottom, 0px); }

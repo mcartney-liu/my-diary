@@ -10,6 +10,8 @@ import type { WeatherInfo } from "../types";
 import { cachedGet, peek } from "../dataCache";
 import OnThisDay from "./OnThisDay";
 import LifeLinks from "./LifeLinks";
+import Xiaomai, { moodFor } from "./Xiaomai";
+import { useHint } from "./useOnce";
 import BottomDock from "./BottomDock";
 import OnboardingWizard from "./OnboardingWizard";
 import FeatureTour, { hasSeenTour, markTourSeen, type TourStep } from "./FeatureTour";
@@ -20,9 +22,38 @@ interface Props { diaries: Diary[] }
 
 const WEEK = ["日", "一", "二", "三", "四", "五", "六"];
 
+// 今天页顶部氛围：早上暖黄、白天浅蓝、傍晚橙粉、夜里深蓝；下雨 / 下雪加粒子
+function skyFor(hour: number, desc?: string) {
+  const night = hour >= 19 || hour < 5;
+  const grad =
+    hour < 5 ? "from-[#1f2a4d] via-[#2c3866] to-[#4b4f80]" :
+    hour < 9 ? "from-[#ffe9c7] via-[#ffd9a8] to-[#fbe3c9]" :
+    hour < 16 ? "from-[#dcefff] via-[#eef6ff] to-[#fdf6e9]" :
+    hour < 19 ? "from-[#ffc9a3] via-[#f7b5a8] to-[#e9c6d9]" :
+                "from-[#2b335e] via-[#3c4275] to-[#5a5a8c]";
+  const weather = !desc ? "" : /雪/.test(desc) ? "snow" : /雨/.test(desc) ? "rain" : "";
+  const deco = night ? "🌙" : /雨/.test(desc || "") ? "🌧️" : /雪/.test(desc || "") ? "❄️" : /云|阴/.test(desc || "") ? "⛅" : "☀️";
+  return { grad, night, weather, deco };
+}
+function Particles({ kind }: { kind: string }) {
+  if (!kind) return null;
+  const n = kind === "rain" ? 26 : 18;
+  return (
+    <div className={`sky-particles ${kind === "rain" ? "sky-rain" : "sky-snow"}`} aria-hidden>
+      {Array.from({ length: n }, (_, i) => (
+        <i key={i} style={{ left: `${(i * 37) % 100}%`, animationDuration: `${kind === "rain" ? 0.8 + (i % 5) * 0.15 : 4 + (i % 6) * 0.8}s`, animationDelay: `${(i % 7) * -0.6}s` }} />
+      ))}
+    </div>
+  );
+}
+
 function firstText(d: Diary): string {
   const t = d.blocks.find((b) => (b.kind === "text" || b.kind === "quote") && b.content?.trim())?.content ?? "";
   return t.trim();
+}
+function firstImage(d: Diary): string | null {
+  const b = d.blocks.find((x) => x.kind === "image" && x.content);
+  return b ? b.content : null;
 }
 // 日记内容指纹：内容改了才重新问小麦
 function fingerprint(d: Diary): string {
@@ -111,12 +142,16 @@ function XiaomaiReply({ diary }: { diary: Diary }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  if (loading) return <div className="mt-2 text-xs text-paper-ink2 animate-pulse">🌾 小麦在读你的日记…</div>;
+  if (loading) return (
+    <div className="mt-3 flex items-center gap-2 text-xs text-paper-ink2">
+      <Xiaomai mood="thinking" size={28} /> 小麦在读你的日记…
+    </div>
+  );
   if (!data?.reply) return null;
   return (
     <div className="mt-3 flex items-start gap-2">
-      <span className="shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-amber-200 to-amber-400 flex items-center justify-center text-sm">🌾</span>
-      <div className="flex-1 rounded-2xl rounded-tl-md bg-amber-50 border border-amber-100 px-3 py-2 text-sm text-paper-ink leading-relaxed">
+      <Xiaomai mood="happy" size={30} className="shrink-0" />
+      <div className="flex-1 rounded-2xl rounded-tl-md bg-amber-50 border border-amber-100 px-3 py-2 text-sm text-paper-ink leading-relaxed animate-pop-in">
       {data.reply}
       {data.ref && (
         <button
@@ -305,32 +340,33 @@ export default function TodayPage({ diaries }: Props) {
   const isNewUser = diaries.length === 0;
 
   const hour = now.getHours();
+  const sky = skyFor(hour, weather?.description);
+  const showWriteHint = useHint("today-write");
   const greet = hour < 6 ? "夜深了" : hour < 11 ? "早上好" : hour < 14 ? "中午好" : hour < 18 ? "下午好" : "晚上好";
   const name = profile?.nickname ? `，${profile.nickname}` : "";
 
   return (
     <div className="min-h-screen bg-paper-bg pb-40">
-      <header className="sticky top-0 z-30 bg-paper-bg/85 backdrop-blur-md px-4 pt-4 pb-3 header-safe">
-        <div className="max-w-xl mx-auto flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs text-paper-ink2 truncate">{greet}{name}</p>
-            <h1 className="text-[26px] font-bold text-paper-ink leading-tight tracking-wide">
-              {now.getMonth() + 1}月{now.getDate()}日
-              <span className="ml-2 text-base font-normal text-paper-ink2">周{WEEK[now.getDay()]}</span>
-            </h1>
-          </div>
-          <div className="shrink-0 flex flex-col items-end gap-1">
+      {/* 氛围头图：随时段、天气变化（不吸顶，往下滚就收起来） */}
+      <header className={`relative overflow-hidden bg-gradient-to-br ${sky.grad} header-safe`}>
+        <Particles kind={sky.weather} />
+        <span aria-hidden className={`absolute right-5 top-3 text-5xl opacity-80 ${sky.night ? "" : "drop-shadow-sm"}`}>{sky.deco}</span>
+        <div className="relative max-w-xl mx-auto px-4 pt-6 pb-5">
+          <p className={`text-xs ${sky.night ? "text-white/80" : "text-paper-ink2"}`}>{greet}{name}</p>
+          <h1 className={`text-[30px] font-bold leading-tight tracking-wide ${sky.night ? "text-white" : "text-paper-ink"}`}>
+            {now.getMonth() + 1}月{now.getDate()}日
+            <span className={`ml-2 text-base font-normal ${sky.night ? "text-white/80" : "text-paper-ink2"}`}>周{WEEK[now.getDay()]}</span>
+          </h1>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
             {weather && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-paper-card border border-paper-line/70 shadow-card">
-                <span className="text-xl leading-none">{weather.icon}</span>
-                <div className="leading-tight">
-                  <div className="text-sm font-medium text-paper-ink">{weather.temp}°</div>
-                  <div className="text-[10px] text-paper-ink2 max-w-[5.5rem] truncate">{weather.description}{weather.place ? ` · ${weather.place}` : ""}</div>
-                </div>
-              </div>
+              <span className={`text-xs px-2.5 py-1 rounded-full backdrop-blur-sm ${sky.night ? "bg-white/15 text-white" : "bg-white/60 text-paper-ink"}`}>
+                {weather.icon} {weather.temp}° {weather.description}{weather.place ? ` · ${weather.place}` : ""}
+              </span>
             )}
             {streak > 0 && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-orange-50 border border-orange-200 text-orange-700">🔥 连续 {streak} 天</span>
+              <span className={`text-xs px-2.5 py-1 rounded-full backdrop-blur-sm ${sky.night ? "bg-white/15 text-white" : "bg-white/60 text-orange-700"}`}>
+                <span className="flame">🔥</span> 连续 {streak} 天
+              </span>
             )}
           </div>
         </div>
@@ -340,8 +376,8 @@ export default function TodayPage({ diaries }: Props) {
         {/* 🌾 小麦的一句话 */}
         {note && (
           <div className="flex items-start gap-2.5">
-            <div className="shrink-0 w-9 h-9 rounded-full bg-gradient-to-br from-amber-200 to-amber-400 flex items-center justify-center text-lg shadow-sm">🌾</div>
-            <div className="flex-1 rounded-2xl rounded-tl-md bg-amber-50 border border-amber-100 px-3.5 py-2.5 text-sm text-paper-ink leading-relaxed shadow-sm">
+            <Xiaomai mood={moodFor({ hour, streak })} size={44} className="shrink-0 -mt-1" />
+            <div className="flex-1 rounded-2xl rounded-tl-md bg-amber-50 border border-amber-100 px-3.5 py-2.5 text-sm text-paper-ink leading-relaxed shadow-sm animate-pop-in">
               {note}
             </div>
           </div>
@@ -371,7 +407,7 @@ export default function TodayPage({ diaries }: Props) {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-lg font-semibold text-paper-ink">{todayDiaries.length ? "还想再记点什么？" : "今天想记点什么？"}</div>
-                <div className="text-xs text-paper-ink2 mt-1">写几句，或者点底部 🎙️ 说给小麦听</div>
+                {showWriteHint && <div className="text-xs text-paper-ink2 mt-1">写几句，或者点底部 🎙️ 说给小麦听</div>}
               </div>
               <span className="shrink-0 w-11 h-11 rounded-full bg-paper-accent text-white flex items-center justify-center text-xl shadow-md group-hover:scale-105 group-active:scale-95 transition">✏️</span>
             </div>
@@ -385,7 +421,7 @@ export default function TodayPage({ diaries }: Props) {
                   key={m.id}
                   type="button"
                   onClick={() => openEditorWith(nav, { moodId: m.id })}
-                  className="flex flex-col items-center gap-1 py-2 rounded-2xl hover:bg-paper-surface active:scale-95 transition"
+                  className="tap-bounce flex flex-col items-center gap-1 py-2 rounded-2xl hover:bg-paper-surface transition"
                 >
                   <span className="w-10 h-10 rounded-full flex items-center justify-center text-2xl" style={{ background: m.color + "33" }}>{m.icon}</span>
                   <span className="text-[11px] text-paper-ink2">{m.name}</span>
@@ -396,10 +432,10 @@ export default function TodayPage({ diaries }: Props) {
         </section>
 
         {/* 今日一问：不知道写什么的时候给个引子 */}
-        <section className="rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-5 py-4 relative overflow-hidden">
+        <section className="card px-5 py-4 relative overflow-hidden">
           <span aria-hidden className="absolute -right-2 -top-6 text-[88px] leading-none text-paper-line/60 select-none">“</span>
           <div className="relative flex items-center justify-between">
-            <span className="text-[11px] font-medium tracking-wider text-paper-accent">💭 今日一问</span>
+            <span className="section-label">💭 今日一问</span>
             <button type="button" onClick={() => setPromptShift((x) => x + 1)} className="text-[11px] px-2 py-0.5 rounded-full border border-paper-line/70 text-paper-ink2 hover:text-paper-ink hover:bg-paper-surface">🔄 换一个</button>
           </div>
           <button type="button" onClick={() => openEditorWith(nav, { prompt })} className="relative w-full text-left mt-2">
@@ -414,8 +450,9 @@ export default function TodayPage({ diaries }: Props) {
           const tpl = templateById(d.templateId || "diary");
           const preview = firstText(d);
           return (
-            <div key={d.id} className="rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 py-3">
+            <div key={d.id} className="card px-4 py-3">
               <button type="button" onClick={() => nav(`/editor/${d.id}`)} className="w-full text-left">
+                {firstImage(d) && <img src={firstImage(d)!} alt="" className="mb-2 w-full h-40 object-cover rounded-xl" loading="lazy" />}
                 <div className="flex items-center gap-2 text-xs text-paper-ink2">
                   {mood && <span className="text-base">{mood.icon}</span>}
                   {tpl && <span>{tpl.name}</span>}
@@ -431,7 +468,7 @@ export default function TodayPage({ diaries }: Props) {
 
         {/* 今天解锁的时光胶囊 */}
         {unlockedCapsules.length > 0 && (
-          <section className="rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 py-3">
+          <section className="card px-4 py-3">
             <div className="text-sm font-medium text-paper-ink mb-2">🫧 有 {unlockedCapsules.length} 个时光胶囊今天解锁了</div>
             {unlockedCapsules.map((d) => (
               <button key={d.id} type="button" onClick={() => nav(`/editor/${d.id}`)}
@@ -444,8 +481,8 @@ export default function TodayPage({ diaries }: Props) {
 
         {/* 今天到期的计划 */}
         {todayPlans.length > 0 && (
-          <section className="rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 py-3">
-            <div className="text-[11px] font-medium tracking-wider text-paper-accent mb-2">🎯 今天要做</div>
+          <section className="card px-4 py-3">
+            <div className="section-label mb-2">🎯 今天要做</div>
             {todayPlans.map((p) => (
               <div key={p.id} className="text-sm text-paper-ink2 py-0.5">{p.icon || "•"} {p.title}</div>
             ))}
@@ -454,8 +491,8 @@ export default function TodayPage({ diaries }: Props) {
 
         {/* 近期纪念日 / 倒计时 */}
         {soon.length > 0 && (
-          <section className="rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 py-3">
-            <div className="text-[11px] font-medium tracking-wider text-paper-accent mb-2">🎈 快到了</div>
+          <section className="card px-4 py-3">
+            <div className="section-label mb-2">🎈 快到了</div>
             {soon.map((m) => (
               <div key={m.id} className="flex items-center justify-between text-sm py-0.5">
                 <span className="text-paper-ink truncate">{m.icon} {m.title}</span>
@@ -470,11 +507,12 @@ export default function TodayPage({ diaries }: Props) {
 
         {/* 没有那年今日时：随手翻到一篇旧日记 */}
         {flashback && (
-          <button type="button" onClick={() => nav(`/editor/${flashback.id}`)} className="w-full rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-5 py-4 text-left hover:shadow-cardHover transition">
+          <button type="button" onClick={() => nav(`/editor/${flashback.id}`)} className="w-full card px-5 py-4 text-left hover:shadow-cardHover transition">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-medium tracking-wider text-paper-accent">📖 随手翻到</span>
+              <span className="section-label">📖 随手翻到</span>
               <span className="text-[11px] text-paper-ink2">{agoText(flashback.date, today)} · {flashback.date}</span>
             </div>
+            {firstImage(flashback) && <img src={firstImage(flashback)!} alt="" className="mt-2 w-full h-36 object-cover rounded-xl" loading="lazy" />}
             <div className="mt-2 flex gap-3">
               {moodById(flashback.moodId) && (
                 <span className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-xl" style={{ background: moodById(flashback.moodId)!.color + "33" }}>
@@ -491,9 +529,9 @@ export default function TodayPage({ diaries }: Props) {
 
         {/* 这一周：日期 + 心情；下面一句总结，没写的时候给个引导 */}
         {!isNewUser && (
-          <section className="rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 pt-4 pb-3">
+          <section className="card px-4 pt-4 pb-3">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-[11px] font-medium tracking-wider text-paper-accent">📅 这一周</span>
+              <span className="section-label">📅 这一周</span>
               <button type="button" onClick={() => nav("/calendar")} className="text-[11px] text-paper-ink3 hover:text-paper-ink">月历 ›</button>
             </div>
             <div className="grid grid-cols-7 gap-1">
@@ -541,7 +579,7 @@ export default function TodayPage({ diaries }: Props) {
         {recent && (recent.created.length > 0 || recent.updated.length > 0) && (
           <section className="rounded-2xl bg-gradient-to-br from-amber-50 to-paper-card border border-amber-100 shadow-card px-4 py-3.5">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-medium tracking-wider text-paper-accent">🌾 小麦最近整理了</span>
+              <span className="section-label">🌾 小麦最近整理了</span>
               <button type="button" onClick={() => nav("/people")} className="text-[11px] text-paper-ink3 hover:text-paper-ink">去看看 ›</button>
             </div>
             {recent.created.length > 0 && (
@@ -571,9 +609,9 @@ export default function TodayPage({ diaries }: Props) {
 
         {/* 小麦认识的人 */}
         {topPeople.length > 0 && (
-          <section className="rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 py-3">
+          <section className="card px-4 py-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-medium tracking-wider text-paper-accent">👤 小麦认识的人</span>
+              <span className="section-label">👤 小麦认识的人</span>
               <button type="button" onClick={() => nav("/people")} className="text-xs text-paper-ink3 hover:text-paper-ink">全部 ›</button>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -590,9 +628,9 @@ export default function TodayPage({ diaries }: Props) {
 
         {/* 📰 新闻：默认关闭；打开后每天看几条标题，也可以拿来当写作引子 */}
         {newsOn ? (
-          <section className="rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 py-3">
+          <section className="card px-4 py-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-medium tracking-wider text-paper-accent">📰 今日看点</span>
+              <span className="section-label">📰 今日看点</span>
               <button type="button" onClick={() => setNewsOn(false)} className="text-xs text-paper-ink3 hover:text-paper-ink">关闭</button>
             </div>
             {!news ? (
@@ -621,8 +659,11 @@ export default function TodayPage({ diaries }: Props) {
 
         {/* 新用户：告诉 TA 写下去会得到什么 */}
         {isNewUser ? (
-          <section className="rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 py-4">
-            <div className="text-sm font-medium text-paper-ink mb-2">🌾 你好，我是小麦</div>
+          <section className="card px-4 py-4">
+            <div className="flex items-center gap-3 mb-2">
+              <Xiaomai mood="cheer" size={52} />
+              <div className="text-base font-semibold text-paper-ink">你好，我是小麦</div>
+            </div>
             <ul className="space-y-1.5 text-sm text-paper-ink2">
               <li>✍️ 写下今天，我会回你一句话</li>
               <li>👤 写得多了，我会记住你生活里的人和地方</li>
@@ -630,9 +671,9 @@ export default function TodayPage({ diaries }: Props) {
             </ul>
           </section>
         ) : (
-          <button type="button" onClick={() => nav("/xiaomai")} className="w-full rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 py-3 text-left hover:border-paper-accent/40 transition">
+          <button type="button" onClick={() => nav("/xiaomai")} className="w-full card px-4 py-3 text-left hover:border-paper-accent/40 transition">
             <div className="flex items-center gap-3">
-              <span className="shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-amber-200 to-amber-400 flex items-center justify-center text-lg">🌾</span>
+              <Xiaomai mood="happy" size={40} className="shrink-0" />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-paper-ink">想不起哪天的事？问问小麦</div>
                 <div className="text-xs text-paper-ink2 mt-0.5 truncate">"这个月我心情怎么样？""上次见爸妈是什么时候？"</div>

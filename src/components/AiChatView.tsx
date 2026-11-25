@@ -7,8 +7,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { callChatCompletion, getAiProvider, detectTemplate } from "../ai";
 import { useAuth } from "../AuthContext";
-import { listMemory, lifeOverview, getToken, type LifeItem } from "../api";
+import { listMemory, lifeOverview, getToken, kbDescText, type LifeItem } from "../api";
 import { cachedGet, peek } from "../dataCache";
+import Xiaomai, { moodFor } from "./Xiaomai";
 
 // 回答用 Markdown 渲染（原来是纯文本，**加粗**、- 列表 会原样露出来）
 const MD_COMPONENTS = {
@@ -984,7 +985,7 @@ export default function AiChatView() {
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-4 pt-2 pb-4 space-y-4">
         {active?.msgs.length === 0 && activeType === "diary" && (
           <div className="pt-6 flex flex-col items-center text-center">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-200 to-amber-400 flex items-center justify-center text-3xl shadow-md">🌾</div>
+            <Xiaomai mood={moodFor()} size={88} />
             <div className="mt-3 text-lg font-semibold text-paper-ink">嗨，我是小麦</div>
             <div className="mt-1 text-sm text-paper-ink2 max-w-xs">你写过的每一篇日记我都读过，想不起哪天的事，随时问我</div>
             {rememberLine && (
@@ -1033,7 +1034,7 @@ export default function AiChatView() {
                       <span className="font-medium text-paper-ink truncate">{kb.title}</span>
                     </div>
                     {kb.description && (
-                      <div className="text-[11px] text-paper-ink2 mt-1 line-clamp-2 pl-7">{kb.description}</div>
+                      <div className="text-[11px] text-paper-ink2 mt-1 line-clamp-2 pl-7">{kbDescText(kb.description)}</div>
                     )}
                   </button>
                 ))}
@@ -1045,14 +1046,15 @@ export default function AiChatView() {
         {/* 首次对话：欢迎语 + 气泡 */}
         {active?.msgs.length === 0 && activeType === "wiki" && activeKb && (
           <div className="pt-4 text-center">
-            <div className="text-base font-semibold text-paper-ink">📚 {activeKb.title}</div>
-            {activeKb.description && <div className="text-xs text-paper-ink2 mt-1 max-w-sm mx-auto">{activeKb.description}</div>}
+            {/* 官方库标题自带 emoji（「📚 红楼梦研究」），这里不再额外加，避免出现两个 📚 */}
+            <div className="text-base font-semibold text-paper-ink">{/^\p{Extended_Pictographic}/u.test(activeKb.title) ? activeKb.title : `📚 ${activeKb.title}`}</div>
+            {activeKb.description && <div className="text-xs text-paper-ink2 mt-1 max-w-sm mx-auto line-clamp-3">{kbDescText(activeKb.description)}</div>}
             <div className="text-xs text-paper-ink3 mt-2">问我这个知识库里的任何事</div>
           </div>
         )}
 
         {active?.msgs.map((m, i) => (
-          <div key={i} className={`group flex ${m.role === "user" ? "justify-end" : "flex-col items-start"}`}>
+          <div key={i} className={`group flex ${m.role === "user" ? "justify-end" : "flex-col items-start animate-pop-in"}`}>
             <div
               className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                 m.role === "user"
@@ -1061,7 +1063,7 @@ export default function AiChatView() {
               }`}
             >
               {m.streaming && !m.content
-                ? <span className="inline-block animate-pulse text-paper-ink2">🌾 小麦在翻日记…</span>
+                ? <span className="inline-flex items-center gap-2 text-paper-ink2"><Xiaomai mood="thinking" size={24} /> 小麦在翻日记…</span>
                 : m.role === "ai"
                   ? <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS as any}>{m.content}</ReactMarkdown>
                   : m.content}
@@ -1183,7 +1185,7 @@ export default function AiChatView() {
         {loading && !active?.msgs.some((m) => m.streaming) && (
           <div className="flex justify-start">
             <div className="bg-paper-card border border-paper-line rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-paper-ink2">
-              <span className="inline-block animate-pulse">🌾 小麦在翻日记…</span>
+              <span className="inline-flex items-center gap-2"><Xiaomai mood="thinking" size={24} /> 小麦在翻日记…</span>
             </div>
           </div>
         )}

@@ -7,10 +7,11 @@ import { MemoriesHeader } from "./MemoriesSwitch";
 import { toast, confirmAsync, promptAsync } from "../uiFeedback";
 import { moodById } from "../data";
 import {
-  lifeOverview, lifePage, lifeRename, lifeMerge, lifeDelete, kbOverview, kbQuickCreate, wikiDeleteKb, lifeRepairLinks,
+  lifeOverview, lifePage, lifeRename, lifeMerge, lifeDelete, kbOverview, kbQuickCreate, wikiDeleteKb, lifeRepairLinks, kbCleanDescriptions, kbDescText,
   type LifeItem, type LifeKind, type LifePageDetail, type KbCard,
 } from "../api";
 import CollectSheet from "./CollectSheet";
+import EmptyState from "./EmptyState";
 import KnowledgeBase from "./KnowledgeBase";
 
 // 🧭 知识 —— 上：小麦从日记里自动整理的「我的生活」；下：用户自己的知识库
@@ -63,6 +64,9 @@ function KnowledgeHub() {
     load();
     // 一次性修复旧数据：每个人物 / 地点只挂在真正提到 TA 的日记上（v1 = 2026-11-25 的修复）
     try {
+      if (localStorage.getItem("mydiary.kb.desc-clean") !== "v1") {
+        kbCleanDescriptions().then(() => { try { localStorage.setItem("mydiary.kb.desc-clean", "v1"); } catch {} load(); }).catch(() => {});
+      }
       if (localStorage.getItem("mydiary.life.repair") !== "v1") {
         lifeRepairLinks().then(() => { try { localStorage.setItem("mydiary.life.repair", "v1"); } catch {} }).catch(() => {});
       }
@@ -88,8 +92,8 @@ function KnowledgeHub() {
       <div className="min-h-screen bg-paper-bg pb-40">
         <MemoriesHeader current="people" subtitle={openKb.title}>
           <div className="mt-2.5 flex items-center gap-2">
-            <button type="button" onClick={() => { setOpenKb(null); load(); }} className="h-7 px-3 rounded-full text-xs border border-paper-line/70 bg-paper-card text-paper-ink2">‹ 返回知识</button>
-            <button type="button" onClick={() => setCollectFor(openKb.id)} className="h-7 px-3 rounded-full text-xs bg-paper-accent text-white">📥 收进这里</button>
+            <button type="button" onClick={() => { setOpenKb(null); load(); }} className="btn-secondary !h-7 !px-3 !text-xs">‹ 返回</button>
+            <button type="button" onClick={() => setCollectFor(openKb.id)} className="btn-primary !h-7 !px-3 !text-xs">📥 收进这里</button>
             {!openKb.official && (
               <button type="button" onClick={async () => {
                 const ok = await confirmAsync({
@@ -100,7 +104,7 @@ function KnowledgeHub() {
                 if (!ok) return;
                 try { await wikiDeleteKb(openKb.id); toast("已删除", "ok"); setOpenKb(null); load(); }
                 catch { toast("删除失败，稍后再试", "error"); }
-              }} className="ml-auto h-7 px-3 rounded-full text-xs border border-rose-200 bg-rose-50 text-rose-700">删除</button>
+              }} className="ml-auto btn-danger !h-7 !px-3 !text-xs">删除</button>
             )}
           </div>
         </MemoriesHeader>
@@ -140,8 +144,8 @@ function KnowledgeHub() {
           <div className="flex items-center justify-between mb-2 px-1">
             <h2 className="text-sm font-semibold text-paper-ink">📚 我的知识库</h2>
             <div className="flex items-center gap-1.5">
-              <button type="button" onClick={() => setCollectFor(undefined)} className="h-7 px-3 rounded-full text-xs bg-paper-accent text-white">📥 收进知识库</button>
-              <button type="button" disabled={creating} onClick={createKb} className="h-7 px-3 rounded-full text-xs border border-paper-line/70 bg-paper-card text-paper-ink2 disabled:opacity-50">＋ 新建</button>
+              <button type="button" onClick={() => setCollectFor(undefined)} className="btn-primary !h-7 !px-3 !text-xs">📥 收进知识库</button>
+              <button type="button" disabled={creating} onClick={createKb} className="btn-secondary !h-7 !px-3 !text-xs disabled:opacity-50">＋ 新建</button>
             </div>
           </div>
           {cards === null ? (
@@ -163,9 +167,9 @@ function KnowledgeHub() {
             <div className="grid grid-cols-2 gap-3">
               {cards.map((k) => (
                 <button key={k.id} type="button" onClick={() => setOpenKb(k)}
-                  className="text-left rounded-2xl bg-paper-card border border-paper-line/70 shadow-card p-3.5 hover:shadow-cardHover transition active:scale-[0.99]">
+                  className="text-left card p-3.5 hover:shadow-cardHover transition active:scale-[0.99]">
                   <div className="font-medium text-paper-ink text-sm truncate">{k.title}</div>
-                  {k.description && <div className="text-[11px] text-paper-ink2 mt-0.5 line-clamp-2 min-h-[2.2em]">{k.description}</div>}
+                  {k.description && <div className="text-[11px] text-paper-ink2 mt-0.5 line-clamp-2 min-h-[2.2em]">{kbDescText(k.description)}</div>}
                   <div className="mt-2 flex items-center justify-between text-[11px] text-paper-ink3">
                     <span><b className="text-paper-ink text-sm">{k.pages}</b> 页</span>
                     <span>{k.pending ? `⏳ ${k.pending} 份整理中` : ago(k.last_at)}</span>
@@ -188,7 +192,7 @@ function KnowledgeHub() {
                 <button key={k.id} type="button" onClick={() => setOpenKb({ ...k, official: true })}
                   className="text-left rounded-2xl bg-paper-surface border border-dashed border-paper-line px-3.5 py-3 hover:bg-paper-card hover:border-solid transition">
                   <div className="text-sm text-paper-ink truncate">{k.title}</div>
-                  {k.description && <div className="text-[11px] text-paper-ink2 mt-0.5 line-clamp-2">{k.description}</div>}
+                  {k.description && <div className="text-[11px] text-paper-ink2 mt-0.5 line-clamp-2">{kbDescText(k.description)}</div>}
                   <div className="text-[11px] text-paper-accent mt-1.5">开始使用 ›</div>
                 </button>
               ))}
@@ -247,20 +251,12 @@ function PeopleList({ embedded = false }: { embedded?: boolean }) {
         )}
 
         {error ? (
-          <div className="flex flex-col items-center text-center py-16 gap-2">
-            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-amber-100 to-amber-300 flex items-center justify-center text-2xl">🌾</div>
-            <div className="text-sm text-paper-ink">小麦还在整理你的日记</div>
-            <div className="text-xs text-paper-ink2">过一会儿再来看看吧</div>
-            <button type="button" onClick={() => { setError(false); setItems(null); lifeOverview().then((r) => { setItems(r.items); setPending(r.pending); }).catch(() => setError(true)); }}
-              className="mt-2 text-xs px-3 py-1 rounded-full border border-paper-line/70 bg-paper-card text-paper-ink2 hover:text-paper-ink">重新加载</button>
-          </div>
+          <EmptyState mood="thinking" title="小麦还在整理你的日记" hint="过一会儿再来看看吧"
+            action={<button type="button" className="btn-secondary !h-8 !text-xs" onClick={() => { setError(false); setItems(null); lifeOverview().then((r) => { setItems(r.items); setPending(r.pending); }).catch(() => setError(true)); }}>重新加载</button>} />
         ) : items === null ? (
-          <div className="text-center py-16 text-paper-ink2 text-sm animate-pulse">小麦翻日记中…</div>
+          <EmptyState mood="thinking" title="小麦翻日记中…" />
         ) : shown.length === 0 ? (
-          <div className="flex flex-col items-center text-center py-16 gap-2">
-            <div className="w-14 h-14 rounded-full bg-paper-card border border-paper-line/70 shadow-card flex items-center justify-center text-2xl">{KIND_META[tab].icon}</div>
-            <div className="text-sm text-paper-ink2 max-w-[16rem]">{KIND_META[tab].empty}</div>
-          </div>
+          <EmptyState mood="happy" title={KIND_META[tab].empty} />
         ) : (
           <ul className="space-y-2">
             {shown.map((x) => (
@@ -268,7 +264,7 @@ function PeopleList({ embedded = false }: { embedded?: boolean }) {
                 <button
                   type="button"
                   onClick={() => nav("/people/" + x.id)}
-                  className="w-full text-left rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 py-3 hover:shadow-cardHover transition active:scale-[0.99]"
+                  className="w-full text-left card px-4 py-3 hover:shadow-cardHover transition active:scale-[0.99]"
                 >
                   <div className="flex items-center gap-3">
                     <span className="shrink-0 w-10 h-10 rounded-full bg-gradient-to-br from-amber-100 to-amber-300 flex items-center justify-center text-base font-medium text-paper-ink">
@@ -384,15 +380,15 @@ function PeopleDetail({ id }: { id: string }) {
     <div className="min-h-screen bg-paper-bg pb-40">
       <header className="sticky top-0 z-30 bg-paper-bg/90 backdrop-blur-md border-b border-paper-line/60 px-4 py-3 header-safe">
         <div className="max-w-xl mx-auto flex items-center gap-2">
-          <button type="button" onClick={() => nav(-1)} className="text-paper-ink2 hover:text-paper-ink px-1" aria-label="返回">‹</button>
+          <button type="button" onClick={() => nav(-1)} className="btn-ghost w-9 h-9 -ml-2 text-xl" aria-label="返回">‹</button>
           <h1 className="flex-1 min-w-0 text-lg font-bold text-paper-ink truncate">
             {data ? `${meta.icon} ${data.page.title}` : "…"}
           </h1>
           {data && (
             <div className="flex items-center gap-1 shrink-0">
-              <button type="button" disabled={busy} onClick={rename} className="text-xs px-2.5 py-1 rounded-full border border-paper-line bg-paper-surface hover:bg-paper-line/40 disabled:opacity-50">改名</button>
-              <button type="button" disabled={busy} onClick={openMerge} className="text-xs px-2.5 py-1 rounded-full border border-paper-line bg-paper-surface hover:bg-paper-line/40 disabled:opacity-50">合并</button>
-              <button type="button" disabled={busy} onClick={remove} className="text-xs px-2.5 py-1 rounded-full border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50">删除</button>
+              <button type="button" disabled={busy} onClick={rename} className="btn-secondary !h-7 !px-2.5 !text-xs">改名</button>
+              <button type="button" disabled={busy} onClick={openMerge} className="btn-secondary !h-7 !px-2.5 !text-xs">合并</button>
+              <button type="button" disabled={busy} onClick={remove} className="btn-danger !h-7 !px-2.5 !text-xs">删除</button>
             </div>
           )}
         </div>
@@ -406,14 +402,14 @@ function PeopleDetail({ id }: { id: string }) {
         ) : (
           <>
             {data.page.summary && (
-              <section className="rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 py-3">
+              <section className="card px-4 py-3">
                 <div className="text-xs text-paper-ink2 mb-1">🌾 小麦的印象</div>
                 <p className="text-sm text-paper-ink leading-relaxed">{data.page.summary}</p>
               </section>
             )}
 
             {data.page.content && (
-              <section className="rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-4 py-3 text-sm leading-relaxed text-paper-ink [&_h2]:font-medium [&_h2]:mt-3 [&_h2]:mb-1 [&_ul]:list-disc [&_ul]:pl-5 [&_p]:my-1">
+              <section className="card px-4 py-3 text-sm leading-relaxed text-paper-ink [&_h2]:font-medium [&_h2]:mt-3 [&_h2]:mb-1 [&_ul]:list-disc [&_ul]:pl-5 [&_p]:my-1">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {data.page.content.replace(/\[\[([^\]]+)\]\]/g, "$1")}
                 </ReactMarkdown>
@@ -449,7 +445,7 @@ function PeopleDetail({ id }: { id: string }) {
                       <button
                         type="button"
                         onClick={() => nav("/editor/" + d.id)}
-                        className="w-full text-left rounded-2xl bg-paper-card border border-paper-line/70 shadow-card px-3 py-2.5 hover:border-paper-accent/40 transition"
+                        className="w-full text-left card px-3 py-2.5 hover:border-paper-accent/40 transition"
                       >
                         <div className="flex items-center gap-2 text-xs text-paper-ink2">
                           <span className="text-paper-accent">{d.date}</span>

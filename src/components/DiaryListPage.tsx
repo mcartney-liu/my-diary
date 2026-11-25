@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronRight, Search, X, Volume2, Image, FileText, Mic } from "lucide-react";
+import { ChevronRight, Search, X, Volume2, Image, Mic } from "lucide-react";
 import type { Diary } from "../types";
 import { moodById, MOOD_TAGS } from "../data";
 import { templateById } from "../templates";
 import BottomDock from "./BottomDock";
 import { MemoriesHeader } from "./MemoriesSwitch";
 import LifeLinks from "./LifeLinks";
+import EmptyState from "./EmptyState";
 
 interface Props {
   diaries: Diary[];
@@ -252,14 +253,9 @@ export default function DiaryListPage({ diaries }: Props) {
           </div>
         )}
         {grouped.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
-            <div className="w-14 h-14 rounded-full bg-paper-surface border border-paper-line flex items-center justify-center">
-              <FileText className="w-6 h-6 text-paper-ink3" />
-            </div>
-            <p className="text-sm text-paper-ink2">
-              {hasFilter ? "没有符合条件的日记，换个条件试试" : "还没有日记，点 + 写第一篇吧"}
-            </p>
-          </div>
+          hasFilter
+            ? <EmptyState mood="thinking" title="没有符合条件的日记" hint="换个心情或类型试试" action={<button className="btn-secondary !h-8 !text-xs" onClick={clearFilters}>清除筛选</button>} />
+            : <EmptyState mood="cheer" title="还没有日记" hint="写下第一篇，小麦会一直帮你记着" action={<button className="btn-primary !h-8 !text-xs" onClick={() => nav("/editor")}>写第一篇</button>} />
         ) : (
           grouped.map((group) => (
             <section key={group.date}>
@@ -278,7 +274,7 @@ export default function DiaryListPage({ diaries }: Props) {
                     <button
                       key={d.id}
                       onClick={() => nav(`/editor/${d.id}`)}
-                      className="w-full text-left p-4 rounded-2xl bg-paper-card border border-paper-line/70 shadow-card hover:shadow-cardHover transition active:scale-[0.99]"
+                      className="w-full text-left p-4 card hover:shadow-cardHover transition active:scale-[0.99]"
                     >
                       {/* 头部：心情 + 日期 + 时间 + 箭头 */}
                       <div className="flex items-center justify-between mb-2">
@@ -309,9 +305,13 @@ export default function DiaryListPage({ diaries }: Props) {
                           )}
                         </div>
                         {hasImg && (
-                          <div className="shrink-0 w-[52px] h-[52px] rounded-lg bg-paper-line/60 border border-paper-line overflow-hidden flex items-center justify-center">
-                            <Image className="w-4 h-4 text-paper-ink3" />
-                          </div>
+                          // 直接显示第一张照片（原来只是一个"有图"的图标）
+                          <img
+                            src={d.blocks.find((b) => b.kind === "image" && b.content)?.content}
+                            alt=""
+                            loading="lazy"
+                            className="shrink-0 w-[72px] h-[72px] rounded-xl object-cover border border-paper-line/60"
+                          />
                         )}
                       </div>
 

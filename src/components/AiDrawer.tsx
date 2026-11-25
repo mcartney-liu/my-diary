@@ -51,7 +51,7 @@ export default function AiDrawer({ open, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={onClose} />
-      <div className="w-full max-w-md bg-[#faf6ef] border-l border-paper-line flex flex-col h-full">
+      <div className="w-full max-w-md bg-paper-bg border-l border-paper-line flex flex-col h-full">
         <div className="px-5 py-4 border-b border-paper-line flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xl">🤖</span>

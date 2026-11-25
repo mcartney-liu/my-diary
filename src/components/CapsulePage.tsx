@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Lock, Unlock, Clock } from "lucide-react";
+import { Lock, Unlock, Clock } from "lucide-react";
 import type { Diary } from "../types";
 import { moodById } from "../data";
+import PageHeader from "./PageHeader";
 
 interface Props {
   diaries: Diary[];
@@ -36,21 +37,12 @@ export default function CapsulePage({ diaries }: Props) {
   const unlocked = sorted.filter((d) => (d.capsuleUnlockAt ?? 0) <= Date.now());
 
   return (
-    <div className="min-h-screen bg-[#faf6ef]">
-      <header className="sticky top-0 z-10 bg-[#faf6ef]/95 backdrop-blur border-b border-paper-line">
-        <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center gap-2">
-          <button
-            onClick={() => nav("/calendar", { replace: true })}
-            className="p-2 -ml-2 rounded-full hover:bg-paper-surface active:scale-95"
-          >
-            <ArrowLeft size={20} className="text-paper-ink" />
-          </button>
-          <h1 className="text-base text-paper-ink font-medium">🫧 时间胶囊</h1>
-          <span className="text-xs text-paper-ink2 ml-auto">
-            {locked.length} 封存 · {unlocked.length} 已解锁
-          </span>
-        </div>
-      </header>
+    <div className="min-h-screen bg-paper-bg">
+      <PageHeader
+        title="🫧 时光胶囊"
+        subtitle={`${locked.length} 封存 · ${unlocked.length} 已解锁`}
+        backTo="/calendar"
+      />
 
       <main className="max-w-2xl mx-auto px-4 py-4 space-y-6">
         <p className="text-xs text-paper-ink3">
