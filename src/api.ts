@@ -346,6 +346,80 @@ export function askDiary(question: string, history?: { role: "user" | "assistant
   });
 }
 
+// 小麦日记问答 · 流式版（SSE）
+// 边生成边回调 onDelta；检索到的引用通过 onSources 先到。
+// 返回值 received=true 表示已经收到过内容（调用方据此决定失败时是否还能退回非流式接口）。
+export type AskStreamSource = { diary_id: string; date?: string; score: number; content?: string };
+export class AskStreamError extends Error {
+  received: boolean;
+  constructor(message: string, received: boolean) { super(message); this.received = received; }
+}
+export async function askDiaryStream(
+  question: string,
+  history: { role: "user" | "assistant"; content: string }[] | undefined,
+  web_search: boolean,
+  on: { delta: (text: string) => void; sources?: (s: AskStreamSource[]) => void },
+  signal?: AbortSignal,
+): Promise<void> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const token = getToken();
+  if (token) headers["Authorization"] = "Bearer " + token;
+  let received = false;
+  let res: Response;
+  try {
+    res = await fetch(API_BASE + "/api/ai/ask", {
+      method: "POST", headers, signal,
+      body: JSON.stringify({ question, history, web_search, stream: true }),
+    });
+  } catch (e: any) {
+    throw new AskStreamError(e?.message || "network error", false);
+  }
+  if (!res.ok) {
+    if (res.status === 401) setToken(null);
+    throw new AskStreamError(String(res.status), false);
+  }
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("text/event-stream") || !res.body) {
+    // 后端还是旧版本（不认识 stream 参数）→ 直接按 JSON 处理
+    const j = await res.json().catch(() => null);
+    if (j?.sources?.length) on.sources?.(j.sources);
+    if (j?.answer) { received = true; on.delta(j.answer); return; }
+    throw new AskStreamError("empty response", false);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();   // 不用 TextDecoderStream：部分旧版安卓 WebView 没有
+  let buf = "";
+  const handleEvent = (raw: string) => {
+    const line = raw.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("");
+    if (!line) return;
+    let ev: any;
+    try { ev = JSON.parse(line); } catch { return; }
+    if (ev.type === "sources") on.sources?.(ev.sources || []);
+    else if (ev.type === "delta" && ev.text) { received = true; on.delta(ev.text); }
+    else if (ev.type === "error") throw new AskStreamError(ev.message || "stream error", received);
+  };
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        handleEvent(chunk);
+      }
+    }
+    buf += decoder.decode();
+    if (buf.trim()) handleEvent(buf);
+  } catch (e: any) {
+    if (e instanceof AskStreamError) throw e;
+    throw new AskStreamError(e?.message || "stream broken", received);
+  }
+  if (!received) throw new AskStreamError("empty response", false);
+}
+
 // AI 知识库问答（小麦内部切换 source_type 使用）
 export function askWiki(question: string, kbId: string, history?: { role: "user" | "assistant"; content: string }[], web_search = false, import_mode = false) {
   return request<{

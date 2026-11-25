@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { toast } from "../uiFeedback";
-import { askDiary, askWiki, addMemory, upsertDiary, listTemplates, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, chatListSessions, chatUpsertSessions, chatDeleteSession, wikiAddSourceText, wikiIngestAll, wikiGetPage, type WikiKB, type WikiPage } from "../api";
+import { askDiary, askDiaryStream, AskStreamError, askWiki, addMemory, upsertDiary, listTemplates, wikiListKbs, wikiAddKb, wikiAddCategory, wikiAIDesignCategories, wikiOptimizeDescription, chatListSessions, chatUpsertSessions, chatDeleteSession, wikiAddSourceText, wikiIngestAll, wikiGetPage, type WikiKB, type WikiPage } from "../api";
 import Modal from "./Modal";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -25,6 +25,7 @@ interface Msg {
   match_reason?: string;
   importing?: boolean;        // 汇入中
   imported?: boolean;         // 已汇入
+  streaming?: boolean;        // 流式输出中（不持久化到云端）
 }
 
 interface Session {
@@ -208,7 +209,7 @@ export default function AiChatView() {
   useEffect(() => {
     try {
       const nonEmpty = sessions.filter((s) => s.msgs.length > 0);
-      localStorage.setItem(keys.sessions, JSON.stringify(nonEmpty));
+      localStorage.setItem(keys.sessions, JSON.stringify(nonEmpty.map((s) => ({ ...s, msgs: s.msgs.filter((m) => !m.streaming) }))));
       localStorage.setItem(keys.active, activeId);
 
       // debounce 500ms 同步云端
@@ -216,7 +217,7 @@ export default function AiChatView() {
       syncTimerRef.current = window.setTimeout(() => {
         chatUpsertSessions(nonEmpty.map(s => ({
           id: s.id, title: s.title, source_type: s.source_type || "diary",
-          kb_id: s.kb_id, msgs: s.msgs, createdAt: s.createdAt, updatedAt: Date.now(),
+          kb_id: s.kb_id, msgs: s.msgs.filter((m) => !m.streaming), createdAt: s.createdAt, updatedAt: Date.now(),
         }))).catch(() => {});
       }, 500);
     } catch {}
@@ -257,7 +258,6 @@ export default function AiChatView() {
       let resAnswer = "";
       let resSources: any[] = [];
       let resKbTitle: string | undefined;
-      let resWebSearch: boolean | undefined;
 
       if (srcType === "wiki") {
         // ═══════════════════════════════════════════════
@@ -449,7 +449,6 @@ export default function AiChatView() {
         let rawAnswer = res.answer;
         resSources = res.sources || [];
         resKbTitle = res.kb_title;
-        resWebSearch = useWebSearch;
 
         // 解析 <<<SUGGEST>>> 标记：正文和推荐问题分开
         let parsedSugg: string[] = [];
@@ -498,18 +497,11 @@ export default function AiChatView() {
         }));
         return;
       } else {
-        // 日记问答（支持 web_search 联网）
+        // 日记问答（流式：边生成边显示；失败且没收到内容时退回非流式接口）
         const diaryWebSearch = webSearchMode || !!active.default_web_search;
-        const res = await askDiary(question, recent, diaryWebSearch);
-        resAnswer = res.answer;
-        resSources = res.sources || [];
-        resWebSearch = diaryWebSearch;
+        await streamDiaryAnswer(question, recent, diaryWebSearch);
+        return;
       }
-
-      updateActive((s) => ({
-        ...s,
-        msgs: [...s.msgs, { role: 'ai', content: resAnswer, sources: resSources, source_type: srcType, kb_title: resKbTitle, web_search: resWebSearch }],
-      }));
     } catch (e: any) {
       updateActive((s) => ({
         ...s,
@@ -517,6 +509,76 @@ export default function AiChatView() {
       }));
     } finally {
       setLoading(false);
+    }
+  }
+
+  // ===== 日记问答 · 流式 =====
+  // 先插一条空的 AI 气泡，收到片段就往里追加（每帧最多刷新一次，避免长回答卡顿）
+  const streamAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => streamAbortRef.current?.abort(), []);   // 离开页面时中止
+  async function streamDiaryAnswer(
+    question: string,
+    recent: { role: "user" | "assistant"; content: string }[],
+    diaryWebSearch: boolean,
+  ) {
+    const sessionId = activeId;
+    const msgKey = Date.now() + Math.random();
+    const patch = (fn: (m: Msg) => Msg) =>
+      setSessions((list) => list.map((s) => s.id !== sessionId ? s : {
+        ...s,
+        msgs: s.msgs.map((m) => (m as any)._k === msgKey ? fn(m) : m),
+      }));
+    setSessions((list) => list.map((s) => s.id !== sessionId ? s : {
+      ...s,
+      msgs: [...s.msgs, { role: "ai", content: "", sources: [], source_type: "diary", web_search: diaryWebSearch, streaming: true, _k: msgKey } as Msg],
+    }));
+
+    let text = "";
+    let pending = "";
+    let raf = 0;
+    const flush = () => {
+      raf = 0;
+      if (!pending) return;
+      text += pending; pending = "";
+      const snapshot = text;
+      patch((m) => ({ ...m, content: snapshot }));
+    };
+    const ctrl = new AbortController();
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = ctrl;
+    try {
+      await askDiaryStream(question, recent, diaryWebSearch, {
+        delta: (t) => {
+          pending += t;
+          if (!raf) raf = requestAnimationFrame(flush);
+        },
+        sources: (src) => patch((m) => ({ ...m, sources: src })),
+      }, ctrl.signal);
+      if (raf) cancelAnimationFrame(raf);
+      flush();
+      patch((m) => { const { _k, ...rest } = m as any; return { ...rest, streaming: false }; });
+    } catch (e: any) {
+      if (raf) cancelAnimationFrame(raf);
+      flush();
+      if (ctrl.signal.aborted) {
+        patch((m) => { const { _k, ...rest } = m as any; return { ...rest, streaming: false, content: rest.content ? rest.content + "\n\n（已停止）" : "（已停止）" }; });
+        return;
+      }
+      const received = e instanceof AskStreamError ? e.received : !!text;
+      if (received) {
+        // 已经显示了一部分 → 保留，提示中断
+        patch((m) => { const { _k, ...rest } = m as any; return { ...rest, streaming: false, content: rest.content + "\n\n（回答中断了，可以再问我一次～）" }; });
+        return;
+      }
+      // 一个字都没收到 → 退回原来的非流式接口
+      try {
+        const res = await askDiary(question, recent, diaryWebSearch);
+        patch((m) => { const { _k, ...rest } = m as any; return { ...rest, streaming: false, content: res.answer, sources: res.sources || [] }; });
+      } catch (e2: any) {
+        patch((m) => { const { _k, ...rest } = m as any; return { ...rest, streaming: false, content: "抱歉，出了点问题：" + (e2?.message || "请求失败") }; });
+      }
+    } finally {
+      if (streamAbortRef.current === ctrl) streamAbortRef.current = null;
     }
   }
 
@@ -1004,7 +1066,10 @@ export default function AiChatView() {
                   : "bg-paper-card border border-paper-line text-paper-ink rounded-bl-sm"
               } ${m.role === "ai" ? "cursor-pointer hover:border-paper-accent/40 transition" : ""}`}
             >
-              {m.content}
+              {m.streaming && !m.content
+                ? <span className="inline-block animate-pulse text-paper-ink2">思考中…</span>
+                : m.content}
+              {m.streaming && m.content ? <span className="inline-block w-1.5 h-4 ml-0.5 align-text-bottom bg-paper-ink2/60 animate-pulse" /> : null}
               {m.sources?.length ? (
                 <div className="mt-2 pt-2 border-t border-paper-line/60 space-y-1.5">
                   <div className="text-[11px] text-paper-ink2">
@@ -1111,7 +1176,7 @@ export default function AiChatView() {
           </div>
         ))}
 
-        {loading && (
+        {loading && !active?.msgs.some((m) => m.streaming) && (
           <div className="flex justify-start">
             <div className="bg-paper-card border border-paper-line rounded-2xl rounded-bl-sm px-4 py-2.5 text-sm text-paper-ink2">
               <span className="inline-block animate-pulse">思考中…</span>

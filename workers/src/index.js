@@ -735,6 +735,9 @@ async function handleDeleteDiary(request, env, JWT_SECRET) {
   if (force) {
     // 硬删（回收站清空 / 永久删除）
     await env.DB.prepare("DELETE FROM diaries WHERE id = ? AND user_id = ?").bind(id, user.uid).run();
+    // 同步删向量：否则永久删除的日记仍会被小麦检索/引用（隐私）
+    try { await env.DB.prepare("DELETE FROM diary_embeddings WHERE diary_id = ? AND user_id = ?").bind(id, user.uid).run(); }
+    catch (e) { console.error("[delete] embedding 清理失败:", e.message); }
   } else {
     // 默认软删（设 deleted_at，拉列表时前端自己过滤）
     await env.DB.prepare("UPDATE diaries SET deleted_at = ? WHERE id = ? AND user_id = ?").bind(Date.now(), id, user.uid).run();
@@ -1570,10 +1573,24 @@ async function loadMemories(env, uid) {
 }
 
 // 用 LLM 从这轮对话里提取可能的记忆候选
-async function extractMemoryCandidates(env, userMsg, aiReply) {
+// 只有用户说了"关于自己"的话才值得提取记忆（省掉大部分无意义的模型调用）
+const MEMORY_HINT_RE = /我(是|叫|在|住|喜欢|爱|讨厌|不喜欢|不爱|怕|习惯|一般|经常|每天|每周|打算|计划|准备|想要|决定|开始|正在|最近在|家|的(孩子|宝宝|女儿|儿子|老婆|老公|妈|爸|生日|工作|职业))|记住|别忘了/;
+const MEMORY_MIN_CONFIDENCE = 0.8;
+function shouldExtractMemory(userMsg) {
+  const t = String(userMsg || '').trim();
+  if (t.length < 4) return false;
+  // 纯提问（问自己的日记/数据）不含新事实
+  if (/^(我)?(上|这|今|昨|前)?(周|个月|月|年|天)?.{0,6}(多少|几|哪|什么时候|有没有|吗|呢)[？?]?$/.test(t)) return false;
+  return MEMORY_HINT_RE.test(t);
+}
+
+async function extractMemoryCandidates(env, userMsg, _aiReply) {
+  // ⚠️ 只把用户原话交给提取器：带上 AI 回答会让 8B 模型把小麦说的话当成"用户事实"存下来，
+  // 之后每轮都注入 prompt → 错误自我固化（和知识库链路注释里说的是同一个坑）
+  if (!shouldExtractMemory(userMsg)) return [];
   const sys = `你是一个记忆提取器。从用户的消息中提取值得记住的用户画像/偏好/事实/待办/兴趣。
 规则：
-1. 只提取关于用户自己的信息（不是AI回答里的常识）
+1. 只提取用户在这句话里**明确陈述**的关于自己的信息；提问、猜测、假设都不算
 2. 置信度：profile(0.9) > preference(0.8) > fact(0.7) > task(0.7) > interest(0.6)
 3. 内容简洁，完整句子
 4. 完全不确定就返回空数组
@@ -1581,7 +1598,7 @@ async function extractMemoryCandidates(env, userMsg, aiReply) {
 严格输出 JSON：{"memories": [{"type": "preference", "content": "用户喜欢爵士音乐", "confidence": 0.8}]}`;
   const msgs = [
     { role: 'system', content: sys },
-    { role: 'user', content: `用户说：${userMsg}\nAI答：${aiReply}` },
+    { role: 'user', content: `用户说：${userMsg}` },
   ];
   try {
     // 用 Workers AI 免费模型（快速稳定，不依赖 Agnes）
@@ -1599,8 +1616,8 @@ async function extractMemoryCandidates(env, userMsg, aiReply) {
     console.log('[extract] mems=', JSON.stringify(mems));
     const VALID_TYPES = new Set(['profile', 'preference', 'fact', 'task', 'interest']);
     return mems
-      .filter(x => VALID_TYPES.has(x.type) && x.content && x.content.length >= 4)
-      .map(x => ({ ...x, confidence: Math.min(1, Math.max(0.5, Number(x.confidence) || 0.7)) }));
+      .map(x => ({ ...x, confidence: Math.min(1, Math.max(0, Number(x.confidence) || 0)) }))
+      .filter(x => VALID_TYPES.has(x.type) && x.content && x.content.length >= 4 && x.confidence >= MEMORY_MIN_CONFIDENCE);
   } catch (e) { console.log('[extract] error=', e.message); return []; }
 }
 
@@ -1741,9 +1758,122 @@ function jsonToFloat32(text) { return new Float32Array(JSON.parse(text)); }
 const EMBEDDING_MODEL = '@cf/baai/bge-m3';
 const LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
 const LLM_MODEL_NAME = 'agnes-3.0-flash';
+// 小麦问答检索参数
+const HISTORY_MSG_MAX_CHARS = 1200; // 每条历史消息最多带多少字（原 500，长回答被截断后小麦会"忘了"自己说过什么）
+const RAG_SCAN_LIMIT = 200;       // 每次最多扫描最近多少篇日记的向量（受 Worker CPU 限制，长期建议迁 Vectorize）
+const RERANK_MIN_SCORE = 0.05;    // reranker 相关度下限（初始值，需按实际数据校准）
+const VECTOR_MIN_SCORE = 0.45;    // rerank 失败时的向量相似度下限（bge-m3，初始值）
 
 // 统一 LLM 调用：优先走 agnes-3.0-flash，失败/fallback 用 Workers AI llama-3.1-8b
-async function callLLM(env, messages, maxTokens = 512) {
+// ===== 流式输出工具 =====
+// 解析 SSE 字节流：兼容 OpenAI 格式（choices[0].delta.content）和 Workers AI 格式（response）
+async function readSSEText(stream, onText) {
+  const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  let full = '';
+  const handleLine = (raw) => {
+    const line = raw.trim();
+    if (!line.startsWith('data:')) return;
+    const data = line.slice(5).trim();
+    if (!data || data === '[DONE]') return;
+    let j;
+    try { j = JSON.parse(data); } catch { return; }
+    const t = j?.choices?.[0]?.delta?.content ?? j?.response ?? '';
+    if (t) { full += t; onText(t); }
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += value;
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      handleLine(buf.slice(0, nl));
+      buf = buf.slice(nl + 1);
+    }
+  }
+  if (buf) handleLine(buf);
+  return full;
+}
+
+// 流式版 callLLM：边生成边 onDelta(片段)，最后返回完整文本
+// ⚠️ 只能在"还没吐出任何内容"时降级到备用模型；吐到一半断了就抛错（否则会出现半句重复）
+async function callLLMStreaming(env, messages, maxTokens, onDelta) {
+  let emitted = false;
+  const emit = (t) => { emitted = true; onDelta(t); };
+  const endpoint = String(env.AGNES_ENDPOINT || '').replace(/^\uFEFF+/, '').trim();
+  const apiKey = String(env.AGNES_API_KEY || '').replace(/^\uFEFF+/, '').trim();
+  if (apiKey && endpoint) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);   // 限制"首包"等待时间
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: LLM_MODEL_NAME, messages, max_tokens: maxTokens,
+          temperature: 0.3, stream: true,
+          stop: ['以上就是关于', '— 结束 —', '以上就是整理内容', '***'],
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (res.ok && res.body) {
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('text/event-stream')) {
+          // 接口不支持流式、直接回了 JSON → 一次性吐出
+          const data = await res.json();
+          const content = data?.choices?.[0]?.message?.content || '';
+          if (content) { emit(content); return content; }
+        } else {
+          const full = await readSSEText(res.body, emit);
+          if (full) return full;
+        }
+        console.warn('[callLLMStreaming] agnes 返回空内容，fallback');
+      } else {
+        const errText = await res.text().catch(() => '');
+        console.warn(`[callLLMStreaming] agnes HTTP ${res.status}，fallback:`, errText.slice(0, 200));
+      }
+    } catch (e) {
+      if (emitted) throw e;
+      console.warn('[callLLMStreaming] agnes 失败，fallback:', e.message);
+    }
+  }
+  // fallback: Workers AI（stream:true 返回 SSE 字节流）
+  const stream = await env.AI.run(LLM_MODEL, { messages, max_tokens: maxTokens, stream: true });
+  return readSSEText(stream, emit);
+}
+
+// 把一个异步任务包装成 SSE 响应：run(send) 里随时 send({...})，结束自动发 done
+function sseResponse(ctx, run) {
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const enc = new TextEncoder();
+  const send = (obj) => writer.write(enc.encode(`data: ${JSON.stringify(obj)}\n\n`)).catch(() => {});
+  const task = (async () => {
+    try {
+      await run(send);
+      await send({ type: 'done' });
+    } catch (e) {
+      console.error('[ask-stream] 失败:', e?.message);
+      await send({ type: 'error', message: '回答中断了，可以再问我一次～' });
+    } finally {
+      try { await writer.close(); } catch {}
+    }
+  })();
+  if (ctx?.waitUntil) ctx.waitUntil(task);
+  const cors = buildCors(globalThis._curReq || { headers: { get: () => null } });
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
+      ...cors,
+    },
+  });
+}
+
+async function callLLM(env, messages, maxTokens = 512, onDelta = null) {
+  if (typeof onDelta === 'function') return callLLMStreaming(env, messages, maxTokens, onDelta);
   // strip BOM + trim（PowerShell 管道设 secret 会带 BOM）
   const endpoint = String(env.AGNES_ENDPOINT || '').replace(/^\uFEFF+/, '').trim();
   const apiKey = String(env.AGNES_API_KEY || '').replace(/^\uFEFF+/, '').trim();
@@ -1766,6 +1896,10 @@ async function callLLM(env, messages, maxTokens = 512) {
         const data = await res.json();
         const content = data?.choices?.[0]?.message?.content || '';
         if (content) return content;
+        console.warn('[callLLM] agnes 返回空内容，fallback', JSON.stringify(data?.choices?.[0] || {}).slice(0, 200));
+      } else {
+        const errText = await res.text().catch(() => '');
+        console.warn(`[callLLM] agnes HTTP ${res.status}，fallback:`, errText.slice(0, 200));
       }
     } catch (e) {
       console.warn('[callLLM] agnes 失败，fallback:', e.message);
@@ -1855,23 +1989,25 @@ async function embedDiaryInBackground(env, diaryId, userId) {
 }
 
 // 问候/闲聊关键词（命中则不查日记，直接友好回复）
+// 必须"整句就是寒暄"才算（旧版是包含匹配："谢谢你，再帮我看看上个月的"也会被当寒暄）
 const GREETING_PATTERNS = [
-  /^(你好|您好|哈喽|嗨|hi|hello|hey|早上好|下午好|晚上好|在吗|在不在|哦|嗯|ok|好的|好)\??$/i,
-  /你是谁|你叫什么|你是什么|介绍.*自己|自我介绍/,
-  /谢谢|感谢|thx|thanks|再见|拜拜|bye|goodbye/,
-  /吃了吗|吃饭了吗|睡了吗|冷吗|热吗|天气怎么样|天气好吗/,
+  /^(你好|您好|哈喽|嗨|hi|hello|hey|早上好|下午好|晚上好|在吗|在不在|哦|嗯|ok|好的|好)(呀|啊|哇|鸭|小麦)*$/i,
+  /^(你是谁|你叫什么(名字)?|你是什么|介绍(一下)?你?自己|自我介绍(一下)?)$/,
+  /^(谢谢|感谢|谢啦|多谢|thx|thanks|thank you|再见|拜拜|bye|goodbye)(你|小麦|啦|了|呀)*$/i,
+  /^(吃了吗|吃饭了吗|睡了吗)$/,
 ];
 function isGreeting(q) {
-  const t = q.trim().toLowerCase();
+  // 去掉标点/emoji/空白后再整句匹配
+  const t = q.trim().toLowerCase().replace(/[\s，。！？!?,.~～、…😊🙏❤️]+/gu, '');
   return GREETING_PATTERNS.some((re) => re.test(t));
 }
 // 不带日记的友好回复（给问候/闲聊用）
-async function callChatFriendly(env, question) {
+async function callChatFriendly(env, question, onDelta = null) {
   const sys = '你叫小麦，是用户温暖的日记助手。友好、简洁、口语化，适当加 emoji。绝对不要说自己是 AI、LLM、模型、或任何技术名称（如 Agnes、Workers AI、Llama），就说自己叫小麦。';
-  return callLLM(env, [{ role: 'system', content: sys }, { role: 'user', content: question }], 256);
+  return callLLM(env, [{ role: 'system', content: sys }, { role: 'user', content: question }], 256, onDelta);
 }
 
-async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history, memoriesText = '', structuredFacts = '', web_search = false) {
+async function callWorkersAI_LLM(env, question, context, topK, totalIndexed, history, memoriesText = '', structuredFacts = '', web_search = false, onDelta = null) {
   // 事实 + 片段 + 结构化数据 放进 system，保持 messages 里只有一条最后的 user（当前问题）
   const facts = `【事实】
 - 用户一共有 **${totalIndexed}** 篇已索引日记
@@ -1915,12 +2051,12 @@ ${facts}`;
   if (Array.isArray(history)) {
     for (const h of history) {
       if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
-        msgs.push({ role: h.role, content: String(h.content).slice(0, 500) });
+        msgs.push({ role: h.role, content: String(h.content).slice(0, HISTORY_MSG_MAX_CHARS) });
       }
     }
   }
   msgs.push({ role: 'user', content: question });
-  return callLLM(env, msgs, 600);
+  return callLLM(env, msgs, 600, onDelta);
 }
 
 // 判断是否是追问（用历史上下文来补充检索词）——只靠关键词匹配，不靠长度
@@ -1928,7 +2064,10 @@ const FOLLOWUP_PATTERNS = [/^为什么/, /^那/, /^然后/, /^后来/, /^你自�
 function isFollowup(q) {
   const t = q.trim();
   // 必须命中追问关键词才算，避免把"中国面积多大"这种独立问题当成追问
-  return FOLLOWUP_PATTERNS.some(re => re.test(t));
+  if (!FOLLOWUP_PATTERNS.some(re => re.test(t))) return false;
+  // "那/再/还有"开头的长句通常是完整新问题（"那英国面积多大"），只有短句才当追问
+  if (/^(那|再|还有)/.test(t) && !/^(那之前|那你)/.test(t) && t.length > 10) return false;
+  return true;
 }
 // 从 history 里找最后一轮用户的原始问题（用于追问时的 RAG 检索）
 function findLastUserQuestion(history) {
@@ -1943,7 +2082,6 @@ function findLastUserQuestion(history) {
 }
 
 async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
-  const MEMORY_ENABLED = env.MEMORY_ENABLED !== 'false'; // 默认开；显式设 'false' 才关
   const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
   const body = await request.json();
@@ -1955,19 +2093,47 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
     return handleWikiAsk(env, user, question, history || [], kb_id, !!web_search, !!body.import_mode);
   }
 
-  // === 以下是原日记链路（完全不动）===
+  // 流式（SSE）：前端传 stream:true 才启用；不传则和原来一样返回 JSON（AiDrawer / MiniAiBubble 不受影响）
+  if (body.stream === true) {
+    return sseResponse(ctx, async (send) => {
+      let streamed = false;
+      const result = await askDiaryCore(env, user, body, ctx, {
+        onSources: (sources) => send({ type: 'sources', sources }),
+        onDelta: (text) => { streamed = true; send({ type: 'delta', text }); },
+      });
+      // 固定文案（寒暄兜底、友好报错等）没有经过模型流式 → 一次性补发
+      if (!streamed && result?.answer) send({ type: 'delta', text: result.answer });
+      const meta = {};
+      if (result?.is_transform) meta.is_transform = true;
+      if (result?._debug) { meta._debug = result._debug; meta.keywords = result.keywords; }
+      if (Object.keys(meta).length) send({ type: 'meta', ...meta });
+    });
+  }
+  return json(await askDiaryCore(env, user, body, ctx));
+}
+
+// ===== 日记问答核心：返回 { answer, sources, ... }
+// io.onDelta / io.onSources 存在时（流式），边生成边回调；不存在时行为与原来完全一致
+async function askDiaryCore(env, user, body, ctx, io = {}) {
+  const MEMORY_ENABLED = env.MEMORY_ENABLED !== 'false'; // 默认开；显式设 'false' 才关
+  const { question, history, web_search = false } = body;
+  let deltaCount = 0;
+  const od = typeof io.onDelta === 'function' ? (t) => { deltaCount++; io.onDelta(t); } : null;
+
   // 问候/闲聊 → 直接友好回复，不查日记
   if (isGreeting(question)) {
     try {
-      const answer = await callChatFriendly(env, question);
-      return json({ answer, sources: [] });
+      const answer = await callChatFriendly(env, question, od);
+      return ({ answer, sources: [] });
     } catch (e) {
-      return json({ answer: '你好呀～我在呢 😊 你可以问我关于你日记的问题，或者随便聊聊天～' });
+      if (deltaCount) throw e;
+      return ({ answer: '你好呀～我在呢 😊 你可以问我关于你日记的问题，或者随便聊聊天～' });
     }
   }
   // === 文本改造类请求（润色/改写/精简/扩写/优化）→ 直接输出结果，不要分析 ===
-  const TEXT_TRANSFORM_KW = ['润色', '改写', '优化', '精简', '扩写', '缩写', '整理成', '润色这段', '改写这段', '优化这段', '帮我润色', '帮我改写', '帮我优化', '帮我精简', '帮我扩写'];
-  const isTextTransform = TEXT_TRANSFORM_KW.some(kw => question.includes(kw));
+  // 只认"以改写动作开头"的指令（如"帮我润色下面这段…"），避免"饮食有什么要优化的"被误判成改写
+  const TEXT_TRANSFORM_RE = /^\s*(请|麻烦)?\s*(帮我|帮忙|给我)?\s*(润色|改写|优化|精简|扩写|缩写|整理成)/;
+  const isTextTransform = TEXT_TRANSFORM_RE.test(question);
   if (isTextTransform) {
     try {
       const sys = `你叫小麦，是用户的日记助手。这是一个文本改造任务（润色/改写/优化/精简/扩写等）。
@@ -1987,29 +2153,27 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
       if (Array.isArray(history)) {
         for (const h of history) {
           if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
-            msgs.push({ role: h.role, content: String(h.content).slice(0, 500) });
+            msgs.push({ role: h.role, content: String(h.content).slice(0, HISTORY_MSG_MAX_CHARS) });
           }
         }
       }
       msgs.push({ role: 'user', content: question });
-      const answer = await callLLM(env, msgs, 800);
-      return json({ answer: (answer || '').trim(), sources: [], is_transform: true });
+      const answer = await callLLM(env, msgs, 800, od);
+      return ({ answer: (answer || '').trim(), sources: [], is_transform: true });
     } catch (e) {
-      return json({ answer: '抱歉，暂时处理不了～', sources: [] });
+      if (deltaCount) throw e;
+      return ({ answer: '抱歉，暂时处理不了～', sources: [] });
     }
   }
 
   // 判断是否是"关于用户日记"的问题——没有任何个人关键词就是纯常识，跳过 RAG
   const DIARY_KW = ['我的', '我花', '我写', '我最', '我计划', '我要', '我想', '我今天', '我昨天', '我最近', '我花了', '我记了', '日记', '笔记', '写了', '昨天', '今天', '最近', '总共', '一共', '多少篇', '几篇', '花了', '赚了', '计划', '安排', '待办', '要做', '要干嘛', '想做', '有什么', '想干嘛'];
   const hasDiaryKw = (q) => DIARY_KW.some(kw => q.includes(kw));
-  // 只看当前 question，不看 history（否则多轮常识对话也会命中 history 里的"我"等）
-  let isDiaryRelated = hasDiaryKw(question);
-  // 但如果是追问且历史里有日记关键词，还是走 RAG（例如 "我花了多少" → "那上个月呢"）
-  if (!isDiaryRelated && isFollowup(question) && Array.isArray(history)) {
-    isDiaryRelated = history.some(h => h?.role === 'user' && hasDiaryKw(String(h.content || '')));
-  }
-  if (!isDiaryRelated) {
-    // 纯常识/通用问题，直接让 LLM 自由发挥，不查日记
+  // ⚠️ 不再靠关键词决定"要不要查日记"（"上周去哪玩了"这类问题会漏判）。
+  // 现在：一律先检索；检索不到相关片段、且问题不像在问自己的日记 → 才走下面的常识兜底。
+  const looksPersonal = hasDiaryKw(question) || (isFollowup(question) && Array.isArray(history)
+    && history.some(h => h?.role === 'user' && hasDiaryKw(String(h.content || ''))));
+  const answerGeneral = async () => {
     try {
       // 并行加载结构化事实 + 记忆
       const [structuredFacts, memoriesText] = await Promise.all([
@@ -2027,17 +2191,18 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
 - 被问"你是谁/你叫什么/你是什么"时，只答"我是小麦，你的日记助手～"
 
 反幻觉铁律：
-- 只能依据给你的事实片段和用户数据回答，绝对不要编造片段里没有的内容`;
+- 涉及用户本人的经历/数据时，只能依据上面给的用户数据回答，没有就直说不知道，绝对不要编造
+- 常识类问题可以正常用你的知识回答`;
       const msgs = [{ role: 'system', content: sys }];
       if (Array.isArray(history)) {
         for (const h of history) {
           if (h && (h.role === 'user' || h.role === 'assistant') && h.content) {
-            msgs.push({ role: h.role, content: String(h.content).slice(0, 500) });
+            msgs.push({ role: h.role, content: String(h.content).slice(0, HISTORY_MSG_MAX_CHARS) });
           }
         }
       }
       msgs.push({ role: 'user', content: question });
-      const answer = await callLLM(env, msgs, 500);
+      const answer = await callLLM(env, msgs, 500, od);
       // ⚡ fire-and-forget + ctx.waitUntil 托住防 GC
       if (MEMORY_ENABLED && answer) {
         ctx.waitUntil(Promise.race([
@@ -2047,19 +2212,31 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
           if (cands?.length) saveMemories(env, user.uid, cands).catch(e => console.error('[memory] save failed:', e.message));
         }).catch(e => console.error('[memory] extract failed:', e.message)));
       }
-      return json({ answer: answer || '让我想想～', sources: [] });
-    } catch (e) { return json({ answer: '抱歉，我暂时答不上来这个问题' }); }
-  }
+      return ({ answer: answer || '让我想想～', sources: [] });
+    } catch (e) { if (deltaCount) throw e; return ({ answer: '抱歉，我暂时答不上来这个问题' }); }
+  };
   try {
     // 追问时用"上一轮原始问题 + 当前问题"一起检索，避免语义跑偏
     const ragQuery = isFollowup(question)
       ? (findLastUserQuestion(history) ? `${findLastUserQuestion(history)} ${question}` : question)
       : question;
+    // ⚡ 结构化事实 + 记忆 与检索并行加载（原来要等检索、精排全做完才开始读）
+    const factsPromise = Promise.all([loadStructuredFacts(env, user.uid), loadMemories(env, user.uid)]);
+    factsPromise.catch(() => {});
     const qVec = await embedText(env, ragQuery);
-    if (!qVec) return json({ error: 'embed failed' }, 500);
-    const rows = await env.DB.prepare(
-       "SELECT e.diary_id, e.content, e.vector, d.date FROM diary_embeddings e LEFT JOIN diaries d ON e.diary_id = d.id WHERE e.user_id = ? ORDER BY e.diary_id DESC LIMIT 50"
-     ).bind(user.uid).all();
+    if (!qVec) return ({ answer: '抱歉，小麦这会儿有点忙不过来，稍后再试试吧 🙏', sources: [] });
+    // 旧 SQL 按 diary_id(随机 UUID) 倒序取 50 → 等于随机 50 篇，且包含回收站/已硬删日记
+    const [rows, countRow] = await Promise.all([
+      env.DB.prepare(
+        `SELECT e.diary_id, e.content, e.vector, d.date FROM diary_embeddings e
+         JOIN diaries d ON e.diary_id = d.id
+         WHERE e.user_id = ? AND (d.deleted_at IS NULL OR d.deleted_at = '')
+         ORDER BY d.date DESC, d.updated_at DESC LIMIT ?`
+      ).bind(user.uid, RAG_SCAN_LIMIT).all(),
+      env.DB.prepare(
+        "SELECT COUNT(*) AS c FROM diaries WHERE user_id = ? AND (deleted_at IS NULL OR deleted_at = '')"
+      ).bind(user.uid).first(),
+    ]);
 
     // ===== 混合检索：向量 (0.7) + 关键词 (0.3) =====
     const keywords = extractKeywords(ragQuery);
@@ -2079,9 +2256,10 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
       return { ...r, score, vecScore: Math.round(vecRaw * 1000) / 1000, kwScore: Math.round(kwRaw * 1000) / 1000 };
     }).sort((a, b) => b.score - a.score);
 
-    const totalIndexed = rows.results.length;
+    const totalIndexed = countRow?.c ?? rows.results.length;   // 真实日记总数（不是扫描条数）
+    if (!rows.results.length && !looksPersonal) return answerGeneral();
     // 先多捞几条候选，给 reranker 精排的空间
-    const CANDIDATE_COUNT = Math.min(12, totalIndexed);
+    const CANDIDATE_COUNT = Math.min(12, rows.results.length);
     let candidates = scored.slice(0, CANDIDATE_COUNT);
 
     // ===== P3 ReRank: bge-reranker-base 精排 =====
@@ -2096,7 +2274,7 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
       // reranker 返回 [{id: 0, score: 0.59}, ...] 按 score 降序排列
       if (rerankResp?.response?.length) {
         const reranked = rerankResp.response
-          .map(r => candidates[r.id])
+          .map(r => candidates[r.id] ? { ...candidates[r.id], rerankScore: r.score } : null)
           .filter(Boolean);
         if (reranked.length >= FINAL_TOP_K) { candidates = reranked; rerankStatus = 'ok'; }
         else { rerankStatus = `partial:${reranked.length}/${FINAL_TOP_K}`; }
@@ -2108,21 +2286,30 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
       console.warn('[rerank] 失败，fallback 到混合检索排序:', rerankErr.message);
     }
 
-    const top = candidates.slice(0, FINAL_TOP_K);
-    // 相关度太低 → 传空片段让 LLM 自己判断（阈值 0.15）
-    const bestScore = top[0]?.score ?? 0;
-    const contextParts = bestScore < 0.15 ? [] : top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
+    // 相关度过滤：rerank 成功用 reranker 分数，否则用原始向量分（旧逻辑比的是精排前混合分，阈值形同虚设）
+    // ⚠️ 两个阈值是初始值，上线后请开 DEBUG_ASK 观察 _debug 里的分数再微调
+    const isRelevant = (c) => rerankStatus === 'ok'
+      ? (c.rerankScore ?? 0) >= RERANK_MIN_SCORE
+      : (c.vecScore ?? 0) >= VECTOR_MIN_SCORE;
+    const top = candidates.slice(0, FINAL_TOP_K).filter(isRelevant);
+    const contextParts = top.map((s, i) => `[${i+1}] ${s.content.slice(0, 400)}`);
+    // 没有相关日记、问题也不像在问自己 → 走常识兜底
+    if (!contextParts.length && !looksPersonal) return answerGeneral();
     const context = contextParts.join('\n\n');
 
-    // ===== 并行加载：结构化事实 + 记忆 =====
-    const [structuredFacts, memoriesText] = await Promise.all([
-      loadStructuredFacts(env, user.uid),
-      loadMemories(env, user.uid),
-    ]);
+    const sources = top.map(s => ({ diary_id: s.diary_id, date: s.date || '', score: Math.round((s.rerankScore ?? s.score) * 1000) / 1000, content: (s.content || '').slice(0, 300) }));
+    if (sources.length) io.onSources?.(sources);   // 流式：检索完先把引用发给前端
+
+    const [structuredFacts, memoriesText] = await factsPromise;
 
     let answer;
-    try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history, memoriesText, structuredFacts, !!web_search); }
-    catch (e) { answer = 'LLM 错: ' + e.message; }
+    try { answer = await callWorkersAI_LLM(env, question, context, contextParts.length, totalIndexed, history, memoriesText, structuredFacts, !!web_search, od); }
+    catch (e) {
+      if (deltaCount) throw e;   // 已经吐了一半 → 交给流式层发 error 事件
+      console.error('[ask] LLM 失败:', e.message);
+      dblog(env, 'ai', 'ASK_LLM_FAIL', { msg: e.message });
+      answer = '小麦刚刚走神了，没想好怎么回答 😥 稍后再问我一次吧～';
+    }
     // ⚡ 记忆提取 fire-and-forget + ctx.waitUntil 托住防 GC
     if (MEMORY_ENABLED && answer) {
       ctx.waitUntil(Promise.race([
@@ -2132,15 +2319,22 @@ async function handleAsk(request, env, JWT_SECRET, _params, ctx) {
         if (cands?.length) saveMemories(env, user.uid, cands).catch(e => console.error('[memory] save failed:', e.message));
       }).catch(e => console.error('[memory] extract failed:', e.message)));
     }
-    return json({
+    const resp = {
       answer,
-      sources: bestScore < 0.15 ? [] : top.map(s => ({ diary_id: s.diary_id, date: s.date || '', score: Math.round(s.score*1000)/1000, content: (s.content || '').slice(0, 300) })),
-      keywords,
-      _debug: { rerank: rerankStatus, candidates: CANDIDATE_COUNT, finalK: FINAL_TOP_K, totalIndexed },
-    });
+      sources,
+    };
+    // 调试信息只在显式开启时返回（wrangler.toml [vars] DEBUG_ASK = "true"）
+    if (env.DEBUG_ASK === 'true') {
+      resp.keywords = keywords;
+      resp._debug = { rerank: rerankStatus, candidates: CANDIDATE_COUNT, finalK: FINAL_TOP_K, scanned: rows.results.length, totalIndexed,
+        scores: candidates.slice(0, FINAL_TOP_K).map(c => ({ vec: c.vecScore, rerank: c.rerankScore })) };
+    }
+    return resp;
   } catch (e) {
+    if (deltaCount) throw e;
     dblog(env, 'ai', 'ASK_FAIL', { msg: e.message, stack: (e.stack || '').slice(0, 300) });
-    return json({ answer: '抱歉，出错了：' + (e.message || 'unknown') });
+    console.error('[ask] 失败:', e.message);
+    return ({ answer: '抱歉，小麦这会儿有点忙不过来，稍后再试试吧 🙏', sources: [] });
   }
 }
 
