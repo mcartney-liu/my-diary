@@ -74,7 +74,7 @@ export async function refreshPageVector(env, pageId) {
 
 // ====== AI 调用（优先 DeepSeek，fallback Workers AI，temperature 低保证 JSON 稳定） ======
 const WIKI_LLM_MODEL = 'deepseek-v4-flash';
-const WIKI_WORKERS_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const WIKI_WORKERS_MODEL = '@cf/qwen/qwen3.8-27b';
 const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
 async function wikiCallLLM(env, messages, maxTokens = 4096) {
   const endpoint = DEEPSEEK_ENDPOINT;

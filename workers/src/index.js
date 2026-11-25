@@ -1792,7 +1792,7 @@ function float32ToJson(arr) { return JSON.stringify(Array.from(arr)); }
 function jsonToFloat32(text) { return new Float32Array(JSON.parse(text)); }
 
 const EMBEDDING_MODEL = '@cf/baai/bge-m3';
-const LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const LLM_MODEL = '@cf/qwen/qwen3.8-27b';
 const LLM_MODEL_NAME = 'agnes-3.0-flash';
 // 小麦问答检索参数
 const HISTORY_MSG_MAX_CHARS = 1200; // 每条历史消息最多带多少字（原 500，长回答被截断后小麦会"忘了"自己说过什么）
@@ -1875,8 +1875,13 @@ async function callLLMStreaming(env, messages, maxTokens, onDelta) {
     }
   }
   // fallback: Workers AI（stream:true 返回 SSE 字节流）
-  const stream = await env.AI.run(LLM_MODEL, { messages, max_tokens: maxTokens, stream: true });
-  return readSSEText(stream, emit);
+  try {
+    const stream = await env.AI.run(LLM_MODEL, { messages, max_tokens: maxTokens, stream: true, reasoning: { effort: 'low' }, temperature: 0.3 });
+    return readSSEText(stream, emit);
+  } catch (e) {
+    console.error('[callLLMStreaming] Workers AI 也失败了:', e?.message || e);
+    throw e;  // 流式吐不出来就只能抛，sseResponse 会 catch 并发 error 消息
+  }
 }
 
 // 把一个异步任务包装成 SSE 响应：run(send) 里随时 send({...})，结束自动发 done
@@ -1942,8 +1947,16 @@ async function callLLM(env, messages, maxTokens = 512, onDelta = null) {
     }
   }
   // fallback: Workers AI llama
-  const r = await env.AI.run(LLM_MODEL, { messages, max_tokens: maxTokens });
-  return r.response || '';
+  try {
+    const r = await env.AI.run(LLM_MODEL, { messages, max_tokens: maxTokens, reasoning: { effort: 'low' }, temperature: 0.3 });
+    const content = r?.response || '';
+    if (content) return content;
+    console.warn('[callLLM] Workers AI 返回空 response');
+    return '';
+  } catch (e) {
+    console.error('[callLLM] Workers AI 也失败了:', e?.message || e);
+    return '';
+  }
 }
 
 async function embedText(env, text) {
