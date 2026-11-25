@@ -28,14 +28,20 @@ binding = "AI"
 binding = "verify_codes"
 id = "81191d85345e4bde9a9895c530a24d9a"
 
-# 演示账号每日重置（UTC 04:00 = 北京时间 12:00）
+# 定时任务：
+#   "0 4 * * *"  → 演示账号每日重置（UTC 04:00 = 北京时间 12:00）
+#   "17 * * * *" → 每小时自动整理「我的生活」知识库里待汇入的日记（见 wiki.js autoIngestLifeKbs）
 [triggers]
-crons = ["0 4 * * *"]
+crons = ["0 4 * * *", "17 * * * *"]
 
 # ====== 测试环境 ======
 [env.dev]
 name = "mydiary-api-dev"
 # env.dev.vars.JWT_SECRET 已移除：同 prod，改由 Dashboard secret 下发
+
+# [triggers] 不会被 env 继承，测试环境需单独声明（见 docs/agent-deploy-dev.md 第2步）
+[env.dev.triggers]
+crons = ["0 4 * * *", "17 * * * *"]
 
 [[env.dev.d1_databases]]
 binding = "DB"
