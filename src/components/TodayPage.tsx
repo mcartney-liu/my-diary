@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
-import { computeStreak, fmtDate, moodById, MOOD_TAGS, PROMPTS } from "../data";
+import { computeStreak, fmtDate, moodById, MOOD_TAGS, PROMPTS, onThisDay } from "../data";
 import { templateById } from "../templates";
 import { getProfile, listMilestones, listPlans, diaryReply, dailyNote, listNews, getToken, lifeOverview, lifeRecent, type Milestone, type Plan, type LifeItem, type LifeLink } from "../api";
 import { fetchLocationAuto, fetchWeather } from "../weather";
 import { dayEvents, springFestivalCountdown, weatherTip } from "../today";
 import type { WeatherInfo } from "../types";
 import { cachedGet, peek } from "../dataCache";
-import OnThisDay from "./OnThisDay";
 import LifeLinks from "./LifeLinks";
 import Xiaomai, { moodFor } from "./Xiaomai";
 import { useHint } from "./useOnce";
@@ -73,12 +72,6 @@ function dayHash(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) >>> 0;
   return h;
-}
-function agoText(from: string, to: string): string {
-  const d = daysBetween(from, to);
-  if (d >= 365) return `${Math.floor(d / 365)} 年前`;
-  if (d >= 30) return `${Math.floor(d / 30)} 个月前`;
-  return `${d} 天前`;
 }
 // 带着预填内容打开编辑器（复用语音快记的 sessionStorage 通道，见 App.tsx EditorPageWrapper）
 function openEditorWith(nav: (p: string) => void, opts: { prompt?: string; moodId?: string }) {
@@ -322,19 +315,14 @@ export default function TodayPage({ diaries }: Props) {
 
   const prompt = PROMPTS[(dayHash(today) + promptShift) % PROMPTS.length];
 
-  // 那年今日没有时，随手翻一篇一个月以前的日记
-  const hasOnThisDay = useMemo(() => {
-    const md = today.slice(5);
-    return diaries.some((d) => d.date.slice(5) === md && d.date < today);
-  }, [diaries, today]);
-  const flashback = useMemo(() => {
-    if (hasOnThisDay) return null;
-    const pool = diaries.filter((d) =>
-      daysBetween(d.date, today) >= 30 && !(d.capsuleUnlockAt && d.capsuleUnlockAt > Date.now()) && firstText(d).length >= 6
-    );
-    if (!pool.length) return null;
-    return pool[dayHash(today + "fb") % pool.length];
-  }, [diaries, today, hasOnThisDay]);
+  // 那年今日：卡片放在「回忆」里，今天页只留一行提醒
+  // 只算往年（onThisDay 会把今天自己写的也算进去，之前因此出现「0 年前」）
+  const otd = useMemo(
+    () => onThisDay(diaries).filter((d) => d.date.slice(0, 4) < today.slice(0, 4)).sort((a, b) => b.date.localeCompare(a.date)),
+    [diaries, today],
+  );
+  const otdYearsAgo = otd.length ? Number(today.slice(0, 4)) - Number(otd[0].date.slice(0, 4)) : 0;
+  const otdYearCount = new Set(otd.map((d) => d.date.slice(0, 4))).size;
 
   const topPeople = useMemo(() => people.filter((p) => p.kind === "person").slice(0, 6), [people]);
   const isNewUser = diaries.length === 0;
@@ -502,29 +490,34 @@ export default function TodayPage({ diaries }: Props) {
           </section>
         )}
 
-        {/* 那年今日（组件自己判断，没有就不显示） */}
-        <OnThisDay diaries={diaries} />
-
-        {/* 没有那年今日时：随手翻到一篇旧日记 */}
-        {flashback && (
-          <button type="button" onClick={() => nav(`/editor/${flashback.id}`)} className="w-full card px-5 py-4 text-left hover:shadow-cardHover transition">
-            <div className="flex items-center justify-between">
-              <span className="section-label">📖 随手翻到</span>
-              <span className="text-[11px] text-paper-ink2">{agoText(flashback.date, today)} · {flashback.date}</span>
-            </div>
-            {firstImage(flashback) && <img src={firstImage(flashback)!} alt="" className="mt-2 w-full h-36 object-cover rounded-xl" loading="lazy" />}
-            <div className="mt-2 flex gap-3">
-              {moodById(flashback.moodId) && (
-                <span className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center text-xl" style={{ background: moodById(flashback.moodId)!.color + "33" }}>
-                  {moodById(flashback.moodId)!.icon}
+        {/* On This Day：一行提醒（标题 + 最近那篇的一句话），点了去「回忆」月历看这一天 */}
+        {otd.length > 0 && (
+          <button type="button" onClick={() => nav(`/calendar?date=${today}`)}
+            className="w-full card px-4 py-3 flex items-center gap-3 text-left hover:shadow-cardHover transition">
+            <span className="text-xl shrink-0">🎞️</span>
+            <span className="flex-1 min-w-0">
+              <span className="flex items-baseline gap-2">
+                <span className="text-sm font-medium text-paper-ink">On This Day</span>
+                <span className="text-[11px] text-paper-ink2 truncate">
+                  {otdYearCount > 1
+                    ? `${otdYearCount} 个往年的今天 · ${otd.length} 篇`
+                    : `${otdYearsAgo === 1 ? "去年" : otdYearsAgo === 2 ? "前年" : otdYearsAgo + " 年前"}的今天${otd.length > 1 ? ` · ${otd.length} 篇` : ""}`}
                 </span>
-              )}
-              <div className="min-w-0">
-                {flashback.title && <div className="font-medium text-paper-ink truncate">{flashback.title}</div>}
-                <p className="text-sm text-paper-ink2 mt-0.5 line-clamp-2">{firstText(flashback)}</p>
-              </div>
-            </div>
+              </span>
+              <span className="block text-xs text-paper-ink2 mt-0.5 truncate">
+                {moodById(otd[0].moodId)?.icon ? moodById(otd[0].moodId)!.icon + " " : ""}
+                {otd[0].title || firstText(otd[0]) || "那天你写了一篇日记"}
+              </span>
+            </span>
+            <span className="text-paper-ink3 shrink-0">›</span>
           </button>
+        )}
+        {/* 还没有往年日记：告诉用户明年会发生什么（已写今天的才提示，新用户先不打扰） */}
+        {otd.length === 0 && diaries.some((d) => d.date === today) && (
+          <div className="w-full px-4 py-2.5 flex items-center gap-3 rounded-2xl border border-dashed border-paper-line text-xs text-paper-ink3">
+            <span className="text-lg shrink-0 opacity-70">🎞️</span>
+            <span className="min-w-0"><span className="font-medium text-paper-ink2">On This Day</span> · 明年的今天，小麦会把今天的日记翻出来给你看 🌾</span>
+          </div>
         )}
 
         {/* 这一周：日期 + 心情；下面一句总结，没写的时候给个引导 */}
@@ -640,15 +633,20 @@ export default function TodayPage({ diaries }: Props) {
             ) : news.items.length === 0 ? (
               <div className="text-xs text-paper-ink2">暂时没有新内容</div>
             ) : (
+              <>
               <ul className="space-y-1.5">
                 {news.items.slice(0, 3).map((n) => (
-                  <li key={n.link} className="flex items-start gap-2">
-                    <a href={n.link} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 text-sm text-paper-ink hover:underline line-clamp-2">{n.title}</a>
+                  <li key={n.link || n.title} className="flex items-start gap-2">
+                    {n.link
+                      ? <a href={n.link} target="_blank" rel="noopener noreferrer" className="flex-1 min-w-0 text-sm text-paper-ink hover:underline line-clamp-2">{n.title}</a>
+                      : <span className="flex-1 min-w-0 text-sm text-paper-ink line-clamp-2">{n.title}</span>}
                     <button type="button" onClick={() => openEditorWith(nav, { prompt: `今天看到：${n.title}。我的想法是……` })}
                       className="shrink-0 text-[11px] text-paper-accent hover:underline mt-0.5">聊聊</button>
                   </li>
                 ))}
               </ul>
+              {(news as any).tip ? <div className="mt-2 pt-2 border-t border-paper-line/60 text-xs text-paper-ink2">💭 {(news as any).tip}</div> : null}
+              </>
             )}
           </section>
         ) : (

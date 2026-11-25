@@ -820,7 +820,8 @@ export default function AiChatView() {
     const s: Session = {
       id: uid(), title: "新对话", msgs: [], createdAt: Date.now(),
       source_type: active?.source_type || "diary",
-      kb_id: undefined,  // 新建对话不绑定 KB，每次都是干净的
+      // 问知识库时，新对话沿用当前这个库（和问日记一样，点了就直接是一个空的新对话）
+      kb_id: (active?.source_type || "diary") === "wiki" ? active?.kb_id : undefined,
     };
     setSessions((list) => [s, ...list]);
     setActiveId(s.id);
@@ -878,6 +879,11 @@ export default function AiChatView() {
   function setKbForActive(kbId: string) {
     setCreatingKb(null);
     setSessions((list) => {
+      // 当前是一个还没开始聊的空会话（刚点了新对话）→ 直接绑到这个库，不跳回旧对话
+      const cur = list.find((s) => s.id === activeId);
+      if (cur && cur.msgs.length === 0 && (cur.source_type || "diary") === "wiki") {
+        return list.map((s) => (s.id === cur.id ? { ...s, kb_id: kbId } : s));
+      }
       // 优先回到这个库最近的一次对话（旧版总是开一个新的空会话，聊到一半切走再切回来就找不到了）
       const recent = list
         .filter((s) => s.source_type === "wiki" && s.kb_id === kbId)

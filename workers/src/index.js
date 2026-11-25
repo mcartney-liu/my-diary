@@ -3001,7 +3001,8 @@ ${memoriesText ? '\n【你记得关于 TA 的事】\n' + memoriesText : ''}${rec
 async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
-  const src = String(env.NEWS_RSS_URL || '').trim();
+  // 两种源：NEWS_60S_URL（「60s 读懂世界」开源 API，JSON，如 https://你的域名/v2/60s）优先；否则 NEWS_RSS_URL（RSS/Atom）
+  const src = String(env.NEWS_60S_URL || env.NEWS_RSS_URL || '').trim();
   if (!src) return json({ enabled: false, items: [] });
 
   const cache = caches.default;
@@ -3010,9 +3011,22 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   if (hit) return json(await hit.json());
 
   try {
-    const res = await fetch(src, { headers: { 'User-Agent': 'MyDiary/1.0' }, cf: { cacheTtl: 1800 } });
+    const res = await fetch(src, { headers: { 'User-Agent': 'MyDiary/1.0', 'Accept': 'application/json, application/xml, text/xml, */*' }, cf: { cacheTtl: 1800 } });
     if (!res.ok) return json({ enabled: true, items: [] });
-    const xml = (await res.text()).slice(0, 300000);
+    const raw = (await res.text()).slice(0, 300000);
+    // —— JSON：60s API（{ code, data: { news: [{title, link}] | string[], tip } }，也兼容不包 data 的返回）——
+    if (/^\s*[{[]/.test(raw)) {
+      let j = null; try { j = JSON.parse(raw); } catch {}
+      const d = j?.data ?? j ?? {};
+      const list = Array.isArray(d.news) ? d.news : [];
+      const items = list.map((n) => typeof n === 'string' ? { title: n, link: '' } : { title: n?.title || '', link: n?.link || '' })
+        .map((n) => ({ title: String(n.title).replace(/^\d+[、.．]\s*/, '').replace(/[；;。]$/, '').slice(0, 80), link: /^https?:\/\//.test(n.link) ? n.link : '' }))
+        .filter((n) => n.title).slice(0, 15);
+      const out = { enabled: true, items, tip: String(d.tip || '').slice(0, 120) };
+      ctx?.waitUntil?.(cache.put(cacheKey, new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=1800' } })));
+      return json(out);
+    }
+    const xml = raw;
     const decode = (t) => String(t || '')
       .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
       .replace(/<[^>]+>/g, '')
