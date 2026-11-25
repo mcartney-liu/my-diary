@@ -39,6 +39,7 @@ export default function SourcesPanel() {
     created?: number;
     updated?: number;
     links?: number;
+    failed?: number;
     error?: string;
   } | null>(null);
 
@@ -288,6 +289,8 @@ export default function SourcesPanel() {
         created: r.created,
         updated: r.updated,
         links: r.links_added,
+        // 旧后端没有这个字段 → 当作 0
+        failed: (r as any).failed_count ?? 0,
       });
       exitSelectMode();
       refresh();
@@ -400,6 +403,9 @@ export default function SourcesPanel() {
                     {result.updated != null && <span className="text-blue-700">♻️ 更新 {result.updated} 页</span>}
                     {result.links != null && <span>🔗 {result.links} 条链接</span>}
                   </div>
+                  {result.failed != null && result.failed > 0 && (
+                    <div className="text-xs text-amber-700 mt-1">⏳ 有 {result.failed} 份暂时没整理好，稍后会自动重试</div>
+                  )}
                 </div>
               )
             ) : (

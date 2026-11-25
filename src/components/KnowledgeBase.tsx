@@ -28,7 +28,7 @@ const MAIN_TABS: { k: MainTab; label: string }[] = [
   { k: "list", label: "📋 列表" },
 ];
 
-export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal?: boolean; defaultTab?: MainTab }) {
+export default function KnowledgeBase({ minimal = false, defaultTab, onlyKbId }: { minimal?: boolean; defaultTab?: MainTab; onlyKbId?: string }) {
   const [kbs, setKbs] = useState<WikiKB[]>([]);
   const [kbLoading, setKbLoading] = useState(true);
   const [curKbId, setCurKbId] = useState<string | null>(null);
@@ -89,8 +89,10 @@ export default function KnowledgeBase({ minimal = false, defaultTab }: { minimal
     setKbLoading(true);
     try {
       const r = await wikiListKbs();
-      setKbs(r.kbs);
-      if (r.kbs.length > 0 && !curKbId) setCurKbId(r.kbs[0].id);
+      // onlyKbId：从「知识」页点进某个库时，只展示这一个
+      const list = onlyKbId ? r.kbs.filter((k) => k.id === onlyKbId) : r.kbs;
+      setKbs(list);
+      if (list.length > 0 && !curKbId) setCurKbId(list[0].id);
     } finally {
       setKbLoading(false);
     }

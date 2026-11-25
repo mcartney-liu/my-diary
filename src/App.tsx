@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { Routes, Route, Navigate, useParams, useSearchParams } from "react-router-dom";
+import { Routes, Route, Navigate, useParams, useSearchParams, useNavigate } from "react-router-dom";
 import type { Diary, MoodId, DiaryBlock } from "./types";
+import { fmtDateLocal } from "./data";
 import { seedIfEmpty } from "./storage";
 import { upsertDiary as apiUpsert, deleteDiary as apiDelete, listDiaries as apiListDiaries, getToken } from "./api";
 import { useAuth } from "./AuthContext";
@@ -21,6 +22,9 @@ import ProfilePage from "./components/ProfilePage";
 import BookShelfPage from "./components/BookShelfPage";
 import DiaryListPage from "./components/DiaryListPage";
 import SourcesPanel from "./components/SourcesPanel";
+import XiaomaiPage from "./components/XiaomaiPage";
+import PeoplePage from "./components/PeoplePage";
+import TodayPage from "./components/TodayPage";
 
 // 后台写入 localStorage（不阻塞主线程）
 let saveQueue = Promise.resolve();
@@ -605,7 +609,8 @@ export default function App() {
       )}
 
       <Routes>
-        <Route path="/" element={<CalendarPage diaries={diaries} onSoftDelete={handleSoftDelete} />} />
+        <Route path="/" element={<TodayPage diaries={diaries} />} />
+        <Route path="/calendar" element={<CalendarPage diaries={diaries} onSoftDelete={handleSoftDelete} />} />
         <Route path="/diaries" element={<DiaryListPage diaries={diaries} />} />
         <Route path="/trash" element={<TrashPage diaries={deletedDiaries} onRestore={handleRestore} onPermanentDelete={handlePermanentDelete} onBatchRestore={handleBatchRestore} onBatchPermanentDelete={handleBatchPermanentDelete} />} />
         <Route path="/tags" element={<TagsPage diaries={allDiaries} onDiariesChange={setAllDiaries} />} />
@@ -616,6 +621,9 @@ export default function App() {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/shelf" element={<BookShelfPage diaries={diaries} />} />
         <Route path="/sources" element={<SourcesPanel />} />
+        <Route path="/xiaomai" element={<XiaomaiPage />} />
+        <Route path="/people" element={<PeoplePage />} />
+        <Route path="/people/:id" element={<PeoplePage />} />
         <Route
           path="/editor"
           element={<EditorPageWrapper mode="new" allDiaries={allDiaries} onUpsert={handleUpsert} onSoftDelete={handleSoftDelete} />}
@@ -641,6 +649,7 @@ function EditorPageWrapper(props: {
 }) {
   const { id } = useParams();
   const [sp] = useSearchParams();
+  const navigate = useNavigate();
   const existing = id ? props.allDiaries.find((d) => d.id === id && !d.deletedAt) : undefined;
   const templateId = sp.get("template") ?? "diary";
 
@@ -684,6 +693,9 @@ function EditorPageWrapper(props: {
       onSave={async (d) => { await props.onUpsert(d); }}
       onSoftDelete={(d) => { props.onSoftDelete(d.id); window.history.back(); }}
       onCancel={() => window.history.back()}
+      // 新建日记保存后回「今天」页（replace：返回键不会再回到编辑器）
+      // 补写过去的日记 → 去月历的那一天
+      onCreated={(d) => navigate(d.date === fmtDateLocal(new Date()) ? "/" : `/calendar?date=${d.date}`, { replace: true })}
       allDiaries={props.allDiaries}
     />
   );

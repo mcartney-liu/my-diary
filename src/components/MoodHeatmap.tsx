@@ -333,7 +333,8 @@ function MonthlyOverview({ diaries, year }: { diaries: Diary[]; year: number }) 
               const firstDay = `${year}-${String(month).padStart(2, "0")}-01`;
               return (
                 <button
-                  onClick={() => { window.location.href = `/?date=${firstDay}`; }}
+                  // 月历已从首页 / 移到 /calendar（信息架构改版阶段 2）
+                  onClick={() => { window.location.href = `/calendar?date=${firstDay}`; }}
                   className="mt-3 w-full py-2 rounded-lg bg-paper-accent/90 text-paper-card text-sm font-medium hover:bg-paper-accent transition"
                 >📅 去 {clickedMonth!.label} 月历看</button>
               );

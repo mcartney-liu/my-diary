@@ -11,6 +11,9 @@ interface Props {
   confirmTone?: "default" | "danger";
   onConfirm: () => void;
   onCancel: () => void;
+  /** 可选的第三个按钮（例如「不要了」），显示在弹窗底部 */
+  secondaryText?: string;
+  onSecondary?: () => void;
 }
 
 export default function ConfirmDialog({
@@ -22,6 +25,8 @@ export default function ConfirmDialog({
   confirmTone = "default",
   onConfirm,
   onCancel,
+  secondaryText,
+  onSecondary,
 }: Props) {
   // 安卓硬件返回键：弹窗开着时优先关闭弹窗
   useEffect(() => {
@@ -72,6 +77,16 @@ export default function ConfirmDialog({
             {confirmText}
           </button>
         </div>
+        {secondaryText && onSecondary && (
+          <div className="border-t border-paper-line">
+            <button
+              onClick={onSecondary}
+              className="w-full py-3 text-red-500 hover:bg-red-50 active:scale-95 transition text-sm"
+            >
+              {secondaryText}
+            </button>
+          </div>
+        )}
       </div>
     </div>,
     document.body

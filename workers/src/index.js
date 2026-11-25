@@ -25,7 +25,9 @@ import {
   handleWikiListKbs, handleWikiAddKb, handleWikiUpdateKb, handleWikiDeleteKb,
   handleWikiListCategories, handleWikiAddCategory, handleWikiUpdateCategory, handleWikiDeleteCategory,
   handleWikiListSources, handleWikiAddSourceText, handleWikiUploadSourceFile, handleWikiDeleteSource, handleWikiBatchDeleteSources, handleWikiGlobalListSources, handleWikiGlobalAddSource, handleWikiGlobalDeleteSource, handleWikiUpdateSourceTags,
-  saveDiaryToWikiSources,
+  saveDiaryToWikiSources, removeDiaryFromWiki, autoIngestLifeKbs,
+  handleLifeOverview, handleLifePage, handleLifeRename, handleLifeMerge, handleLifeDelete,
+  handleLifeByDiaries, handleLifeRecent, handleKbOverview, handleKbQuickCreate, handleKbCollect,
   handleWikiListPages, handleWikiGetPage, handleWikiUpdatePage, handleWikiDeletePage, handleWikiGenerateEntity, handleWikiSearch, handleWikiGraph,
   handleWikiIngestAll,
   handleWikiReindexVectors, pageVectorText,
@@ -96,7 +98,14 @@ function jwtSecrets(env) {
 
 export default {
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(resetDemoAccount(env));
+    // 两个定时任务（wrangler.toml [triggers] crons）：
+    //   "0 4 * * *"  → 演示账号每日重置
+    //   "17 * * * *" → 每小时把「我的生活」里待整理的日记自动汇入
+    if (controller.cron === "0 4 * * *") {
+      ctx.waitUntil(resetDemoAccount(env));
+    } else {
+      ctx.waitUntil(autoIngestLifeKbs(env).catch(e => console.error("[cron] auto ingest fail:", e.message)));
+    }
   },
   async fetch(request, env, ctx) {
     // CORS preflight
@@ -128,6 +137,7 @@ export default {
       ["PATCH",  "/api/profile",        handlePatchProfile],
       ["POST",   "/api/feedback",       handleSubmitFeedback],
       ["GET",    "/api/admin/feedbacks", handleListFeedbacks],
+      ["POST",   "/api/admin/reindex-all", handleAdminReindexAll],
       ["POST",   "/api/templates",      handleSaveTemplate],
       ["GET",    "/api/templates",       handleListTemplates],
       ["DELETE", "/api/templates",       handleDeleteTemplate],
@@ -149,6 +159,9 @@ export default {
       ["GET",    "/api/summaries",       handleListSummaries],
       ["POST",   "/api/ai/ask",          handleAsk],
       ["POST",   "/api/ai/reindex",      handleReindex],
+      ["POST",   "/api/ai/reply",        handleDiaryReply],
+      ["POST",   "/api/ai/daily-note",   handleDailyNote],
+      ["GET",    "/api/news",            handleNews],
       ["GET",    "/api/memory",          handleListMemory],
       ["POST",   "/api/memory",          handleAddMemory],
       ["PUT",    "/api/memory",          handleEditMemory],
@@ -206,6 +219,18 @@ export default {
       ["POST",   "/api/wiki/suggest-title",                      handleWikiSuggestTitle],
       ["POST",   "/api/wiki/:kbId/check-match",                  handleWikiCheckMatch],
       ["GET",    "/api/wiki/kbs/:kb_id/suggest",                 handleWikiSuggestEntities],
+      // 👤 人物页（「我的生活」知识库的用户侧接口）
+      ["GET",    "/api/life/overview",                    handleLifeOverview],
+      ["GET",    "/api/life/pages/:page_id",              handleLifePage],
+      ["POST",   "/api/life/pages/:page_id/rename",       handleLifeRename],
+      ["POST",   "/api/life/pages/:page_id/merge",        handleLifeMerge],
+      ["DELETE", "/api/life/pages/:page_id",              handleLifeDelete],
+      ["POST",   "/api/life/by-diaries",                  handleLifeByDiaries],
+      ["GET",    "/api/life/recent",                      handleLifeRecent],
+      // 🧭 知识：统一入口 + 一句话建库 + 收进知识库
+      ["GET",    "/api/kb/overview",                      handleKbOverview],
+      ["POST",   "/api/kb/quick-create",                  handleKbQuickCreate],
+      ["POST",   "/api/kb/collect",                       handleKbCollect],
       ["POST",   "/api/wiki/ai-design-categories",               handleWikiAIDesignCategories],
       ["POST",   "/api/wiki/optimize-description",              handleWikiOptimizeDescription],
       ["POST",   "/api/transcribe",                              handleTranscribe],
@@ -738,6 +763,8 @@ async function handleDeleteDiary(request, env, JWT_SECRET) {
     // 同步删向量：否则永久删除的日记仍会被小麦检索/引用（隐私）
     try { await env.DB.prepare("DELETE FROM diary_embeddings WHERE diary_id = ? AND user_id = ?").bind(id, user.uid).run(); }
     catch (e) { console.error("[delete] embedding 清理失败:", e.message); }
+    // 同步清理知识库：资料 + 只由这篇日记生成的页面
+    await removeDiaryFromWiki(env, id, user.uid);
   } else {
     // 默认软删（设 deleted_at，拉列表时前端自己过滤）
     await env.DB.prepare("UPDATE diaries SET deleted_at = ? WHERE id = ? AND user_id = ?").bind(Date.now(), id, user.uid).run();
@@ -1317,8 +1344,15 @@ function extractDiaryText(diary) {
     const blocks = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (Array.isArray(blocks)) {
       for (const b of blocks) {
-        if (b?.type === 'text' && b.text) parts.push(b.text);
-        if (b?.type === 'paragraph' && b.text) parts.push(b.text);
+        // ⚠️ 日记块的真实字段是 kind / content（见 src/types.ts DiaryBlock）
+        // 旧代码只认 type/text → 所有日记的向量都只有标题，正文从没进过检索
+        const kind = b?.kind ?? b?.type;
+        const t = String(b?.content ?? b?.text ?? '').trim();
+        if (!t) continue;
+        if (kind === 'text' || kind === 'paragraph' || kind === 'quote' || kind === 'heading') parts.push(t);
+        else if (kind === 'checkbox') parts.push((b.checked ? '已完成：' : '待办：') + t);
+        else if (kind === 'finance_item') parts.push(`${b.direction === 'income' ? '收入' : '花费'} ${t} ${b.value ?? ''}元`);
+        else if (kind === 'book') parts.push(`读书：《${t}》`);
       }
     }
   } catch {}
@@ -2839,6 +2873,205 @@ ${contextBlock}
   } catch (e) {
     return json({ answer: '知识库问答出错了：' + (e.message || 'unknown'), sources: [] });
   }
+}
+
+// ===== POST /api/ai/reply — 写完日记，小麦回一句话 =====
+// 不是总结、不是建议，是像朋友一样的回应；能联想到过去的日记时自然提一句
+// 入参 { diary_id }，返回 { reply, ref: { diary_id, date } | null }
+const REPLY_PAST_MIN_SCORE = 0.6;   // 联想过去日记的相似度下限（bge-m3，初始值，需校准）
+async function handleDiaryReply(request, env) {
+  const user = await authUser(request, jwtSecrets(env));
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const { diary_id } = await readBody(request);
+  if (!diary_id) return json({ error: 'diary_id required' }, 400);
+  const diary = await env.DB.prepare(
+    "SELECT id, date, title, blocks, mood_id, template_id FROM diaries WHERE id=? AND user_id=? AND (deleted_at IS NULL OR deleted_at = '')"
+  ).bind(diary_id, user.uid).first();
+  if (!diary) return json({ error: 'not found' }, 404);
+  const text = extractDiaryText(diary).slice(0, 800);
+  if (text.length < 4) return json({ reply: '', ref: null });
+
+  try {
+    // 并行：记忆 + 那年今日 + 语义相近的旧日记
+    const [memoriesText, onThisDay, past] = await Promise.all([
+      loadMemories(env, user.uid),
+      env.DB.prepare(
+        "SELECT id, date, title, blocks FROM diaries WHERE user_id=? AND substr(date, 6) = substr(?, 6) AND date < ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY date DESC LIMIT 1"
+      ).bind(user.uid, diary.date, diary.date).first().catch(() => null),
+      (async () => {
+        const qVec = await embedText(env, text);
+        if (!qVec) return null;
+        const rows = await env.DB.prepare(
+          `SELECT e.diary_id, e.content, e.vector, d.date FROM diary_embeddings e
+             JOIN diaries d ON e.diary_id = d.id
+            WHERE e.user_id = ? AND d.id != ? AND d.date < ? AND (d.deleted_at IS NULL OR d.deleted_at = '')
+            ORDER BY d.date DESC LIMIT ?`
+        ).bind(user.uid, diary.id, diary.date, RAG_SCAN_LIMIT).all();
+        let best = null;
+        for (const r of rows.results || []) {
+          const sc = cosineSimilarity(qVec, jsonToFloat32(r.vector));
+          if (sc >= REPLY_PAST_MIN_SCORE && (!best || sc > best.score)) best = { ...r, score: sc };
+        }
+        return best;
+      })().catch(() => null),
+    ]);
+
+    let ref = null;
+    let pastBlock = '';
+    if (onThisDay) {
+      const t = extractDiaryText(onThisDay).slice(0, 120);
+      if (t) { ref = { diary_id: onThisDay.id, date: onThisDay.date }; pastBlock = `【往年的今天 ${onThisDay.date}】${t}`; }
+    } else if (past) {
+      ref = { diary_id: past.diary_id, date: past.date };
+      pastBlock = `【${past.date} 的一篇相关日记】${String(past.content || '').slice(0, 120)}`;
+    }
+
+    const sys = `你叫小麦，是用户的日记伙伴。用户刚写完一篇日记，你要像一个懂 TA 的老朋友那样回一句话。
+
+要求：
+- 只写 1～2 句，总共不超过 50 个字，口语、温暖，可以带 1 个 emoji
+- 是"回应"，不是总结、不是点评、不是建议、不要说教
+- 回应日记里最打动人的那个具体细节，不要泛泛而谈
+- 如果下面给了【过去的日记】，并且确实相关，可以自然地提一句（比如"去年这时候你也……"），日期要和给的一致；不相关就别提
+- 心情低落时，先接住情绪，不要急着鼓励
+- 如果日记里有伤害自己或不想活下去的念头，温柔地表达关心，并建议 TA 找信任的人聊聊或寻求专业心理援助
+- 绝对不要编造日记里没有的事
+${memoriesText ? '\n【你记得关于 TA 的事】\n' + memoriesText + '\n（自然用上，不要说"根据我的记忆"）' : ''}${pastBlock ? '\n\n【过去的日记】\n' + pastBlock : ''}`;
+    const reply = String(await callLLM(env, [
+      { role: 'system', content: sys },
+      { role: 'user', content: `日期：${diary.date}${diary.mood_id ? '｜心情：' + diary.mood_id : ''}\n${text}` },
+    ], 120) || '').trim().replace(/^["“'「]+|["”'」]+$/g, '').slice(0, 120);
+    return json({ reply, ref: reply ? ref : null });
+  } catch (e) {
+    console.error('[reply] 失败:', e.message);
+    return json({ reply: '', ref: null });
+  }
+}
+
+// ===== POST /api/ai/daily-note — 「今天」页顶部小麦的一句话 =====
+// 结合天气、节气节日、用户最近 7 天的日记和记忆，像朋友一样打个招呼
+// 入参 { date, weather?: { temp, description }, events?: string[] }
+// 前端按天缓存，每个用户每天每台设备最多调一次
+async function handleDailyNote(request, env) {
+  const user = await authUser(request, jwtSecrets(env));
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const body = await readBody(request);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(body.date || '') ? body.date : new Date().toISOString().slice(0, 10);
+  const w = body.weather && typeof body.weather === 'object' ? body.weather : null;
+  const events = Array.isArray(body.events) ? body.events.slice(0, 3).map(x => String(x).slice(0, 20)) : [];
+  try {
+    const [memoriesText, recent] = await Promise.all([
+      loadMemories(env, user.uid),
+      env.DB.prepare(
+        "SELECT date, title, blocks FROM diaries WHERE user_id=? AND date < ? AND date >= date(?, '-7 days') AND (deleted_at IS NULL OR deleted_at = '') ORDER BY date DESC LIMIT 5"
+      ).bind(user.uid, date, date).all(),
+    ]);
+    const recentText = (recent.results || [])
+      .map(d => `${d.date}：${extractDiaryText(d).slice(0, 100)}`)
+      .filter(t => t.length > 12)
+      .join('\n');
+    const ctxParts = [];
+    if (w) ctxParts.push(`今天天气：${String(w.description || '').slice(0, 10)}，${Number(w.temp)}°`);
+    if (events.length) ctxParts.push(`今天/近期：${events.join('、')}`);
+    const sys = `你叫小麦，是用户的日记伙伴。现在用户刚打开日记 App，你要在首页跟 TA 打个招呼。
+
+要求：
+- 只写一句话，不超过 40 个字，口语、温暖，可以带 1 个 emoji
+- 优先把【最近的日记】里的一个具体细节和今天联系起来（比如上周说宝宝咳嗽、今天降温 → 问一句好些了吗）
+- 没有合适的日记细节时，就结合天气或节气节日说一句
+- 不要说教、不要总结、不要列清单，不要以"你好"开头
+- 绝对不要编造日记里没有的事；日期要和给的一致
+${memoriesText ? '\n【你记得关于 TA 的事】\n' + memoriesText : ''}${recentText ? '\n\n【最近的日记】\n' + recentText : ''}`;
+    const note = String(await callLLM(env, [
+      { role: 'system', content: sys },
+      { role: 'user', content: `今天是 ${date}。${ctxParts.join('；')}` },
+    ], 100) || '').trim().replace(/^["“'「]+|["”'」]+$/g, '').slice(0, 80);
+    return json({ note });
+  } catch (e) {
+    console.error('[daily-note] 失败:', e.message);
+    return json({ note: '' });
+  }
+}
+
+// ===== GET /api/news — 「今天」页的新闻标题（用户自己开启，默认关闭）=====
+// 新闻源由部署者配置：Worker 环境变量 NEWS_RSS_URL（一个 RSS/Atom 地址）
+// 没配置时返回 enabled:false，前端显示"暂未开放"；结果用 Cache API 缓存 30 分钟
+async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
+  const user = await authUser(request, jwtSecrets(env));
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const src = String(env.NEWS_RSS_URL || '').trim();
+  if (!src) return json({ enabled: false, items: [] });
+
+  const cache = caches.default;
+  const cacheKey = new Request('https://cache.mydiary.internal/news?src=' + encodeURIComponent(src));
+  const hit = await cache.match(cacheKey);
+  if (hit) return json(await hit.json());
+
+  try {
+    const res = await fetch(src, { headers: { 'User-Agent': 'MyDiary/1.0' }, cf: { cacheTtl: 1800 } });
+    if (!res.ok) return json({ enabled: true, items: [] });
+    const xml = (await res.text()).slice(0, 300000);
+    const decode = (t) => String(t || '')
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+      .trim();
+    const items = [];
+    const re = /<(item|entry)[\s>][\s\S]*?<\/\1>/g;
+    let m;
+    while ((m = re.exec(xml)) && items.length < 5) {
+      const block = m[0];
+      const title = decode((block.match(/<title[^>]*>([\s\S]*?)<\/title>/) || [])[1]);
+      let link = decode((block.match(/<link[^>]*>([\s\S]*?)<\/link>/) || [])[1]);
+      if (!link) link = (block.match(/<link[^>]*href="([^"]+)"/) || [])[1] || '';
+      if (title && /^https?:\/\//.test(link)) items.push({ title: title.slice(0, 80), link });
+    }
+    const out = { enabled: true, items };
+    ctx?.waitUntil?.(cache.put(cacheKey, new Response(JSON.stringify(out), {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=1800' },
+    })));
+    return json(out);
+  } catch (e) {
+    console.error('[news] 失败:', e.message);
+    return json({ enabled: true, items: [] });
+  }
+}
+
+// ===== 全量重建日记向量（修复 extractDiaryText 只取标题的历史问题后需要跑一次）=====
+// POST /api/admin/reindex-all?cursor=<diary_id>&limit=40   Header: X-Admin-Key
+// 按 diary_id 分页，每次处理 limit 篇，返回 next_cursor；循环调用直到 done=true
+// 一次处理太多会触发 Worker CPU / 子请求上限，40 是保守值
+async function handleAdminReindexAll(request, env) {
+  const q = new URL(request.url).searchParams;
+  const key = request.headers.get("X-Admin-Key") || q.get("key");
+  if (!env.ADMIN_KEY) return json({ error: "admin_key_not_configured" }, 503);
+  if (key !== env.ADMIN_KEY) return json({ error: "forbidden" }, 403);
+
+  const cursor = q.get("cursor") || "";
+  const limit = Math.min(Math.max(parseInt(q.get("limit") || "40"), 1), 80);
+  const rows = await env.DB.prepare(
+    "SELECT id, user_id, title, blocks FROM diaries WHERE id > ? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY id LIMIT ?"
+  ).bind(cursor, limit).all();
+  const list = rows.results || [];
+  let done = 0, skipped = 0, failed = 0;
+  for (const d of list) {
+    try {
+      const content = extractDiaryText({ title: d.title, blocks: d.blocks });
+      if (!content) { skipped++; continue; }
+      await upsertEmbedding(env, d.id, d.user_id, content);
+      done++;
+    } catch (e) { failed++; console.error('[reindex-all] 失败:', d.id, e.message); }
+  }
+  // 顺带清掉已经没有对应日记的残留向量（只在第一页做一次）
+  let orphans = 0;
+  if (!cursor) {
+    try {
+      const r = await env.DB.prepare("DELETE FROM diary_embeddings WHERE diary_id NOT IN (SELECT id FROM diaries)").run();
+      orphans = r?.meta?.changes ?? 0;
+    } catch (e) { console.error('[reindex-all] 清理残留失败:', e.message); }
+  }
+  const next = list.length === limit ? list[list.length - 1].id : null;
+  return json({ ok: true, processed: list.length, done, skipped, failed, orphans_removed: orphans, next_cursor: next, finished: !next });
 }
 
 async function handleReindex(request, env, JWT_SECRET) {

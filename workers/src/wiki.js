@@ -554,32 +554,553 @@ export async function handleWikiUpdateSourceTags(request, env, JWT_SECRET, param
 }
 
 // 日记保存 hook
+// ===================================================================
+// 🌾 「我的生活」：每个用户默认的日记知识库
+// 写日记 → 自动进这里 → 后台定时整理出 人物 / 地点 / 事件 页面
+// （旧逻辑是"放进用户最近新建的知识库"：没建知识库就不入；建了"小学数学"就会把家庭日记塞进去）
+// ===================================================================
+export const LIFE_KB_SLUG = 'wode-shenghuo';
+const LIFE_KB = {
+  title: '🌾 我的生活',
+  description: '小麦从你的日记里自动整理的人物、地点和事件',
+  categories: [
+    { name: '人物', slug: 'renwu', sort_order: 0, template_key: 'person',
+      fallback: '## 身份\n{{和我的关系}}\n\n## 印象\n{{性格、外貌、习惯}}\n\n## 一起经历的事\n{{按时间列出日记里提到的事}}' },
+    { name: '地点', slug: 'didian', sort_order: 1, template_key: 'place',
+      fallback: '## 是什么地方\n{{地点类型、位置}}\n\n## 和我有关的事\n{{按时间列出在这里发生的事}}' },
+    { name: '事件', slug: 'shijian', sort_order: 2, template_key: 'event',
+      fallback: '## 发生了什么\n{{时间、经过}}\n\n## 谁在场\n{{相关人物}}\n\n## 我的感受\n{{当时的心情}}' },
+  ],
+};
+// 首次创建时，把最近多少篇日记一起放进来（老用户不至于看到一个空库）
+const LIFE_KB_BACKFILL = 30;
+
+// 确保用户有「我的生活」知识库，返回 kb_id
+export async function ensureLifeKb(env, userId) {
+  const exist = await env.DB.prepare(
+    "SELECT id FROM wiki_knowledge_bases WHERE user_id=? AND slug=?"
+  ).bind(userId, LIFE_KB_SLUG).first();
+  if (exist) return exist.id;
+
+  const now = Date.now();
+  const kbId = uuid();
+  await env.DB.prepare(
+    "INSERT INTO wiki_knowledge_bases (id, user_id, slug, title, description, is_official, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)"
+  ).bind(kbId, userId, LIFE_KB_SLUG, LIFE_KB.title, LIFE_KB.description, 1, now, now).run();
+
+  // 分类：优先用官方范本；某个范本在当前环境缺失时（prod/dev 范本数量不一致，见 DEPLOY.md）用内置兜底格式，不再跳过
+  const keys = LIFE_KB.categories.map(c => c.template_key);
+  const tplRows = await env.DB.prepare(
+    "SELECT builtin_key, extract_hints, page_format FROM wiki_templates WHERE builtin_key IN (" +
+    keys.map(() => '?').join(',') + ") AND user_id='system' AND kb_id IS NULL"
+  ).bind(...keys).all();
+  const tplMap = Object.fromEntries((tplRows.results || []).map(r => [r.builtin_key, r]));
+  for (const c of LIFE_KB.categories) {
+    const tpl = tplMap[c.template_key];
+    const pageFormat = tpl?.page_format || c.fallback;
+    const hints = tpl?.extract_hints || autoExtractHints(pageFormat);
+    await env.DB.prepare(
+      "INSERT INTO wiki_categories (id, kb_id, user_id, name, slug, sort_order, extract_hints, page_format, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    ).bind(uuid(), kbId, userId, c.name, c.slug, c.sort_order, hints, pageFormat, now, now).run();
+  }
+
+  // 回填最近的日记（交给定时任务分批整理）
+  try {
+    const recent = await env.DB.prepare(
+      "SELECT id FROM diaries WHERE user_id=? AND (deleted_at IS NULL OR deleted_at = '') ORDER BY date DESC LIMIT ?"
+    ).bind(userId, LIFE_KB_BACKFILL).all();
+    for (const r of recent.results || []) await upsertDiarySource(env, kbId, r.id, userId);
+  } catch (e) { console.error('[wiki] life kb backfill fail:', e.message); }
+
+  await dblog(env, 'wiki', 'LIFE_KB_CREATED', { userId, kbId });
+  return kbId;
+}
+
+// 把一篇日记转成给小麦看的文本：标题、心情、标签 + 所有有内容的块（旧版只取 text 块）
+function diaryToWikiText(diary) {
+  const parts = [];
+  if (diary.date) parts.push(`日期：${diary.date}`);
+  if (diary.mood_id) parts.push(`心情：${diary.mood_id}`);
+  try {
+    const tags = JSON.parse(diary.tags || '[]');
+    if (Array.isArray(tags) && tags.length) parts.push(`标签：${tags.join('、')}`);
+  } catch {}
+  let blocks = [];
+  try { blocks = JSON.parse(diary.blocks || '[]'); } catch { return ''; }
+  if (!Array.isArray(blocks)) return '';
+  const body = [];
+  for (const b of blocks) {
+    const t = String(b?.content || '').trim();
+    switch (b?.kind) {
+      case 'text': case 'quote': if (t) body.push(t); break;
+      case 'heading': if (t) body.push(`【${t}】`); break;
+      case 'checkbox': if (t) body.push(`${b.checked ? '✅' : '⬜'} ${t}`); break;
+      case 'finance_item': if (t) body.push(`${b.direction === 'income' ? '收入' : '花费'} ${t} ${b.value ?? ''}元`); break;
+      case 'book': if (t) body.push(`读书：《${t}》${b.author ? ' ' + b.author : ''}`); break;
+      case 'number': if (b.label) body.push(`${b.label}：${b.value ?? ''}${b.unit || ''}`); break;
+      default: break;   // 图片、音频、分割线：没有可整理的文字
+    }
+  }
+  if (!body.length) return '';
+  return parts.join('｜') + '\n' + body.join('\n');
+}
+
+// 新增或更新一篇日记对应的资料；内容变了就标记为待重新整理
+async function upsertDiarySource(env, kbId, diaryId, userId) {
+  const diary = await env.DB.prepare(
+    "SELECT date, title, blocks, mood_id, tags, deleted_at FROM diaries WHERE id=? AND user_id=?"
+  ).bind(diaryId, userId).first();
+  if (!diary || diary.deleted_at) return false;
+  const rawText = diaryToWikiText(diary);
+  if (!rawText.trim()) return false;
+  const title = diary.title || `日记 ${diary.date}`;
+
+  const existing = await env.DB.prepare(
+    "SELECT id, raw_text FROM wiki_sources WHERE kb_id=? AND kind='diary' AND ref_id=?"
+  ).bind(kbId, diaryId).first();
+  if (existing) {
+    if (existing.raw_text === rawText) return false;            // 没变化
+    await env.DB.prepare(
+      "UPDATE wiki_sources SET raw_text=?, title=?, ingested=0, ingested_at=NULL WHERE id=?"
+    ).bind(rawText, title, existing.id).run();                   // 改过 → 待重新整理
+    return true;
+  }
+  await env.DB.prepare(
+    "INSERT INTO wiki_sources (id, kb_id, user_id, kind, ref_id, title, raw_text, ingested, created_at) VALUES (?,?,?,?,?,?,?,0,?)"
+  ).bind(uuid(), kbId, userId, 'diary', diaryId, title, rawText, Date.now()).run();
+  return true;
+}
+
+// 保存日记后调用（index.js handleSaveDiary 里 ctx.waitUntil）
 export async function saveDiaryToWikiSources(env, diaryId, userId) {
   try {
-    const diary = await env.DB.prepare("SELECT date, title, blocks FROM diaries WHERE id=? AND user_id=?").bind(diaryId, userId).first();
-    if (!diary) return;
-    // 日记归入用户最近创建的 KB（如果有）
-    const kb = await env.DB.prepare("SELECT id FROM wiki_knowledge_bases WHERE user_id=? ORDER BY created_at DESC LIMIT 1").bind(userId).first();
-    if (!kb) return; // 用户还没建 KB，不入
-
-    const existing = await env.DB.prepare("SELECT 1 FROM wiki_sources WHERE kb_id=? AND kind='diary' AND ref_id=?").bind(kb.id, diaryId).first();
-    if (existing) return;
-
-    let rawText = '';
-    try {
-      const blocks = JSON.parse(diary.blocks || '[]');
-      rawText = blocks.filter(b => b.kind === 'text').map(b => b.content).join('\n');
-    } catch {
-      console.warn('[wiki] diary blocks JSON parse failed, skipping source:', diaryId);
-      return;
-    }
-    if (!rawText.trim()) return;
-
-    const now = Date.now();
-    await env.DB.prepare(
-      "INSERT INTO wiki_sources (id, kb_id, user_id, kind, ref_id, title, raw_text, ingested, created_at) VALUES (?,?,?,?,?,?,?,0,?)"
-    ).bind(uuid(), kb.id, userId, 'diary', diaryId, diary.title || `日记 ${diary.date}`, rawText, now).run();
+    const kbId = await ensureLifeKb(env, userId);
+    await upsertDiarySource(env, kbId, diaryId, userId);
   } catch (e) { console.error('[wiki] diary source fail:', e.message); }
+}
+
+// 永久删除日记时调用：删掉对应资料；只由这篇日记生成的页面一起删掉，和别的日记共用的页面只去掉引用
+export async function removeDiaryFromWiki(env, diaryId, userId) {
+  try {
+    const srcs = await env.DB.prepare(
+      "SELECT id, kb_id FROM wiki_sources WHERE user_id=? AND kind='diary' AND ref_id=?"
+    ).bind(userId, diaryId).all();
+    for (const src of srcs.results || []) {
+      const pages = await env.DB.prepare(
+        "SELECT id, title, source_ids FROM wiki_pages WHERE kb_id=? AND user_id=? AND source_ids LIKE ?"
+      ).bind(src.kb_id, userId, '%' + src.id + '%').all();
+      for (const p of pages.results || []) {
+        let ids = [];
+        try { ids = JSON.parse(p.source_ids || '[]'); } catch {}
+        if (!Array.isArray(ids)) ids = [];
+        const remain = ids.filter(x => x !== src.id);
+        if (remain.length === 0) {
+          await env.DB.prepare("DELETE FROM wiki_pages WHERE id=?").bind(p.id).run();
+          await env.DB.prepare("DELETE FROM wiki_links WHERE kb_id=? AND (from_title=? OR to_title=?)")
+            .bind(src.kb_id, p.title, p.title).run();
+        } else if (remain.length !== ids.length) {
+          await env.DB.prepare("UPDATE wiki_pages SET source_ids=? WHERE id=?").bind(JSON.stringify(remain), p.id).run();
+        }
+      }
+      await env.DB.prepare("DELETE FROM wiki_sources WHERE id=?").bind(src.id).run();
+    }
+  } catch (e) { console.error('[wiki] remove diary fail:', e.message); }
+}
+
+// ===================================================================
+// 👤 人物页（信息架构改版阶段 4）：「我的生活」知识库的用户侧接口
+// 只暴露日记用户能懂的概念：人物 / 地点 / 事件；改名、合并、删除
+// ===================================================================
+const LIFE_KINDS = { renwu: 'person', didian: 'place', shijian: 'event' };
+
+async function lifeCtx(env, uid) {
+  const kbId = await ensureLifeKb(env, uid);
+  const cats = await env.DB.prepare("SELECT id, slug, name FROM wiki_categories WHERE kb_id=?").bind(kbId).all();
+  const catById = {};
+  for (const c of cats.results || []) catById[c.id] = { ...c, kind: LIFE_KINDS[c.slug] || 'other' };
+  return { kbId, catById };
+}
+function countSources(sourceIds) {
+  try { const a = JSON.parse(sourceIds || '[]'); return Array.isArray(a) ? a.length : 0; } catch { return 0; }
+}
+// [[双链]] 在正文里换名（改名 / 合并时用）
+function replaceWikiLink(content, from, to) {
+  if (!content) return content;
+  return content.split('[[' + from + ']]').join('[[' + to + ']]');
+}
+
+// GET /api/life/overview — 人物 / 地点 / 事件 列表 + 还在排队整理的日记数
+export async function handleLifeOverview(request, env, JWT_SECRET) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const { kbId, catById } = await lifeCtx(env, user.uid);
+  const rows = await env.DB.prepare(
+    "SELECT id, category_id, title, summary, source_ids, updated_at FROM wiki_pages WHERE kb_id=? AND user_id=? AND (is_system=0 OR is_system IS NULL) ORDER BY updated_at DESC LIMIT 500"
+  ).bind(kbId, user.uid).all();
+  const pending = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM wiki_sources WHERE kb_id=? AND ingested=0"
+  ).bind(kbId).first();
+  const items = (rows.results || []).map(p => ({
+    id: p.id,
+    title: p.title,
+    summary: p.summary || '',
+    kind: catById[p.category_id]?.kind || 'other',
+    mentions: countSources(p.source_ids),
+    updated_at: p.updated_at,
+  }));
+  // 被提到次数多的排前面（"最常出现在你日记里的人"）
+  items.sort((a, b) => (b.mentions - a.mentions) || (b.updated_at - a.updated_at));
+  return json({ kb_id: kbId, items, pending: pending?.n || 0 });
+}
+
+// GET /api/life/pages/:page_id — 详情 + 提到 TA 的日记 + 相关的人/地点/事件
+export async function handleLifePage(request, env, JWT_SECRET, params) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const { kbId, catById } = await lifeCtx(env, user.uid);
+  const page = await env.DB.prepare(
+    "SELECT id, category_id, title, content, summary, source_ids, updated_at FROM wiki_pages WHERE id=? AND kb_id=? AND user_id=?"
+  ).bind(params.page_id, kbId, user.uid).first();
+  if (!page) return json({ error: "not found" }, 404);
+
+  // 来源资料 → 日记（只列还在的、没进回收站的）
+  let srcIds = [];
+  try { srcIds = JSON.parse(page.source_ids || '[]'); } catch {}
+  let diaries = [];
+  if (Array.isArray(srcIds) && srcIds.length) {
+    const ids = srcIds.slice(0, 100);
+    const r = await env.DB.prepare(
+      `SELECT d.id, d.date, d.title, d.mood_id, s.raw_text FROM wiki_sources s
+         JOIN diaries d ON d.id = s.ref_id AND d.user_id = s.user_id
+        WHERE s.kind='diary' AND s.user_id=? AND s.id IN (${ids.map(() => '?').join(',')})
+          AND (d.deleted_at IS NULL OR d.deleted_at = '')
+        ORDER BY d.date DESC`
+    ).bind(user.uid, ...ids).all();
+    diaries = (r.results || []).map(d => {
+      // 摘要：优先截取提到这个名字的那一段
+      const text = String(d.raw_text || '').split('\n').slice(1).join(' ');
+      const pos = text.indexOf(page.title);
+      const start = pos > 20 ? pos - 20 : 0;
+      return { id: d.id, date: d.date, title: d.title || '', mood_id: d.mood_id, snippet: text.slice(start, start + 80) };
+    });
+  }
+
+  // 相关的人 / 地点 / 事件（双向链接两个方向合并去重）
+  const rel = await env.DB.prepare(
+    `SELECT p.id, p.title, p.category_id FROM wiki_links l
+       JOIN wiki_pages p ON p.kb_id = l.kb_id AND p.title = (CASE WHEN l.from_title = ? THEN l.to_title ELSE l.from_title END)
+      WHERE l.kb_id = ? AND (l.from_title = ? OR l.to_title = ?) AND p.id != ? AND (p.is_system=0 OR p.is_system IS NULL)`
+  ).bind(page.title, kbId, page.title, page.title, page.id).all();
+  const seen = new Set();
+  const related = [];
+  for (const p of rel.results || []) {
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    related.push({ id: p.id, title: p.title, kind: catById[p.category_id]?.kind || 'other' });
+  }
+
+  return json({
+    page: {
+      id: page.id, title: page.title, summary: page.summary || '', content: page.content || '',
+      kind: catById[page.category_id]?.kind || 'other', updated_at: page.updated_at,
+    },
+    diaries,
+    related,
+  });
+}
+
+// POST /api/life/pages/:page_id/rename  { title }
+// 同时更新双向链接和别的页面里的 [[旧名]]；新名字已存在 → 409，前端提示"要合并吗"
+export async function handleLifeRename(request, env, JWT_SECRET, params) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const { kbId } = await lifeCtx(env, user.uid);
+  const { title } = await readBody(request);
+  const newTitle = String(title || '').trim();
+  if (!newTitle) return json({ error: "title required" }, 400);
+  const page = await env.DB.prepare("SELECT id, title FROM wiki_pages WHERE id=? AND kb_id=? AND user_id=?")
+    .bind(params.page_id, kbId, user.uid).first();
+  if (!page) return json({ error: "not found" }, 404);
+  if (page.title === newTitle) return json({ ok: true });
+  const clash = await env.DB.prepare("SELECT id FROM wiki_pages WHERE kb_id=? AND title=?").bind(kbId, newTitle).first();
+  if (clash) return json({ error: "title_exists", conflict_id: clash.id }, 409);
+
+  const now = Date.now();
+  await env.DB.prepare("UPDATE wiki_pages SET title=?, updated_at=? WHERE id=?").bind(newTitle, now, page.id).run();
+  await env.DB.prepare("UPDATE wiki_links SET from_title=? WHERE kb_id=? AND from_title=?").bind(newTitle, kbId, page.title).run();
+  await env.DB.prepare("UPDATE wiki_links SET to_title=? WHERE kb_id=? AND to_title=?").bind(newTitle, kbId, page.title).run();
+  const refs = await env.DB.prepare("SELECT id, content FROM wiki_pages WHERE kb_id=? AND content LIKE ?")
+    .bind(kbId, '%[[' + page.title + ']]%').all();
+  for (const r of refs.results || []) {
+    await env.DB.prepare("UPDATE wiki_pages SET content=? WHERE id=?").bind(replaceWikiLink(r.content, page.title, newTitle), r.id).run();
+  }
+  await refreshPageVector(env, page.id);
+  return json({ ok: true, title: newTitle });
+}
+
+// POST /api/life/pages/:page_id/merge  { into_id }
+// 「宝宝」和「女儿」其实是同一个人：把当前页并进 into_id，来源日记、链接、正文都合过去
+export async function handleLifeMerge(request, env, JWT_SECRET, params) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const { kbId } = await lifeCtx(env, user.uid);
+  const { into_id } = await readBody(request);
+  if (!into_id || into_id === params.page_id) return json({ error: "into_id required" }, 400);
+  const q = "SELECT id, title, content, summary, source_ids FROM wiki_pages WHERE id=? AND kb_id=? AND user_id=? AND (is_system=0 OR is_system IS NULL)";
+  const from = await env.DB.prepare(q).bind(params.page_id, kbId, user.uid).first();
+  const into = await env.DB.prepare(q).bind(into_id, kbId, user.uid).first();
+  if (!from || !into) return json({ error: "not found" }, 404);
+
+  let a = [], b = [];
+  try { a = JSON.parse(from.source_ids || '[]'); } catch {}
+  try { b = JSON.parse(into.source_ids || '[]'); } catch {}
+  const mergedSources = [...new Set([...(Array.isArray(b) ? b : []), ...(Array.isArray(a) ? a : [])])];
+  const fromBody = replaceWikiLink(from.content || '', from.title, into.title).trim();
+  const mergedContent = (into.content || '').trim() + (fromBody ? `\n\n## 也叫「${from.title}」\n\n${fromBody}` : '');
+  const now = Date.now();
+
+  await env.DB.prepare("UPDATE wiki_pages SET content=?, source_ids=?, summary=COALESCE(NULLIF(summary,''), ?), updated_at=? WHERE id=?")
+    .bind(mergedContent, JSON.stringify(mergedSources), from.summary || '', now, into.id).run();
+  await env.DB.prepare("UPDATE wiki_links SET from_title=? WHERE kb_id=? AND from_title=?").bind(into.title, kbId, from.title).run();
+  await env.DB.prepare("UPDATE wiki_links SET to_title=? WHERE kb_id=? AND to_title=?").bind(into.title, kbId, from.title).run();
+  await env.DB.prepare("DELETE FROM wiki_links WHERE kb_id=? AND from_title=? AND to_title=?").bind(kbId, into.title, into.title).run();
+  const refs = await env.DB.prepare("SELECT id, content FROM wiki_pages WHERE kb_id=? AND id != ? AND content LIKE ?")
+    .bind(kbId, from.id, '%[[' + from.title + ']]%').all();
+  for (const r of refs.results || []) {
+    await env.DB.prepare("UPDATE wiki_pages SET content=? WHERE id=?").bind(replaceWikiLink(r.content, from.title, into.title), r.id).run();
+  }
+  await env.DB.prepare("DELETE FROM wiki_pages WHERE id=?").bind(from.id).run();
+  await refreshPageVector(env, into.id);
+  return json({ ok: true, into_id: into.id, title: into.title });
+}
+
+// DELETE /api/life/pages/:page_id — 小麦认错了 / 不想要这一页
+export async function handleLifeDelete(request, env, JWT_SECRET, params) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const { kbId } = await lifeCtx(env, user.uid);
+  const page = await env.DB.prepare("SELECT id, title FROM wiki_pages WHERE id=? AND kb_id=? AND user_id=? AND (is_system=0 OR is_system IS NULL)")
+    .bind(params.page_id, kbId, user.uid).first();
+  if (!page) return json({ error: "not found" }, 404);
+  await env.DB.prepare("DELETE FROM wiki_pages WHERE id=?").bind(page.id).run();
+  await env.DB.prepare("DELETE FROM wiki_links WHERE kb_id=? AND (from_title=? OR to_title=?)").bind(kbId, page.title, page.title).run();
+  return json({ ok: true });
+}
+
+// ===================================================================
+// 🧭 知识库体验 v2：把成果带到日常页面 + 统一入口 + 简化添加
+// ===================================================================
+
+// POST /api/life/by-diaries  { ids: [diary_id,...] }
+// 每篇日记关联到的人物 / 地点 / 事件（时间线卡片、写完日记、今天页用）
+// 返回 { links: { [diary_id]: [{ id, title, kind }] } }
+export async function handleLifeByDiaries(request, env, JWT_SECRET) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const { ids } = await readBody(request);
+  const list = Array.isArray(ids) ? ids.filter(x => typeof x === 'string').slice(0, 60) : [];
+  if (!list.length) return json({ links: {} });
+  const kb = await env.DB.prepare("SELECT id FROM wiki_knowledge_bases WHERE user_id=? AND slug=?").bind(user.uid, LIFE_KB_SLUG).first();
+  if (!kb) return json({ links: {} });
+
+  const srcRows = await env.DB.prepare(
+    `SELECT id, ref_id FROM wiki_sources WHERE kb_id=? AND kind='diary' AND ref_id IN (${list.map(() => '?').join(',')})`
+  ).bind(kb.id, ...list).all();
+  const srcToDiary = {};
+  for (const r of srcRows.results || []) srcToDiary[r.id] = r.ref_id;
+  const srcIds = Object.keys(srcToDiary);
+  if (!srcIds.length) return json({ links: {} });
+
+  const cats = await env.DB.prepare("SELECT id, slug FROM wiki_categories WHERE kb_id=?").bind(kb.id).all();
+  const kindByCat = {};
+  for (const c of cats.results || []) kindByCat[c.id] = LIFE_KINDS[c.slug] || 'other';
+
+  // source_ids 是 JSON 数组字符串；页面数量不大（≤500），直接取回来在内存里匹配
+  const pages = await env.DB.prepare(
+    "SELECT id, title, category_id, source_ids FROM wiki_pages WHERE kb_id=? AND user_id=? AND (is_system=0 OR is_system IS NULL) LIMIT 500"
+  ).bind(kb.id, user.uid).all();
+  const links = {};
+  for (const p of pages.results || []) {
+    let sids = [];
+    try { sids = JSON.parse(p.source_ids || '[]'); } catch {}
+    if (!Array.isArray(sids)) continue;
+    for (const sid of sids) {
+      const did = srcToDiary[sid];
+      if (!did) continue;
+      (links[did] ||= []).push({ id: p.id, title: p.title, kind: kindByCat[p.category_id] || 'other' });
+    }
+  }
+  // 人物在前，同类按名字
+  const order = { person: 0, place: 1, event: 2, other: 3 };
+  for (const k of Object.keys(links)) links[k].sort((a, b) => (order[a.kind] - order[b.kind]) || a.title.localeCompare(b.title)).splice(6);
+  return json({ links });
+}
+
+// GET /api/life/recent?days=3 — 小麦最近整理了什么（今天页提示卡）
+export async function handleLifeRecent(request, env, JWT_SECRET) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const days = Math.min(Math.max(parseInt(new URL(request.url).searchParams.get('days') || '3'), 1), 14);
+  const since = Date.now() - days * 86400000;
+  const kb = await env.DB.prepare("SELECT id FROM wiki_knowledge_bases WHERE user_id=? AND slug=?").bind(user.uid, LIFE_KB_SLUG).first();
+  if (!kb) return json({ created: [], updated: [] });
+  const cats = await env.DB.prepare("SELECT id, slug FROM wiki_categories WHERE kb_id=?").bind(kb.id).all();
+  const kindByCat = {};
+  for (const c of cats.results || []) kindByCat[c.id] = LIFE_KINDS[c.slug] || 'other';
+  const rows = await env.DB.prepare(
+    "SELECT id, title, category_id, created_at, updated_at FROM wiki_pages WHERE kb_id=? AND user_id=? AND (is_system=0 OR is_system IS NULL) AND updated_at >= ? ORDER BY updated_at DESC LIMIT 20"
+  ).bind(kb.id, user.uid, since).all();
+  const created = [], updated = [];
+  for (const p of rows.results || []) {
+    const item = { id: p.id, title: p.title, kind: kindByCat[p.category_id] || 'other' };
+    if (p.created_at >= since) created.push(item); else updated.push(item);
+  }
+  return json({ created: created.slice(0, 6), updated: updated.slice(0, 6) });
+}
+
+// GET /api/kb/overview — 「知识」页：我的生活统计 + 所有自定义知识库（带页面数、最近更新）
+export async function handleKbOverview(request, env, JWT_SECRET) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const lifeId = await ensureLifeKb(env, user.uid);
+  const rows = await env.DB.prepare(
+    `SELECT k.id, k.slug, k.title, k.description, k.is_official, k.updated_at,
+            (SELECT COUNT(*) FROM wiki_pages p WHERE p.kb_id = k.id AND (p.is_system=0 OR p.is_system IS NULL)) AS pages,
+            (SELECT MAX(p.updated_at) FROM wiki_pages p WHERE p.kb_id = k.id) AS last_page_at,
+            (SELECT COUNT(*) FROM wiki_sources s WHERE s.kb_id = k.id AND s.ingested = 0) AS pending
+       FROM wiki_knowledge_bases k WHERE k.user_id = ? ORDER BY k.updated_at DESC`
+  ).bind(user.uid).all();
+  let life = null;
+  const kbs = [];
+  const presets = [];
+  for (const r of rows.results || []) {
+    const item = { id: r.id, title: r.title, description: r.description || '', pages: r.pages || 0, pending: r.pending || 0, last_at: r.last_page_at || r.updated_at || null };
+    if (r.id === lifeId) life = item;
+    // 还没放过内容的官方知识库：单独列为「官方知识库」，不和用户自己的库混在一起
+    else if (r.is_official && !item.pages && !item.pending) presets.push(item);
+    else kbs.push(item);
+  }
+  return json({ life, kbs, presets });
+}
+
+// POST /api/kb/quick-create  { name, purpose }
+// 一句话建库：小麦写说明 → 设计分类 → 建好返回（不再让用户理解「范本 / 页面格式」）
+export async function handleKbQuickCreate(request, env, JWT_SECRET) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const { name, purpose } = await readBody(request);
+  const title = String(name || '').trim().slice(0, 30);
+  const desc0 = String(purpose || '').trim().slice(0, 300);
+  if (!title) return json({ error: "name required" }, 400);
+  const dup = await env.DB.prepare("SELECT id FROM wiki_knowledge_bases WHERE user_id=? AND title=?").bind(user.uid, title).first();
+  if (dup) return json({ error: "已经有同名知识库了，换个名字吧" }, 409);
+
+  const tpls = (await env.DB.prepare(
+    "SELECT builtin_key, name, description, page_format, extract_hints FROM wiki_templates WHERE user_id='system' AND kb_id IS NULL"
+  ).all()).results || [];
+  let cats = [];
+  let aiDesc = '';
+  try {
+    const raw = await wikiCallLLM(env, [
+      { role: 'system', content: `你是知识库设计助手。用户要建一个个人知识库，你要设计 3-6 个分类。
+规则：分类名 2-6 个字；每个分类尽量从给定的内置模板里选一个 builtin_key，没有合适的写 null；只返回 JSON：{"description":"一句话说明这个库收什么","categories":[{"name":"分类名","template_key":"key或null"}]}` },
+      { role: 'user', content: `知识库名称：${title}\n用途：${desc0 || '（用户没写，请根据名称推断）'}\n\n内置模板：\n${tpls.map(t => `- ${t.builtin_key}：${t.name}（${(t.description || '').slice(0, 40)}）`).join('\n')}` },
+    ], 800);
+    const parsed = repairAiJson(raw || '') || {};
+    aiDesc = String(parsed.description || '').slice(0, 200);
+    cats = Array.isArray(parsed.categories) ? parsed.categories : [];
+  } catch (e) { console.error('[kb quick-create] AI 失败:', e.message); }
+  if (!cats.length) cats = [{ name: '笔记', template_key: null }];
+
+  const now = Date.now();
+  const kbId = uuid();
+  const desc = desc0 || aiDesc;
+  await env.DB.prepare("INSERT INTO wiki_knowledge_bases (id, user_id, title, description, created_at, updated_at) VALUES (?,?,?,?,?,?)")
+    .bind(kbId, user.uid, title, desc, now, now).run();
+  const tplMap = Object.fromEntries(tpls.map(t => [t.builtin_key, t]));
+  let i = 0;
+  for (const c of cats.slice(0, 6)) {
+    const nm = String(c?.name || '').trim().slice(0, 12);
+    if (!nm) continue;
+    const tpl = c.template_key ? tplMap[c.template_key] : null;
+    const pf = tpl?.page_format || `## 概要\n{{一句话说明}}\n\n## 要点\n{{关键信息}}\n\n## 我的想法\n{{用户自己的感受或评价}}`;
+    await env.DB.prepare(
+      "INSERT INTO wiki_categories (id, kb_id, user_id, name, slug, sort_order, extract_hints, page_format, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    ).bind(uuid(), kbId, user.uid, nm, autoSlug(nm) + '-' + i, i * 10, tpl?.extract_hints || autoExtractHints(pf), pf, now, now).run();
+    i++;
+  }
+  return json({ ok: true, kb: { id: kbId, title, description: desc } });
+}
+
+// POST /api/kb/collect  { text, title?, kb_id? }
+// 「收进知识库」：不指定 kb_id 时，小麦从用户的自定义知识库里选最合适的；都不合适 → 建议新建
+// 收下后立刻在后台整理（不用再点「汇入」）
+export async function handleKbCollect(request, env, JWT_SECRET, _params, ctx) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const { text, title, kb_id } = await readBody(request);
+  const body = String(text || '').trim();
+  if (body.length < 2) return json({ error: "text required" }, 400);
+
+  const kbs = ((await env.DB.prepare(
+    "SELECT id, title, description, slug FROM wiki_knowledge_bases WHERE user_id=? AND (slug IS NULL OR slug != ?) ORDER BY updated_at DESC LIMIT 20"
+  ).bind(user.uid, LIFE_KB_SLUG).all()).results) || [];
+
+  let target = kb_id ? kbs.find(k => k.id === kb_id) : null;
+  let suggestName = '';
+  if (!target && !kb_id) {
+    if (kbs.length) {
+      try {
+        const raw = await wikiCallLLM(env, [
+          { role: 'system', content: '你帮用户把一段资料放进最合适的知识库。只返回 JSON：{"index": 序号或-1, "new_name": "如果都不合适，建议的新知识库名(2-8字)"}' },
+          { role: 'user', content: `知识库：\n${kbs.map((k, i) => `${i}. ${k.title}${k.description ? '（' + k.description.slice(0, 40) + '）' : ''}`).join('\n')}\n\n资料：${body.slice(0, 500)}` },
+        ], 80);
+        const r = repairAiJson(raw || '') || {};
+        const idx = Number(r.index);
+        if (Number.isInteger(idx) && idx >= 0 && idx < kbs.length) target = kbs[idx];
+        else suggestName = String(r.new_name || '').slice(0, 12);
+      } catch (e) { console.error('[kb collect] 选库失败:', e.message); }
+    }
+    if (!target) return json({ ok: false, need_kb: true, suggest_name: suggestName, kbs: kbs.map(k => ({ id: k.id, title: k.title })) });
+  }
+  if (!target) return json({ error: "kb not found" }, 404);
+
+  let srcTitle = String(title || '').trim().slice(0, 40);
+  if (!srcTitle) srcTitle = body.split('\n')[0].slice(0, 20) || '资料';
+  const now = Date.now();
+  const sid = uuid();
+  await env.DB.prepare(
+    "INSERT INTO wiki_sources (id, kb_id, user_id, kind, ref_id, title, raw_text, ingested, created_at) VALUES (?,?,?,?,?,?,?,0,?)"
+  ).bind(sid, target.id, user.uid, 'text', null, srcTitle, body.slice(0, 20000), now).run();
+  await env.DB.prepare("UPDATE wiki_knowledge_bases SET updated_at=? WHERE id=?").bind(now, target.id).run();
+
+  // 立刻后台整理这一份（失败也没关系，定时任务会补）
+  ctx?.waitUntil?.(ingestKbCore(env, user, { id: target.id, title: target.title }, { kb_id: target.id }, [sid], { maxSources: 1, auto: true })
+    .catch(e => console.error('[kb collect] 整理失败:', e.message)));
+  return json({ ok: true, kb: { id: target.id, title: target.title } });
+}
+
+// ⏰ 定时任务：把「我的生活」里待整理的日记自动汇入（不用用户手动点「汇入」）
+// 每次最多处理 AUTO_INGEST_USERS 个用户、每人 AUTO_INGEST_SOURCES 份，控制单次耗时和 AI 成本
+const AUTO_INGEST_USERS = 5;
+const AUTO_INGEST_SOURCES = 6;
+export async function autoIngestLifeKbs(env) {
+  // 所有知识库都自动整理（不只是「我的生活」）；「我的生活」优先，其次按最早待整理的资料排
+  const rows = await env.DB.prepare(
+    `SELECT k.id AS kb_id, k.title, k.user_id, MIN(s.created_at) AS oldest, (k.slug = ?) AS is_life
+       FROM wiki_knowledge_bases k JOIN wiki_sources s ON s.kb_id = k.id
+      WHERE s.ingested = 0
+      GROUP BY k.id ORDER BY is_life DESC, oldest ASC LIMIT ?`
+  ).bind(LIFE_KB_SLUG, AUTO_INGEST_USERS).all();
+  for (const r of rows.results || []) {
+    try {
+      const res = await ingestKbCore(env, { uid: r.user_id }, { id: r.kb_id, title: r.title }, { kb_id: r.kb_id }, null,
+        { maxSources: AUTO_INGEST_SOURCES, auto: true });
+      await dblog(env, 'ingest', 'AUTO_DONE', { kb_id: r.kb_id, ok: res.ingested_count, failed: res.failed_count, created: res.created, updated: res.updated });
+    } catch (e) {
+      console.error('[wiki] auto ingest fail:', r.kb_id, e.message);
+    }
+  }
 }
 
 // ====== Pages ======
@@ -1029,12 +1550,16 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   if (!user) return json({ error: "unauthorized" }, 401);
   const kb = await ensureKb(env, user.uid, params.kb_id);
   if (!kb) return json({ error: "kb not found" }, 404);
-
-  await dblog(env, 'ingest', 'START', { kb_id: params.kb_id, kb_title: kb.title, newCode: true });
-
   // 支持 body: { ids: ['id1','id2'] } 只汇入选中的；不传 ids 或空数组就汇入全部待处理
   let bodyIds = null;
   try { const b = await readBody(request); if (Array.isArray(b.ids) && b.ids.length > 0) bodyIds = b.ids; } catch {}
+  return json(await ingestKbCore(env, user, kb, params, bodyIds));
+}
+
+// 汇入核心：手动「📥 汇入」和后台定时自动汇入共用
+// opts.maxSources：每次最多处理几份资料（定时任务用，控制单次耗时和 AI 成本）
+async function ingestKbCore(env, user, kb, params, bodyIds, opts = {}) {
+  await dblog(env, 'ingest', 'START', { kb_id: params.kb_id, kb_title: kb.title, newCode: true, auto: !!opts.auto });
 
   const categoriesR = await env.DB.prepare("SELECT * FROM wiki_categories WHERE kb_id=? ORDER BY sort_order").bind(params.kb_id).all();
   const categories = categoriesR.results;
@@ -1066,11 +1591,12 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   }
   sql += " ORDER BY created_at ASC";
   const pendingR = await env.DB.prepare(sql).bind(...binds).all();
-  const pending = pendingR.results;
+  let pending = pendingR.results;
+  if (opts.maxSources && pending.length > opts.maxSources) pending = pending.slice(0, opts.maxSources);
   await dblog(env, 'ingest', 'PENDING_QUERIED', { count: pending.length, ids: pending.map(s => s.id) });
   if (pending.length === 0) {
     await dblog(env, 'ingest', 'DONE_NO_PENDING');
-    return json({ ok: true, message: bodyIds ? "选中的资料都已汇入" : "没有待处理的资料" });
+    return { ok: true, ingested_count: 0, message: bodyIds ? "选中的资料都已汇入" : "没有待处理的资料" };
   }
 
   const systemPrompt = buildWikiSystemPrompt(kb, categories, existingPages);
@@ -1394,18 +1920,22 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   // 更新 KB 的 updated_at（用于列表排序：最近活跃的排最上）
   await env.DB.prepare("UPDATE wiki_knowledge_bases SET updated_at = strftime('%s','now') WHERE id = ?").bind(params.kb_id).run();
 
-  return json({
+  const result = {
     ok: true,
-    ingested_count: pending.length,
+    // 实际处理成功的份数（旧版返回的是"待处理总数"，部分批次失败时会多报）
+    ingested_count: processedSourceIds.size,
+    // 本次没处理成功、留到下次重试的份数（前端可据此提示"有 N 份没整理好，稍后会自动重试"）
+    failed_count: pending.length - processedSourceIds.size,
     created: createdCount,
     updated: updatedCount,
     links_added: linkPairs.size,
     pages: allPages.map(p => ({ title: p.title, category_slug: p.category_slug, summary: p.summary || '' })),
-    debug: debugRaws,
-    page_debug: pageDebug,
-    warnings,
-    slug_to_catid: slugToCatId
-  });
+  };
+  // 调试信息只在显式开启时返回（和小麦问答一致：wrangler.toml [vars] DEBUG_ASK = "true"）
+  if (env.DEBUG_ASK === 'true') {
+    Object.assign(result, { debug: debugRaws, page_debug: pageDebug, warnings, slug_to_catid: slugToCatId });
+  }
+  return result;
 }
 
 // ====== Debug 日志接口（tail 连不上时的替代通路） ======
@@ -1696,7 +2226,8 @@ const OFFICIAL_KB_PRESETS = [
 export async function handleWikiListOfficialPresets(request, env, JWT_SECRET) {
   const user = await auth(request, env, JWT_SECRET);
   if (!user) return json({ error: "unauthorized" }, 401);
-  const publicList = OFFICIAL_KB_PRESETS.map(p => ({
+  // active:false 的是内部暂停的预设（描述里还写着"暂停"），不再展示给用户
+  const publicList = OFFICIAL_KB_PRESETS.filter(p => p.active !== false).map(p => ({
     slug: p.slug,
     title: p.title,
     description: p.description,
@@ -1752,7 +2283,7 @@ export async function handleWikiSeedOfficialPreset(request, env, JWT_SECRET) {
   const body = await readBody(request);
   const slug = body.slug;
   if (!slug) return json({ error: "slug required" }, 400);
-  const preset = OFFICIAL_KB_PRESETS.find(p => p.slug === slug);
+  const preset = OFFICIAL_KB_PRESETS.find(p => p.slug === slug && p.active !== false);
   if (!preset) return json({ error: "preset not found" }, 404);
 
   const result = await seedOfficialPreset(env, user.uid, preset);
