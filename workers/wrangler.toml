@@ -19,9 +19,10 @@ binding = "DB"
 database_name = "mydiary-db"
 database_id = "ed7e7954-5f55-439c-a76a-228f1124512b"
 
-# Workers AI（embedding + LLM 问答）
+# Workers AI（embedding + LLM 问答）—— 远程端点，边缘节点不支持 llama 系列
 [ai]
 binding = "AI"
+remote = true
 
 # 验证码 KV（5 分钟 TTL 在代码里写）
 [[kv_namespaces]]
@@ -49,9 +50,10 @@ database_name = "mydiary-db-dev"
 database_id = "fb45cce8-c051-4f20-a560-ea2dc3cadb26"
 remote = true
 
-# Workers AI dev（和 Prod 一致，走边缘节点本地推理，不能 remote=true——远程端点某些模型不工作）
+# Workers AI dev（和 Prod 一致，走 Cloudflare 远程 AI 端点，边缘节点上 llama 系列已下线）
 [env.dev.ai]
 binding = "AI"
+remote = true
 
 [[env.dev.kv_namespaces]]
 binding = "verify_codes_dev"
