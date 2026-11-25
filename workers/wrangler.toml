@@ -49,10 +49,9 @@ database_name = "mydiary-db-dev"
 database_id = "fb45cce8-c051-4f20-a560-ea2dc3cadb26"
 remote = true
 
-# Workers AI dev
+# Workers AI dev（和 Prod 一致，走边缘节点本地推理，不能 remote=true——远程端点某些模型不工作）
 [env.dev.ai]
 binding = "AI"
-remote = true
 
 [[env.dev.kv_namespaces]]
 binding = "verify_codes_dev"
