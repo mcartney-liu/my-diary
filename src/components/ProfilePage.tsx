@@ -77,7 +77,7 @@ export default function ProfilePage() {
   const [showVoiceModal, setShowVoiceModal] = useState(false); // 🎙️ 流式语音识别设置弹窗
   const [showIdentityModal, setShowIdentityModal] = useState(false);
   const [showInterestsModal, setShowInterestsModal] = useState(false);
-  const [themeSetting, setThemeSetting] = useState(localStorage.getItem("mydiary_theme") || "paper");
+  const [themeSetting, setThemeSetting] = useState(localStorage.getItem("mydiary_theme") || "forest");
   // 🎙️ 语音识别流式模式（默认关 → Whisper 批量转写，准但等 2-3 秒）
   const [streamingVoice, setStreamingVoice] = useState(
     () => localStorage.getItem("mydiary_streaming_voice") === "1"

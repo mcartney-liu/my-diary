@@ -201,7 +201,7 @@ export default function App() {
 
   // 全局主题初始化（刷新后不丢失）
   useEffect(() => {
-    const saved = localStorage.getItem("mydiary_theme") || "paper";
+    const saved = localStorage.getItem("mydiary_theme") || "forest";
     document.documentElement.setAttribute("data-theme", saved);
   }, []);
 
