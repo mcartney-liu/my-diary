@@ -2173,7 +2173,7 @@ function WikiForceGraph({
   const W = 360, H = 320;
 
   return (
-    <div className="relative bg-[#faf6ef]/50 rounded-md overflow-hidden border border-paper-line/40" style={{ height: 320 }}>
+    <div className="relative bg-paper-bg/50 rounded-md overflow-hidden border border-paper-line/40" style={{ height: 320 }}>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}

@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { confirmAsync } from "../uiFeedback";
-import { ArrowLeft, RotateCcw, Trash2, CheckSquare, Square } from "lucide-react";
+import { RotateCcw, Trash2, CheckSquare, Square } from "lucide-react";
 import type { Diary } from "../types";
 import { moodById } from "../data";
+import PageHeader from "./PageHeader";
 
 interface Props {
   diaries: Diary[];
@@ -83,23 +84,15 @@ export default function TrashPage({ diaries, onRestore, onPermanentDelete, onBat
   };
 
   return (
-    <div className="min-h-screen bg-[#faf6ef]">
-      <header className="sticky top-0 z-10 bg-[#faf6ef]/95 backdrop-blur border-b border-paper-line">
-        <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center gap-2">
-          <button
-            onClick={() => {
-              if (selectMode) exitSelectMode();
-              else nav("/calendar", { replace: true });
-            }}
-            className="p-2 -ml-2 rounded-full hover:bg-paper-surface active:scale-95"
-          >
-            <ArrowLeft size={20} className="text-paper-ink" />
-          </button>
-          <h1 className="text-base text-paper-ink font-medium">🗑️ 回收站</h1>
+    <div className="min-h-screen bg-paper-bg">
+      <PageHeader
+        title="🗑️ 回收站"
+        onBack={() => { if (selectMode) exitSelectMode(); else nav("/calendar", { replace: true }); }}
+        right={<>
           {selectMode ? (
-            <span className="text-xs text-paper-ink2 ml-auto">已选 {selected.size}</span>
+            <span className="text-xs text-paper-ink2">已选 {selected.size}</span>
           ) : (
-            <span className="text-xs text-paper-ink2 ml-auto">{sorted.length} 条</span>
+            <span className="text-xs text-paper-ink2">{sorted.length} 条</span>
           )}
           {sorted.length > 0 && !selectMode && (
             <button
@@ -117,8 +110,8 @@ export default function TrashPage({ diaries, onRestore, onPermanentDelete, onBat
               完成
             </button>
           )}
-        </div>
-      </header>
+        </>}
+      />
 
       <main className="max-w-2xl mx-auto px-4 py-4 pb-32">
         {sorted.length === 0 ? (
@@ -201,7 +194,7 @@ export default function TrashPage({ diaries, onRestore, onPermanentDelete, onBat
 
       {/* 批量操作栏 */}
       {selectMode && sorted.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-paper-line bg-[#faf6ef]/95 backdrop-blur footer-safe">
+        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-paper-line bg-paper-bg/95 backdrop-blur footer-safe">
           <div className="max-w-2xl mx-auto px-4 py-3 flex items-center gap-2">
             <button
               onClick={toggleSelectAll}

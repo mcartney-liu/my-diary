@@ -20,6 +20,7 @@ import ConfirmDialog from "./ConfirmDialog";
 import PromptDialog from "./PromptDialog";
 import { toast, notify, confirmAsync } from "../uiFeedback";
 import MiniAiBubble from "./MiniAiBubble";
+import { wheatShower } from "../celebrate";
 import {
   DndContext,
   closestCenter,
@@ -1957,6 +1958,7 @@ export default function EditorPage({ initialDiary, initialTemplateId, initialPol
       setDirty(false);
       try { localStorage.removeItem(draftKey); } catch {}
       // 新建日记第一次保存 → 回「今天」页，让用户马上看到小麦的回应
+      if (isFirstSave) wheatShower();
       if (isFirstSave && onCreated) { onCreated(diary); return; }
       // ✅ 只有云端也确认了才显示"已保存"（之前是不管云端成没成都先 toast，误导用户）
       setSaveToast(true);

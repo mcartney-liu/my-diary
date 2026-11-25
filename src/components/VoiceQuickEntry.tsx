@@ -351,7 +351,7 @@ export default function VoiceQuickEntry({ dockVariant = false, hintVariant = fal
       {createPortal(<>
         {/* 🔑 AI 润色中全屏遮罩 */}
         {isAiPolishing && (
-          <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-[#faf6ef]/97 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-paper-bg/97 backdrop-blur-sm">
             <div className="w-16 h-16 rounded-full border-4 border-paper-line border-t-paper-accent animate-spin" />
             <div className="mt-4 text-paper-ink font-medium flex items-center gap-2">
               <Bot size={18} className="text-paper-ink animate-pulse" />

@@ -4,7 +4,7 @@
  */
 import { toast, confirmAsync } from "../uiFeedback";
 import { useState, useEffect, useRef } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { CheckSquare, Square } from "lucide-react";
 import {
   wikiGlobalListSources,
@@ -16,9 +16,9 @@ import {
   wikiSuggestTitle,
 } from "../api";
 import type { WikiSource, WikiKB } from "../api";
+import PageHeader from "./PageHeader";
 
 export default function SourcesPanel() {
-  const nav = useNavigate();
   const location = useLocation();
   const [kbs, setKbs] = useState<WikiKB[]>([]);
   const [sources, setSources] = useState<WikiSource[]>([]);
@@ -309,17 +309,7 @@ export default function SourcesPanel() {
   return (
     <div className="min-h-screen bg-paper-bg pb-28">
       {/* 顶部 header */}
-      <header className="sticky top-0 z-20 backdrop-blur-sm bg-[#faf6ef]/85 border-b border-paper-line/60">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
-          <button
-            onClick={() => nav(-1)}
-            className="px-2.5 py-1.5 rounded-full border border-paper-line bg-paper-surface text-sm hover:bg-paper-line/50 transition active:scale-95"
-          >
-            ← 返回
-          </button>
-          <h1 className="text-paper-ink font-semibold text-lg tracking-wide flex-1">📎 资料库</h1>
-        </div>
-      </header>
+      <PageHeader title="📎 资料库" />
 
       <main className="max-w-3xl mx-auto px-4 pt-4 space-y-4">
         {/* 添加文本区 */}
@@ -471,7 +461,7 @@ export default function SourcesPanel() {
 
       {/* 底部批量汇入/选择栏 */}
       {selectMode && sources.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-paper-line bg-[#faf6ef]/95 backdrop-blur footer-safe">
+        <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-paper-line bg-paper-bg/95 backdrop-blur footer-safe">
           <div className="max-w-3xl mx-auto flex flex-col gap-2 px-4 py-3">
             {/* 目标 KB + 汇入按钮 */}
             <div className="flex items-center gap-2">

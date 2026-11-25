@@ -464,6 +464,17 @@ export type LifeLink = { id: string; title: string; kind: LifeKind };
 export function lifeByDiaries(ids: string[]) {
   return request<{ links: Record<string, LifeLink[]> }>("/api/life/by-diaries", { method: "POST", body: JSON.stringify({ ids }) });
 }
+export function kbCleanDescriptions() {
+  return request<{ ok: boolean; fixed: number }>("/api/kb/clean-descriptions", { method: "POST" });
+}
+/** 前端显示兜底：旧知识库说明里带「→ topic」等内部模板名、编号列表 → 只显示第一句（后端清洗前也不难看） */
+export function kbDescText(raw?: string | null): string {
+  let t = String(raw || "").trim();
+  if (!t) return "";
+  t = t.replace(/\s*(?:→|->|=>)\s*[A-Za-z_][\w-]*/g, "");
+  const first = t.split(/\n+/).map((x) => x.trim()).filter(Boolean)[0] || "";
+  return first.replace(/^\d+[.、)]\s*/, "");
+}
 export function lifeRepairLinks() {
   return request<{ ok: boolean; fixed: number; removed: number }>("/api/life/repair-links", { method: "POST" });
 }

@@ -28,6 +28,8 @@ export function installKeyboardSafeFocus(): void {
   const onFocusIn = (e: Event) => {
     const el = e.target as HTMLElement | null;
     if (!el || !isTextField(el)) return;
+    // 标记「键盘可能弹起」：小麦页等整页布局据此隐藏浮动底栏，避免盖住输入框
+    document.documentElement.classList.add("kb-open");
 
     window.setTimeout(() => {
       if (!el.isConnected) return; // 聚焦后又立刻关了弹窗
@@ -43,4 +45,13 @@ export function installKeyboardSafeFocus(): void {
 
   // 捕获阶段监听：弹窗里的输入框焦点事件在 React 挂载时就已冒泡，捕获能确保都收到
   document.addEventListener("focusin", onFocusIn, true);
+  document.addEventListener("focusout", (e) => {
+    const el = e.target as HTMLElement | null;
+    if (!el || !isTextField(el)) return;
+    // 稍等一下：焦点从一个输入框直接跳到另一个时，不要让底栏闪一下
+    window.setTimeout(() => {
+      const a = document.activeElement as HTMLElement | null;
+      if (!a || !isTextField(a)) document.documentElement.classList.remove("kb-open");
+    }, 120);
+  }, true);
 }

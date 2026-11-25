@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import type { Diary } from "../types";
 import { FINANCE_CATEGORIES, resolveCategory, categoryMeta } from "../categories";
+import PageHeader from "./PageHeader";
 
 interface Props {
   diaries: Diary[];
@@ -127,19 +128,14 @@ export default function FinancePage({ diaries }: Props) {
   const hasData = items.length > 0;
 
   return (
-    <div className="min-h-screen bg-[#faf6ef]">
-      <header className="sticky top-0 z-10 bg-[#faf6ef]/95 backdrop-blur border-b border-paper-line">
-        <div className="max-w-2xl mx-auto px-4 py-2.5 flex items-center gap-2">
-          <button
-            onClick={() => nav("/calendar", { replace: true })}
-            className="p-2 -ml-2 rounded-full hover:bg-paper-surface active:scale-95"
-          >
-            <ArrowLeft size={20} className="text-paper-ink" />
-          </button>
-          <h1 className="text-base text-paper-ink font-medium">💰 记账统计</h1>
+    <div className="min-h-screen bg-paper-bg">
+      <PageHeader
+        title="💰 记账统计"
+        backTo="/calendar"
+        right={<>
           <button
             onClick={() => nav("/editor?template=finance")}
-            className="ml-auto flex items-center gap-1 px-2.5 py-1 rounded-full bg-paper-accent/15 text-paper-accent text-xs font-medium hover:bg-paper-accent/25 transition"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-paper-accent/15 text-paper-accent text-xs font-medium hover:bg-paper-accent/25 transition"
           >
             <Plus size={14} /> 记一笔
           </button>
@@ -175,8 +171,8 @@ export default function FinancePage({ diaries }: Props) {
               <ChevronRight size={16} />
             </button>
           </div>
-        </div>
-      </header>
+        </>}
+      />
 
       <main className="max-w-2xl mx-auto px-4 py-4 space-y-5">
         {/* 常驻说明 */}
