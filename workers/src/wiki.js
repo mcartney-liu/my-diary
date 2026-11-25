@@ -1080,6 +1080,37 @@ export async function handleKbCollect(request, env, JWT_SECRET, _params, ctx) {
   return json({ ok: true, kb: { id: target.id, title: target.title } });
 }
 
+// POST /api/life/repair-links — 修复历史数据：按「标题是否出现在日记原文里」重算每个页面的来源
+// 背景：旧版汇入把每个页面挂到同一批的所有资料名下，导致每篇日记都显示同一串人物
+// 只改 source_ids，不改页面内容；「小麦」页（App 助手本身）一并删掉
+export async function handleLifeRepairLinks(request, env, JWT_SECRET) {
+  const user = await auth(request, env, JWT_SECRET);
+  if (!user) return json({ error: "unauthorized" }, 401);
+  const kb = await env.DB.prepare("SELECT id FROM wiki_knowledge_bases WHERE user_id=? AND slug=?").bind(user.uid, LIFE_KB_SLUG).first();
+  if (!kb) return json({ ok: true, fixed: 0 });
+  const srcs = (await env.DB.prepare("SELECT id, title, raw_text FROM wiki_sources WHERE kb_id=?").bind(kb.id).all()).results || [];
+  const pages = (await env.DB.prepare("SELECT id, title, source_ids FROM wiki_pages WHERE kb_id=? AND user_id=? AND (is_system=0 OR is_system IS NULL)").bind(kb.id, user.uid).all()).results || [];
+  let fixed = 0, removed = 0;
+  for (const p of pages) {
+    if (/^小麦(🌾)?$/.test(String(p.title).trim())) {
+      await env.DB.prepare("DELETE FROM wiki_pages WHERE id=?").bind(p.id).run();
+      await env.DB.prepare("DELETE FROM wiki_links WHERE kb_id=? AND (from_title=? OR to_title=?)").bind(kb.id, p.title, p.title).run();
+      removed++;
+      continue;
+    }
+    let old = [];
+    try { old = JSON.parse(p.source_ids || '[]'); } catch {}
+    const next = srcs.filter((src) => sourceMentions(src, p.title)).map((src) => src.id);
+    // 标题在原文里一次都没出现（AI 改写过的名字）→ 保留原来的，避免把页面变成孤儿
+    const finalIds = next.length ? next : (Array.isArray(old) ? old : []);
+    if (JSON.stringify(finalIds) !== JSON.stringify(old)) {
+      await env.DB.prepare("UPDATE wiki_pages SET source_ids=? WHERE id=?").bind(JSON.stringify(finalIds), p.id).run();
+      fixed++;
+    }
+  }
+  return json({ ok: true, fixed, removed, pages: pages.length });
+}
+
 // ⏰ 定时任务：把「我的生活」里待整理的日记自动汇入（不用用户手动点「汇入」）
 // 每次最多处理 AUTO_INGEST_USERS 个用户、每人 AUTO_INGEST_SOURCES 份，控制单次耗时和 AI 成本
 const AUTO_INGEST_USERS = 5;
@@ -1556,6 +1587,16 @@ export async function handleWikiIngestAll(request, env, JWT_SECRET, params) {
   return json(await ingestKbCore(env, user, kb, params, bodyIds));
 }
 
+// 判断一份资料里是否真的提到了某个页面（标题或别名出现在原文中）
+// 标题太短（1 个字）容易误命中，要求至少 2 个字
+function sourceMentions(src, title, aliases) {
+  const text = String(src?.raw_text || '') + ' ' + String(src?.title || '');
+  const names = [title, ...(Array.isArray(aliases) ? aliases : [])]
+    .map((n) => String(n || '').trim())
+    .filter((n) => n.length >= 2);
+  return names.some((n) => text.includes(n));
+}
+
 // 汇入核心：手动「📥 汇入」和后台定时自动汇入共用
 // opts.maxSources：每次最多处理几份资料（定时任务用，控制单次耗时和 AI 成本）
 async function ingestKbCore(env, user, kb, params, bodyIds, opts = {}) {
@@ -1693,7 +1734,17 @@ async function ingestKbCore(env, user, kb, params, bodyIds, opts = {}) {
     // =============================================
 
     await dblog(env, 'ingest', 'BATCH_END', { batch: i, hasPages: !!parsed.pages, pageCount: parsed.pages?.length || 0, hasLinks: !!parsed.links });
-    if (parsed.pages) allPages = allPages.concat(parsed.pages);
+    // 记下每个页面出自哪一批资料；后面再按「标题是否真的出现在这份资料里」收窄
+    // （旧逻辑把一个页面挂到本次汇入的【所有】资料名下 → 每篇日记都显示同一串人物）
+    if (parsed.pages) {
+      for (const pg of parsed.pages) {
+        if (!pg || !pg.title) continue;
+        const hits = batch.filter((src) => sourceMentions(src, pg.title, pg.aliases));
+        // 一个都没命中（AI 用了改写过的名字）→ 只有这一批只有一份资料时才归给它，否则宁可不挂
+        pg.__sourceIds = hits.length ? hits.map((x) => x.id) : (batch.length === 1 ? [batch[0].id] : []);
+      }
+      allPages = allPages.concat(parsed.pages);
+    }
     if (parsed.links) allLinks = allLinks.concat(parsed.links);
     if (parsed.log_entry) allLogs.push(parsed.log_entry);
     batch.forEach(s => processedSourceIds.add(s.id)); // batch 处理成功才标记
@@ -1701,7 +1752,6 @@ async function ingestKbCore(env, user, kb, params, bodyIds, opts = {}) {
 
   const now = Date.now();
   const slugToCatId = Object.fromEntries(categories.map(c => [c.slug, c.id]));
-  const pendingSourceIds = pending.map(s => s.id);
   const newPages = [];
   // 需要重算向量的页面：新建的 + 被本次汇入改写的（改写后旧向量就过期了）
   const pagesToEmbed = [];
@@ -1711,9 +1761,11 @@ async function ingestKbCore(env, user, kb, params, bodyIds, opts = {}) {
 
   // 收集 AI 返回的 title → summary 映射（用于后面生成目录）
   const summaryMap = new Map();
+  const isLifeKb = !!(await env.DB.prepare("SELECT 1 FROM wiki_knowledge_bases WHERE id=? AND slug=?").bind(params.kb_id, LIFE_KB_SLUG).first());
 
   for (const p of allPages) {
     if (!p.title) { pageDebug.push({ title: '(empty)', branch: 'skip-no-title' }); continue; }
+    if (isLifeKb && /^小麦(🌾)?$/.test(String(p.title).trim())) { pageDebug.push({ title: p.title, branch: 'skip-assistant' }); continue; }
     const catId = slugToCatId[p.category_slug] || null;
     const summary = (p.summary || '').trim().slice(0, 80);
     if (summary) summaryMap.set(p.title, summary);
@@ -1745,7 +1797,7 @@ async function ingestKbCore(env, user, kb, params, bodyIds, opts = {}) {
       if (existing) {
         let prevSources = [];
         try { prevSources = JSON.parse(existing.source_ids || '[]'); } catch {}
-        const allSources = Array.from(new Set([...prevSources, ...pendingSourceIds]));
+        const allSources = Array.from(new Set([...prevSources, ...(p.__sourceIds || [])]));
         await dblog(env, 'ingest', 'PAGE_UPDATE', { title: p.title, slug: p.category_slug, catId: catId, existingCatId: existing.category_id });
         await env.DB.prepare(
           "UPDATE wiki_pages SET content=?, category_id=?, source_ids=?, summary=?, updated_at=? WHERE id=?"
@@ -1758,7 +1810,7 @@ async function ingestKbCore(env, user, kb, params, bodyIds, opts = {}) {
         await dblog(env, 'ingest', 'PAGE_INSERT', { title: p.title, slug: p.category_slug, catId: catId });
         await env.DB.prepare(
           "INSERT INTO wiki_pages (id, kb_id, user_id, category_id, title, content, summary, source_ids, is_system, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,0,?,?)"
-        ).bind(id, params.kb_id, user.uid, catId, p.title, p.content, summary || null, JSON.stringify(pendingSourceIds), now, now).run();
+        ).bind(id, params.kb_id, user.uid, catId, p.title, p.content, summary || null, JSON.stringify(p.__sourceIds || []), now, now).run();
         newPages.push({ id, title: p.title });
         pagesToEmbed.push(id);
         createdCount++;
