@@ -1792,7 +1792,7 @@ function float32ToJson(arr) { return JSON.stringify(Array.from(arr)); }
 function jsonToFloat32(text) { return new Float32Array(JSON.parse(text)); }
 
 const EMBEDDING_MODEL = '@cf/baai/bge-m3';
-const LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
+const LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const LLM_MODEL_NAME = 'agnes-3.0-flash';
 // 小麦问答检索参数
 const HISTORY_MSG_MAX_CHARS = 1200; // 每条历史消息最多带多少字（原 500，长回答被截断后小麦会"忘了"自己说过什么）
