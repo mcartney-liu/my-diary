@@ -3024,8 +3024,14 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   if (hit) return json(await hit.json());
 
   try {
-    const res = await fetch(src, { headers: { 'User-Agent': 'MyDiary/1.0', 'Accept': 'application/json, application/xml, text/xml, */*' }, cf: { cacheTtl: 1800 } });
-    if (!res.ok) return json({ enabled: true, items: [] });
+    // 同一账号下 Worker 直接 fetch 另一个 *.workers.dev Worker 会被 Cloudflare 拦截（error 1042）
+    // → 配了服务绑定 NEWS_60S 时走绑定调用（wrangler.toml: [[env.dev.services]] binding="NEWS_60S" service="mydiary-60s"）
+    const reqInit = { headers: { 'User-Agent': 'MyDiary/1.0', 'Accept': 'application/json, application/xml, text/xml, */*' }, cf: { cacheTtl: 1800 } };
+    const res = env.NEWS_60S?.fetch ? await env.NEWS_60S.fetch(new Request(src, reqInit)) : await fetch(src, reqInit);
+    if (!res.ok) {
+      console.error('[news] 拉取失败:', res.status, (await res.text().catch(() => '')).slice(0, 200));
+      return json({ enabled: true, items: [], error: 'HTTP ' + res.status });
+    }
     const raw = (await res.text()).slice(0, 300000);
     // —— JSON：60s API（{ code, data: { news: [{title, link}] | string[], tip } }，也兼容不包 data 的返回）——
     if (/^\s*[{[]/.test(raw)) {

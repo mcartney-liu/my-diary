@@ -24,6 +24,12 @@ database_id = "ed7e7954-5f55-439c-a76a-228f1124512b"
 binding = "AI"
 remote = true
 
+# 「今日看点」60s 新闻 Worker 服务绑定：同账号下 Worker 直接 fetch 另一个 *.workers.dev
+# 会被 Cloudflare 拦截（error 1042），走服务绑定调用可绕过
+[[services]]
+binding = "NEWS_60S"
+service = "mydiary-60s"
+
 # 验证码 KV（5 分钟 TTL 在代码里写）
 [[kv_namespaces]]
 binding = "verify_codes"
@@ -59,6 +65,10 @@ remote = true
 binding = "verify_codes_dev"
 id = "4b8fe160e0044927b62f029d95535c65"
 remote = true
+
+[[env.dev.services]]
+binding = "NEWS_60S"
+service = "mydiary-60s"
 
 [env.dev.vars]
 # 「今日看点」新闻源：60s 开放接口（单独部署的 Worker）
