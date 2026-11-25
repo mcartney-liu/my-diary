@@ -48,6 +48,7 @@ interface Msg {
   importing?: boolean;        // 汇入中
   imported?: boolean;         // 已汇入
   streaming?: boolean;        // 流式输出中（不持久化到云端）
+  suggest?: string[];         // 这条回答附带的推荐追问（只属于这个会话）
 }
 
 interface Session {
@@ -57,7 +58,8 @@ interface Session {
   createdAt: number;
   source_type?: "diary" | "wiki";
   kb_id?: string;
-  default_web_search?: boolean;  // 记住用户上次选的联网偏好
+  default_web_search?: boolean;  // 这个会话是否联网（每个会话单独记）
+  updatedAt?: number;            // 最近一次有新消息的时间（历史排序、切回时找最近会话）
 }
 
 const SUGGESTIONS = [
@@ -99,7 +101,7 @@ function RememberButton({ content }: { content: string }) {
   );
 }
 
-function SessionRow({ s, activeId, onSwitch, onDelete }: { s: Session; activeId: string; onSwitch: (id: string) => void; onDelete: (id: string) => void }) {
+function SessionRow({ s, activeId, onSwitch, onDelete, source }: { s: Session; activeId: string; onSwitch: (id: string) => void; onDelete: (id: string) => void; source?: string }) {
   return (
     <div
       onClick={() => onSwitch(s.id)}
@@ -109,13 +111,15 @@ function SessionRow({ s, activeId, onSwitch, onDelete }: { s: Session; activeId:
     >
       <div className="flex-1 min-w-0">
         <div className="text-sm text-paper-ink truncate flex items-center gap-1.5">
-          <span className="text-[11px] opacity-70 shrink-0">
-            {(s.source_type || "diary") === "wiki" ? "🌳" : "📖"}
-          </span>
-          {s.title || "新对话"}
+          <span className="truncate">{s.title || "新对话"}</span>
         </div>
-        <div className="text-[11px] text-paper-ink2 mt-0.5 truncate">
-          {s.msgs.length} 条 · {new Date(s.createdAt).toLocaleString()}
+        <div className="text-[11px] text-paper-ink2 mt-0.5 truncate flex items-center gap-1.5">
+          {/* 来源标签：问的是日记，还是哪个知识库 */}
+          <span className={`shrink-0 px-1.5 rounded ${(s.source_type || "diary") === "wiki" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-800"}`}>
+            {source || ((s.source_type || "diary") === "wiki" ? "📚 知识库" : "📖 日记")}
+          </span>
+          {s.default_web_search && <span className="shrink-0 text-blue-600">🌐</span>}
+          <span className="truncate">{s.msgs.length} 条 · {sessionTime(s)}</span>
         </div>
       </div>
       <button
@@ -127,6 +131,15 @@ function SessionRow({ s, activeId, onSwitch, onDelete }: { s: Session; activeId:
       </button>
     </div>
   );
+}
+
+function sessionTime(s: Session): string {
+  const last = s.updatedAt || s.createdAt;
+  const d = new Date(last), now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  return sameDay
+    ? d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
 }
 
 function uid() {
@@ -157,6 +170,20 @@ function loadDataFor(userId: string): { sessions: Session[]; activeId: string } 
   return { sessions: [first], activeId: first.id };
 }
 
+/** 用户头像：和底栏"我的"用同一个头像（预设图 avatar-xxx / emoji-x），没有就显示昵称首字 */
+function UserAvatar() {
+  const u = peek<any>("profile")?.user || {};
+  const key: string = u.avatar || "";
+  const name: string = (u.nickname || u.email || "我").trim();
+  return (
+    <div className="shrink-0 w-9 h-9 rounded-full overflow-hidden bg-paper-surface border border-paper-line/70 flex items-center justify-center text-sm font-medium text-paper-ink">
+      {key.startsWith("emoji-") ? <span className="text-lg">{key.slice(6)}</span>
+        : key ? <img src={/^(https?:|data:|\/)/.test(key) ? key : `/avatars/${key}.jpg`} alt="" className="w-full h-full object-contain" />
+        : <span>{name.slice(0, 1).toUpperCase()}</span>}
+    </div>
+  );
+}
+
 export default function AiChatView() {
   const { user } = useAuth();
   const userId = user?.id || "anon";
@@ -172,12 +199,11 @@ export default function AiChatView() {
   const [collectionMode, setCollectionMode] = useState(false);
   // 收集气泡弹层开关
   const [collectPopOpen, setCollectPopOpen] = useState(false);
-  // AI 推荐的 3 个后续问题
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  // AI 推荐的后续问题：存在每条 AI 消息上（Msg.suggest），显示时取当前会话最后一条回答的
+  // 旧版是组件级一个 state → 切换知识库 / 会话后，上一个库的推荐问题还挂在新库下面
   // 知识页面弹窗：点击引用链接或 [[xxx]] 时打开
   const [pageModal, setPageModal] = useState<{ kbId: string; page: WikiPage } | null>(null);
-  // 会话级联网开关：控制后续所有知识 tab 提问
-  const [webSearchMode, setWebSearchMode] = useState(false);
+  // 联网开关跟着会话走：读写当前会话的 default_web_search（旧版是组件级一个开关，切库 / 切会话后还开着）
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // KB 列表（用于知识库模式下拉选）
@@ -191,6 +217,9 @@ export default function AiChatView() {
   const [creatingKb, setCreatingKb] = useState<null | "collecting" | "creating" | "done">(null);
 
   const active = sessions.find((s) => s.id === activeId) || sessions[0];
+  const webSearchMode = !!active?.default_web_search;
+  const setWebSearchMode = (fn: (v: boolean) => boolean) =>
+    setSessions((list) => list.map((s) => (s.id === activeId ? { ...s, default_web_search: fn(!!s.default_web_search) } : s)));
   const nav = useNavigate();
 
   // 欢迎页：按用户自己的数据生成推荐问题，并带一句"小麦记得的事"
@@ -225,7 +254,7 @@ export default function AiChatView() {
       if (res?.sessions && res.sessions.length > 0) {
         const cloud = res.sessions.map((cs: any) => ({
           id: cs.id, title: cs.title, source_type: cs.source_type,
-          kb_id: cs.kb_id, msgs: cs.msgs, createdAt: cs.createdAt,
+          kb_id: cs.kb_id, msgs: cs.msgs, createdAt: cs.createdAt, updatedAt: cs.updatedAt,
         } as Session));
         // 合并：云端有就用云端（新），没有就保留本地
         const localIds = new Set(d.sessions.map(s => s.id));
@@ -259,7 +288,7 @@ export default function AiChatView() {
       syncTimerRef.current = window.setTimeout(() => {
         chatUpsertSessions(nonEmpty.map(s => ({
           id: s.id, title: s.title, source_type: s.source_type || "diary",
-          kb_id: s.kb_id, msgs: s.msgs.filter((m) => !m.streaming), createdAt: s.createdAt, updatedAt: Date.now(),
+          kb_id: s.kb_id, msgs: s.msgs.filter((m) => !m.streaming), createdAt: s.createdAt, updatedAt: s.updatedAt || s.createdAt,
         }))).catch(() => {});
       }, 500);
     } catch {}
@@ -276,7 +305,7 @@ export default function AiChatView() {
   }, [activeId]);
 
   function updateActive(updater: (s: Session) => Session) {
-    setSessions((list) => list.map((s) => (s.id === activeId ? updater(s) : s)));
+    setSessions((list) => list.map((s) => (s.id === activeId ? { ...updater(s), updatedAt: Date.now() } : s)));
   }
 
   async function send(q?: string, forceImportMode?: boolean) {
@@ -478,7 +507,7 @@ export default function AiChatView() {
         }
         const forceCollect = !!forceImportMode || collectionMode;
         // forceImportMode(收集气泡点击) OR webSearchMode(用户开关) OR active.default_web_search(默认)
-        const useWebSearch = forceCollect || webSearchMode || !!active.default_web_search;
+        const useWebSearch = forceCollect || webSearchMode;
         const kbTitle = activeKb?.title || '这个知识库';
 
         // ===== import_mode 判断：优先用参数，其次看 collectionMode state =====
@@ -512,11 +541,7 @@ export default function AiChatView() {
           .replace(/^—\s*汇总完成\s*—\s*$/gm, '')
           .replace(/\n{3,}/g, '\n\n')     // 多余空行合并
           .trim();
-        // 如果没有 SUGGEST 标记（老模型/兜底），用默认气泡
-        if (parsedSugg.length === 0) {
-          parsedSugg = ["这个知识库有哪些内容？", "帮我总结一下", "有什么分类？"];
-        }
-        setSuggestions(parsedSugg);
+        // 没有 SUGGEST 标记就不存，显示时用按库生成的默认问题
         resAnswer = rawAnswer;
 
         // check-match low → 弹 ConfirmDialog（简化：直接在 AI 回答里告诉用户）
@@ -535,12 +560,13 @@ export default function AiChatView() {
             import_mode: importMode,
             need_confirm: res.need_confirm,
             match_reason: res.match_reason,
+            suggest: parsedSugg,
           }],
         }));
         return;
       } else {
         // 日记问答（流式：边生成边显示；失败且没收到内容时退回非流式接口）
-        const diaryWebSearch = webSearchMode || !!active.default_web_search;
+        const diaryWebSearch = webSearchMode;
         await streamDiaryAnswer(question, recent, diaryWebSearch);
         return;
       }
@@ -826,10 +852,12 @@ export default function AiChatView() {
   function setSourceTypeForActive(type: "diary" | "wiki") {
     setCreatingKb(null);
     setSessions((list) => {
-      // 找一个空的、同类型的会话复用
-      const existingEmpty = list.find(s => s.msgs.length === 0 && s.source_type === type);
-      if (existingEmpty) {
-        setActiveId(existingEmpty.id);
+      // 回到这个模式最近的一次对话（问知识库：回到最近用过的那个库）
+      const recent = list
+        .filter((s) => (s.source_type || "diary") === type)
+        .sort((a, b) => ((b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt)))[0];
+      if (recent) {
+        setActiveId(recent.id);
         return list;
       }
       // 新建
@@ -850,9 +878,12 @@ export default function AiChatView() {
   function setKbForActive(kbId: string) {
     setCreatingKb(null);
     setSessions((list) => {
-      const existingEmpty = list.find(s => s.msgs.length === 0 && s.source_type === "wiki" && s.kb_id === kbId);
-      if (existingEmpty) {
-        setActiveId(existingEmpty.id);
+      // 优先回到这个库最近的一次对话（旧版总是开一个新的空会话，聊到一半切走再切回来就找不到了）
+      const recent = list
+        .filter((s) => s.source_type === "wiki" && s.kb_id === kbId)
+        .sort((a, b) => ((b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt)))[0];
+      if (recent) {
+        setActiveId(recent.id);
         return list;
       }
       const s: Session = {
@@ -870,6 +901,12 @@ export default function AiChatView() {
 
   const activeType = active?.source_type || "diary";
   const activeKb = kbs.find((k) => k.id === active?.kb_id);
+  const wikiSuggestions = useMemo(() => {
+    const lastAi = [...(active?.msgs ?? [])].reverse().find((m) => m.role === "ai" && !m.streaming);
+    if (lastAi?.suggest?.length) return lastAi.suggest.slice(0, 3);
+    const name = activeKb?.title?.replace(/^\p{Extended_Pictographic}\s*/u, "") || "这个知识库";
+    return [`「${name}」里都有什么？`, "最近收进来的是什么？", "帮我总结一下重点"];
+  }, [active?.msgs, activeKb?.title]);
 
   return (
     <section className="flex flex-col relative h-full min-h-0">
@@ -933,49 +970,23 @@ export default function AiChatView() {
       {showHistory && (
         <div className="absolute top-[48px] left-0 right-0 bottom-0 z-10 bg-paper-bg/95 backdrop-blur-sm flex flex-col border-r border-paper-line">
           <div className="px-4 py-3 border-b border-paper-line text-xs text-paper-ink2 flex items-center justify-between">
-            <span>
-              {activeType === "diary" ? "📖 日记对话" : "🌳 知识对话"}
-              （{sessions.filter((s) => (s.source_type || "diary") === activeType && s.msgs.length > 0).length}）
-            </span>
+            <span>全部对话（{sessions.filter((s) => s.msgs.length > 0).length}）</span>
             <button onClick={() => setShowHistory(false)} className="hover:text-paper-ink">✕</button>
           </div>
           <div className="flex-1 overflow-y-auto py-2">
             {(() => {
-              // 按当前模式过滤 + 过滤空会话
-              const filtered = sessions.filter((s) => (s.source_type || "diary") === activeType && s.msgs.length > 0);
-
-              // wiki 模式 → 按 kb_id 分组
-              if (activeType === "wiki") {
-                const groups: Record<string, typeof sessions> = {};
-                for (const s of filtered) {
-                  const key = s.kb_id || "__none__";
-                  (groups[key] = groups[key] || []).push(s);
-                }
-                // 当前 KB 分组置顶，其余按标题字母序
-                const currentKbId = active?.kb_id;
-                const sortedKeys = Object.keys(groups).sort((a, b) => {
-                  if (a === currentKbId) return -1;
-                  if (b === currentKbId) return 1;
-                  const ka = a === "__none__" ? "zzz" : (kbs.find((k) => k.id === a)?.title || "");
-                  const kb = b === "__none__" ? "zzz" : (kbs.find((k) => k.id === b)?.title || "");
-                  return ka.localeCompare(kb);
-                });
-                return sortedKeys.flatMap((key) => {
-                  const kb = key === "__none__" ? null : kbs.find((k) => k.id === key);
-                  const list = groups[key];
-                  return [
-                    <div key={"g-" + key} className="px-4 py-1.5 text-[11px] text-paper-ink2 uppercase tracking-wider bg-paper-line/30 sticky top-0 z-10">
-                      {kb ? `📚 ${kb.title}` : "⚠️ 未绑定知识库"}
-                    </div>,
-                    ...list.map((s) => (
-                      <SessionRow key={s.id} s={s} activeId={activeId} onSwitch={switchSession} onDelete={deleteSession} />
-                    )),
-                  ];
-                });
-              }
-
-              // diary 模式 → 平铺
-              return filtered.map((s) => <SessionRow key={s.id} s={s} activeId={activeId} onSwitch={switchSession} onDelete={deleteSession} />);
+              // 所有会话按最近使用排序，每条带来源标签（日记 / 哪个知识库），不用先切模式才能找到
+              const list = sessions
+                .filter((s) => s.msgs.length > 0)
+                .sort((a, b) => ((b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt)));
+              if (!list.length) return <div className="px-4 py-8 text-center text-xs text-paper-ink3">还没有对话</div>;
+              return list.map((s) => {
+                const kb = s.kb_id ? kbs.find((k) => k.id === s.kb_id) : null;
+                const src = (s.source_type || "diary") === "wiki"
+                  ? (kb ? (/^\p{Extended_Pictographic}/u.test(kb.title) ? kb.title : `📚 ${kb.title}`) : "📚 知识库")
+                  : "📖 日记";
+                return <SessionRow key={s.id} s={s} activeId={activeId} onSwitch={switchSession} onDelete={deleteSession} source={src} />;
+              });
             })()}
           </div>
         </div>
@@ -1054,9 +1065,16 @@ export default function AiChatView() {
         )}
 
         {active?.msgs.map((m, i) => (
-          <div key={i} className={`group flex ${m.role === "user" ? "justify-end" : "flex-col items-start animate-pop-in"}`}>
+          <div key={i} className={`group flex items-start gap-2 ${m.role === "user" ? "flex-row-reverse" : "animate-pop-in"}`}>
+            {/* 头像：小麦（活的）/ 用户 */}
+            {m.role === "user"
+              ? <UserAvatar />
+              : <div className="shrink-0 w-9 h-9 rounded-full bg-amber-50 border border-paper-line/70 flex items-center justify-center">
+                  <Xiaomai live talking={!!m.streaming} mood={m.streaming && !m.content ? "thinking" : "happy"} size={32} />
+                </div>}
+            <div className={`min-w-0 flex-1 flex flex-col ${m.role === "user" ? "items-end pl-10" : "items-start pr-10"}`}>
             <div
-              className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+              className={`max-w-full min-w-[3rem] rounded-2xl px-4 py-2.5 text-sm leading-relaxed break-words ${
                 m.role === "user"
                   ? "bg-paper-ink text-paper-bg rounded-br-md whitespace-pre-wrap"
                   : "bg-paper-card border border-paper-line/70 shadow-card text-paper-ink rounded-bl-md"
@@ -1180,6 +1198,7 @@ export default function AiChatView() {
               </div>
             )}
           </div>
+            </div>
         ))}
 
         {loading && !active?.msgs.some((m) => m.streaming) && (
@@ -1193,7 +1212,7 @@ export default function AiChatView() {
         {/* 知识 tab 下气泡常驻：每次 AI 回答完都显示 */}
         {!loading && activeType === "wiki" && activeKb && (
           <div className="flex flex-wrap gap-2 py-3 px-1">
-            {(suggestions.length > 0 ? suggestions : ["这个知识库有哪些内容？", "帮我总结一下", "有什么分类？"]).slice(0, 3).map((s) => (
+            {wikiSuggestions.map((s) => (
               <button
                 key={s}
                 onClick={() => send(s)}
