@@ -1,11 +1,41 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // 🌾 小麦形象：3D 黏土风插画，4 种表情（public/xiaomai/*.webp，每张 10~15KB）
 // 图片加载失败时退回 SVG 版本，保证任何情况下都有小麦
 export type XiaomaiMood = "happy" | "thinking" | "sleepy" | "cheer";
 
-export default function Xiaomai({ mood = "happy", size = 40, className = "" }: { mood?: XiaomaiMood; size?: number; className?: string }) {
+// live：活过来——一直在呼吸（挤压回弹+影子），隔几秒随机眨眼/歪头/蹦一下；点它会开心跳两下
+// talking：小麦正在回答时，跟着"说话"左右点头
+export default function Xiaomai({ mood = "happy", size = 40, className = "", live = false, talking = false }: { mood?: XiaomaiMood; size?: number; className?: string; live?: boolean; talking?: boolean }) {
   const [failed, setFailed] = useState(false);
+  const [act, setAct] = useState("");
+  const [tapMood, setTapMood] = useState<XiaomaiMood | null>(null);
+  useEffect(() => {
+    if (!live || talking) return;
+    let t: ReturnType<typeof setTimeout>, t2: ReturnType<typeof setTimeout>;
+    const next = () => {
+      t = setTimeout(() => {
+        const r = Math.random();
+        setAct(r < 0.45 ? "blink" : r < 0.8 ? "tilt" : "hop");
+        t2 = setTimeout(() => setAct(""), 900);
+        next();
+      }, 3500 + Math.random() * 5000);
+    };
+    next();
+    return () => { clearTimeout(t); clearTimeout(t2); };
+  }, [live, talking]);
+  if (live) {
+    return (
+      <span
+        className={`xm-live ${talking ? "xm-talk" : act ? "xm-" + act : ""} ${className}`}
+        style={{ width: size, height: size }}
+        onClick={() => { setTapMood("cheer"); setAct("joy"); setTimeout(() => { setTapMood(null); setAct(""); }, 1200); }}
+      >
+        <Xiaomai mood={tapMood || mood} size={size} className="xm-inner" />
+        <span className="xm-shadow" />
+      </span>
+    );
+  }
   if (!failed) {
     return (
       <img

@@ -350,7 +350,24 @@
 .sky-rain i { width: 1px; height: 14px; background: rgba(255,255,255,.55); }
 .sky-snow i { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,.9); }
 
+/* 活的小麦：呼吸（挤压回弹）+ 随机小动作 + 说话点头 */
+.xm-live { position: relative; display: inline-block; cursor: pointer; }
+.xm-live .xm-inner { animation: xm-breathe 2.8s ease-in-out infinite !important; transform-origin: 50% 100%; }
+.xm-live .xm-shadow { position: absolute; left: 22%; right: 22%; bottom: -1px; height: 3px; border-radius: 50%; background: rgba(0,0,0,.12); animation: xm-shadow 2.8s ease-in-out infinite; }
+.xm-talk .xm-inner { animation: xm-talk .5s ease-in-out infinite !important; }
+.xm-tilt .xm-inner { animation: xm-tilt .9s ease-in-out !important; }
+.xm-blink .xm-inner { animation: xm-blink .3s ease-in-out 2 !important; }
+.xm-hop .xm-inner { animation: xm-hop .6s cubic-bezier(.3,1.6,.5,1) !important; }
+.xm-joy .xm-inner { animation: xm-hop .6s cubic-bezier(.3,1.6,.5,1) 2 !important; }
+@keyframes xm-breathe { 0%,100% { transform: scale(1,1); } 50% { transform: scale(1.04,.96); } }
+@keyframes xm-shadow { 0%,100% { transform: scaleX(1); } 50% { transform: scaleX(1.1); } }
+@keyframes xm-talk { 0%,100% { transform: translateY(0) rotate(0); } 25% { transform: translateY(-2px) rotate(-5deg); } 75% { transform: translateY(-1px) rotate(5deg); } }
+@keyframes xm-tilt { 0%,100% { transform: rotate(0); } 40%,60% { transform: rotate(-10deg); } }
+@keyframes xm-blink { 0%,100% { transform: scaleY(1); } 50% { transform: scaleY(.9) translateY(4%); } }
+@keyframes xm-hop { 0%,100% { transform: translateY(0) scale(1,1); } 30% { transform: scale(1.1,.88); } 60% { transform: translateY(-28%) scale(.94,1.08); } }
+
 @media (prefers-reduced-motion: reduce) {
+  .xm-live .xm-inner, .xm-live .xm-shadow { animation: none !important; }
   .animate-pop-in, .flame, .xiaomai, .xiaomai-think, .xiaomai-bounce, .xiaomai-sprout, .wheat-fall, .sky-particles i,
   .tap-bounce:active > span:first-child { animation: none !important; }
 }
