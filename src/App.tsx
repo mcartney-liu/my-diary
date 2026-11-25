@@ -715,6 +715,8 @@ function EditorPageWrapper(props: {
   return (
     <EditorPage
       initialDiary={existing}
+      // 「补写昨天」：/editor?date=YYYY-MM-DD 新建时预填日期（不允许未来）
+      initialDate={!existing && /^\d{4}-\d{2}-\d{2}$/.test(sp.get("date") || "") && (sp.get("date") as string) <= fmtDateLocal(new Date()) ? (sp.get("date") as string) : undefined}
       initialTemplateId={effectiveTemplateId}
       initialPolished={initialPolished}
       onSave={async (d) => { await props.onUpsert(d); }}

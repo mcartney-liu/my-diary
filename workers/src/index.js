@@ -162,6 +162,7 @@ export default {
       ["POST",   "/api/ai/reply",        handleDiaryReply],
       ["POST",   "/api/ai/daily-note",   handleDailyNote],
       ["GET",    "/api/news",            handleNews],
+      ["GET",    "/api/news/days",       handleNewsDays],
       ["GET",    "/api/memory",          handleListMemory],
       ["POST",   "/api/memory",          handleAddMemory],
       ["PUT",    "/api/memory",          handleEditMemory],
@@ -3024,15 +3025,16 @@ function guessNewsTag(title) {
 
 // 小麦从 15 条里挑 3 条和生活相关、轻松一点的，缩短标题、配一句话（结果随 /api/news 缓存 30 分钟，所有用户共用）
 async function pickNewsWithXiaomai(env, items) {
+  // 挑一个「候选池」（最多 8 条）：前端再按每个人的兴趣 / 今天的心情 / 不感兴趣的分类从里面选 3 条，AI 不用按人调用
   if (!items?.length) return null;
   const list = items.slice(0, 15).map((n, i) => `${i}. ${n.title}`).join('\n');
-  const sys = '你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。从用户给的新闻里挑 3 条：优先和普通人生活相关、积极或有趣的；避开灾难、伤亡、犯罪、政治争议。'
-    + '每条输出：i（原序号）、tag（只能是 ' + NEWS_TAGS.join('/') + ' 之一）、title（改写成 20 字以内的短标题，保留关键数字，不加引号）、say（小麦的一句话，20 字以内，可带 1 个 emoji，给建议或感受，不要重复标题）。'
-    + '只输出 JSON：{"picks":[{"i":0,"tag":"生活","title":"...","say":"..."}]}';
+  const sys = '你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。从用户给的新闻里挑 12 条（不足 12 条就全挑），按推荐程度排序：优先和普通人生活相关、积极或有趣的；尽量覆盖不同分类；避开灾难、伤亡、犯罪、政治争议。'
+    + '每条输出：i（原序号）、tag（只能是 ' + NEWS_TAGS.join('/') + ' 之一）、title（新闻标题，25~40 字，必须交代清楚“谁/什么事 + 时间或地点 + 关键数字或结果”，像正式新闻标题一样有信息量；原标题已经清楚就基本照用，只去掉多余修饰，不要缩成口号，不加引号）、say（小麦的一句话，30 字以内，可带 1 个 emoji，说这件事对普通人意味着什么或一个实用小建议，不要重复标题）。'
+    + '另外给每条一个 light（true=轻松积极，false=偏严肃或沉重）。只输出 JSON：{"picks":[{"i":0,"tag":"生活","title":"...","say":"...","light":true}]}';
   const raw = await callLLM(env, [
     { role: 'system', content: sys },
     { role: 'user', content: list },
-  ], 400);
+  ], 1000);
   const m = String(raw || '').match(/\{[\s\S]*\}/);
   if (!m) return null;
   let j; try { j = JSON.parse(m[0]); } catch { return null; }
@@ -3041,15 +3043,49 @@ async function pickNewsWithXiaomai(env, items) {
     const src = items[Number(p?.i)];
     if (!src || out.some((o) => o.full === src.title)) continue;
     out.push({
-      title: String(p.title || src.title).slice(0, 40),
+      title: String(p.title || src.title).slice(0, 60),
       full: src.title,
       link: src.link,
       tag: NEWS_TAGS.includes(p.tag) ? p.tag : guessNewsTag(src.title),
-      say: String(p.say || '').slice(0, 40),
+      say: String(p.say || '').slice(0, 50),
+      light: p.light !== false,
     });
-    if (out.length >= 3) break;
+    if (out.length >= 12) break;
   }
   return out.length ? out : null;
+}
+
+// ===== 每日新闻快照（news_daily 表，首次用到时自动建表，不需要单独跑迁移）=====
+async function ensureNewsTable(env) {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS news_daily (
+    date TEXT PRIMARY KEY, items TEXT NOT NULL, tip TEXT, created_at INTEGER NOT NULL)`).run();
+}
+async function saveNewsSnapshot(env, date, items, tip) {
+  await ensureNewsTable(env);
+  // 同一天只存第一份（INSERT OR IGNORE），避免每 30 分钟覆盖一次
+  await env.DB.prepare('INSERT OR IGNORE INTO news_daily (date, items, tip, created_at) VALUES (?, ?, ?, ?)')
+    .bind(date, JSON.stringify(items.map((n) => ({ title: n.title, tag: n.tag || '', link: n.link || '' }))), tip || '', Date.now()).run();
+}
+// GET /api/news/days?dates=2025-11-25,2024-11-25 —— On This Day 用：那几天的新闻快照
+async function handleNewsDays(request, env) {
+  const user = await authUser(request, jwtSecrets(env));
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const dates = String(new URL(request.url).searchParams.get('dates') || '')
+    .split(',').map((s) => s.trim()).filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s)).slice(0, 10);
+  if (!dates.length) return json({ days: {} });
+  try {
+    await ensureNewsTable(env);
+    const rows = await env.DB.prepare(`SELECT date, items, tip FROM news_daily WHERE date IN (${dates.map(() => '?').join(',')})`).bind(...dates).all();
+    const days = {};
+    for (const r of rows.results || []) {
+      let items = []; try { items = JSON.parse(r.items) || []; } catch {}
+      days[r.date] = { items, tip: r.tip || '' };
+    }
+    return json({ days });
+  } catch (e) {
+    console.error('[news/days] 失败:', e.message);
+    return json({ days: {} });
+  }
 }
 
 // ===== GET /api/news — 「今天」页的新闻标题（用户自己开启，默认关闭）=====
@@ -3063,9 +3099,15 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   if (!src) return json({ enabled: false, items: [] });
 
   const cache = caches.default;
-  const cacheKey = new Request('https://cache.mydiary.internal/news-v2?src=' + encodeURIComponent(src));
+  const cacheKey = new Request('https://cache.mydiary.internal/news-v3?src=' + encodeURIComponent(src));
   const hit = await cache.match(cacheKey);
-  if (hit) return json(await hit.json());
+  // ?fresh=1（用户点「刷新」）：缓存超过 10 分钟才重新拉，避免很多人连点导致反复调 AI
+  const fresh = new URL(request.url).searchParams.get('fresh') === '1';
+  if (hit) {
+    const cached = await hit.json();
+    const age = Date.now() - Number(cached?.fetched_at || 0);
+    if (!fresh || age < 10 * 60_000) return json(cached);
+  }
 
   try {
     // 同一账号下 Worker 直接 fetch 另一个 *.workers.dev Worker 会被 Cloudflare 拦截（error 1042）
@@ -3086,7 +3128,12 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
         .map((n) => ({ title: String(n.title).replace(/^\d+[、.．]\s*/, '').replace(/[；;。]$/, '').slice(0, 80), link: /^https?:\/\//.test(n.link) ? n.link : '' }))
         .filter((n) => n.title).slice(0, 15);
       const picked = await pickNewsWithXiaomai(env, items).catch(() => null);
-      const out = { enabled: true, items: picked || items.slice(0, 3).map((n) => ({ ...n, tag: guessNewsTag(n.title) })), tip: String(d.tip || '').slice(0, 120), picked: !!picked };
+      const out = { enabled: true, items: picked || items.slice(0, 12).map((n) => ({ ...n, tag: guessNewsTag(n.title), light: true })), tip: String(d.tip || '').slice(0, 120), picked: !!picked,
+        date: /^\d{4}-\d{2}-\d{2}$/.test(String(d.date || '')) ? d.date : '',          // 新闻是哪天的（60s 一般上午才更新，早上看到的可能是昨天的）
+        updated: String(d.api_updated || d.updated || '').slice(0, 19),
+        fetched_at: Date.now() };
+      // 记住「那天的新闻」：每天一份快照（所有用户共用），以后 On This Day 里能看到那天发生了什么
+      if (out.date && out.items.length) ctx?.waitUntil?.(saveNewsSnapshot(env, out.date, out.items.slice(0, 5), out.tip).catch((e) => console.warn('[news] 快照保存失败:', e.message)));
       ctx?.waitUntil?.(cache.put(cacheKey, new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=1800' } })));
       return json(out);
     }

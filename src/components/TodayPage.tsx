@@ -3,11 +3,12 @@ import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { computeStreak, fmtDate, moodById, MOOD_TAGS, PROMPTS, onThisDay } from "../data";
 import { templateById } from "../templates";
-import { getProfile, listMilestones, listPlans, diaryReply, dailyNote, listNews, getToken, lifeOverview, lifeRecent, type Milestone, type Plan, type LifeItem, type LifeLink, type NewsData } from "../api";
+import { getProfile, listMilestones, listPlans, diaryReply, dailyNote, listNews, newsDays, getToken, lifeRecent, type Milestone, type Plan, type LifeLink, type NewsData, type NewsItem } from "../api";
 import { fetchLocationAuto, fetchWeather } from "../weather";
 import { dayEvents, springFestivalCountdown, weatherTip } from "../today";
 import type { WeatherInfo } from "../types";
 import { cachedGet, peek } from "../dataCache";
+import { toast } from "../uiFeedback";
 import LifeLinks from "./LifeLinks";
 import Xiaomai, { moodFor } from "./Xiaomai";
 import { useHint } from "./useOnce";
@@ -20,6 +21,17 @@ import FeatureTour, { hasSeenTour, markTourSeen, type TourStep } from "./Feature
 interface Props { diaries: Diary[] }
 
 const WEEK = ["日", "一", "二", "三", "四", "五", "六"];
+
+// 小麦的一句话还没生成好（或生成失败）时的本地问候，按时段挑
+function localGreeting(hour: number): string {
+  if (hour < 5) return "夜深了，今天辛苦啦。想说什么就写几句，写完早点休息 🌙";
+  if (hour < 9) return "早上好～新的一天，慢慢来 ☀️";
+  if (hour < 12) return "上午好，今天有什么想记下来的吗？";
+  if (hour < 14) return "中午了，记得好好吃饭 🍚";
+  if (hour < 18) return "下午好，累了就停下来喝口水 🍵";
+  if (hour < 22) return "晚上好，今天过得怎么样？";
+  return "快到休息的时间了，跟我说说今天吧 🌾";
+}
 
 // 今天页顶部氛围：早上暖黄、白天浅蓝、傍晚橙粉、夜里深蓝；下雨 / 下雪加粒子
 function skyFor(hour: number, desc?: string) {
@@ -86,15 +98,16 @@ function dayHash(s: string): number {
   return h;
 }
 // 带着预填内容打开编辑器（复用语音快记的 sessionStorage 通道，见 App.tsx EditorPageWrapper）
-function openEditorWith(nav: (p: string) => void, opts: { prompt?: string; moodId?: string }) {
+function openEditorWith(nav: (p: string) => void, opts: { prompt?: string; moodId?: string; title?: string; body?: string; tags?: string[] }) {
   const rid = () => "t" + Math.random().toString(36).slice(2, 10);
   const blocks: any[] = [];
   if (opts.prompt) blocks.push({ id: rid(), kind: "quote", content: opts.prompt });
-  blocks.push({ id: rid(), kind: "text", content: "" });
+  // body：直接写进正文（比 quote 块更稳，任何模板都会显示），光标接着往下写
+  blocks.push({ id: rid(), kind: "text", content: opts.body || "" });
   try {
     sessionStorage.setItem("mydiary.quickentry", JSON.stringify({
       templateId: "diary", ts: Date.now(),
-      polished: { title: "", blocks, mood: opts.moodId, tags: [] },
+      polished: { title: opts.title || "", blocks, mood: opts.moodId, tags: opts.tags || [] },
     }));
   } catch {}
   nav("/editor?template=diary");
@@ -181,7 +194,6 @@ export default function TodayPage({ diaries }: Props) {
   const [milestones, setMilestones] = useState<Milestone[]>(() => peek<any>("milestones:all")?.milestones ?? []);
   const [plans, setPlans] = useState<Plan[]>(() => peek<any>("plans:all")?.plans ?? []);
   const [profile, setProfile] = useState<any>(() => peek<any>("profile")?.user ?? null);
-  const [people, setPeople] = useState<LifeItem[]>(() => peek<any>("life:overview")?.items ?? []);
   const [promptShift, setPromptShift] = useState(0);
   const [recent, setRecent] = useState<{ created: LifeLink[]; updated: LifeLink[] } | null>(null);
   // 天气：按小时缓存在本地，避免每次打开都请求定位 + 天气
@@ -192,17 +204,27 @@ export default function TodayPage({ diaries }: Props) {
     } catch { return null; }
   });
   const [note, setNote] = useState<string>("");
-  // 新闻：默认关闭，用户自己打开
-  const [newsOn, setNewsOn] = useState(() => { try { return localStorage.getItem("mydiary.today.news") === "1"; } catch { return false; } });
+  // 今日看点：默认开（只露 1 条，点「展开」看 3 条）；用户点过「关闭」就记住
+  const [newsOn, setNewsOn] = useState(() => { try { return localStorage.getItem("mydiary.today.news") !== "0"; } catch { return true; } });
   const [news, setNews] = useState<NewsData | null>(null);
+  const [newsOpen, setNewsOpen] = useState(false);   // 只在心情不好时用：点一下才显示
+  const [newsPage, setNewsPage] = useState(0);        // 「换一批」翻到第几组
+  // 「刷新」按钮已去掉：60s 每天一份，刷新基本不会变；用「换一批」看候选池里的其他新闻
+  // 不感兴趣的分类（点「不感兴趣」后这一类不再出现）
+  const [hiddenTags, setHiddenTags] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("mydiary.news.hidden") || "[]"); } catch { return []; } });
+  const hideTag = (tag: string) => setHiddenTags((list) => {
+    const next = list.includes(tag) ? list : [...list, tag];
+    try { localStorage.setItem("mydiary.news.hidden", JSON.stringify(next)); } catch {}
+    return next;
+  });
+  // On This Day 那几天的新闻快照
+  const [otdNews, setOtdNews] = useState<Record<string, { items: { title: string; tag?: string }[] }>>({});
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showTour, setShowTour] = useState(false);
 
   useEffect(() => {
     cachedGet<any>("milestones:all", listMilestones).then((r) => setMilestones(r?.milestones ?? [])).catch(() => {});
     cachedGet<any>("plans:all", listPlans).then((r) => setPlans(r?.plans ?? [])).catch(() => {});
-    // 小麦认识的人（后端没部署人物接口时静默失败，不显示这张卡）
-    cachedGet<any>("life:overview", lifeOverview).then((r) => setPeople(r?.items ?? [])).catch(() => {});
     lifeRecent(3).then(setRecent).catch(() => {});
     // 新手引导：原来挂在月历首页，首页换成「今天」后搬到这里
     cachedGet<any>("profile", getProfile, { ttl: 0 }).then((p) => {
@@ -236,22 +258,26 @@ export default function TodayPage({ diaries }: Props) {
   }, []);
 
   // 🌾 小麦的一句话：每天一句，按日期缓存；等天气拿到（或 3 秒没拿到）再请求
+  // 过了零点是新的一天要重新生成：生成中 / 失败时先显示本地的一句问候，不让这块空着
   useEffect(() => {
     if (!getToken()) return;
     const key = "mydiary.today.note." + today;
     const cached = (() => { try { return localStorage.getItem(key); } catch { return null; } })();
     if (cached) { setNote(cached); return; }
+    setNote(localGreeting(new Date().getHours()));
     let cancelled = false;
-    const timer = setTimeout(() => {
+    const run = (retry: boolean) => {
       const evNames = [...events.today.map((e) => e.name), ...events.upcoming.slice(0, 2).map((e) => `${e.days}天后${e.name}`)];
       dailyNote({ date: today, weather: weather ? { temp: weather.temp, description: weather.description } : null, events: evNames })
         .then((r) => {
-          if (cancelled || !r.note) return;
+          if (cancelled) return;
+          if (!r.note) { if (retry) setTimeout(() => !cancelled && run(false), 5000); return; }
           setNote(r.note);
           try { localStorage.setItem(key, r.note); } catch {}
         })
-        .catch(() => {});
-    }, weather ? 0 : 3000);
+        .catch(() => { if (retry && !cancelled) setTimeout(() => !cancelled && run(false), 5000); });
+    };
+    const timer = setTimeout(() => run(true), weather ? 0 : 3000);
     return () => { cancelled = true; clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [today, !!weather]);
@@ -336,10 +362,59 @@ export default function TodayPage({ diaries }: Props) {
   const otdYearsAgo = otd.length ? Number(today.slice(0, 4)) - Number(otd[0].date.slice(0, 4)) : 0;
   const otdYearCount = new Set(otd.map((d) => d.date.slice(0, 4))).size;
 
-  const topPeople = useMemo(() => people.filter((p) => p.kind === "person").slice(0, 6), [people]);
   const isNewUser = diaries.length === 0;
 
   const hour = now.getHours();
+  // ===== 写前 / 写后两种状态 =====
+  const written = todayDiaries.length > 0;
+  // 今天的心情（取最新一篇有心情的）：心情差时今日看点收起、只挑轻松的
+  const todayMood = todayDiaries.map((d) => d.moodId).filter(Boolean).pop() || null;
+  const lowMood = todayMood === "sad" || todayMood === "anxious" || todayMood === "angry";
+  // 昨天没写 → 给个「补写昨天」入口（保住连续天数）
+  const yesterday = useMemo(() => { const d = new Date(now); d.setDate(d.getDate() - 1); return fmtDate(d); }, [today]); // eslint-disable-line react-hooks/exhaustive-deps
+  const missedYesterday = !isNewUser && !diaries.some((d) => d.date === yesterday) && diaries.some((d) => d.date < yesterday);
+  // 晚上 9 点后还没写：今日一问换成更轻的一句
+  const lateNoWrite = !written && hour >= 21;
+
+  // ===== 今日看点：从候选池里按兴趣 / 心情 / 不感兴趣挑 3 条 =====
+  const interests: string = profile?.interests || "";
+  const newsPicks = useMemo<NewsItem[]>(() => {
+    let pool = (news?.items || []).filter((n) => !hiddenTags.includes(n.tag || "社会"));
+    if (lowMood) pool = pool.filter((n) => n.light !== false && !["财经", "国际", "社会"].includes(n.tag || ""));
+    const score = (n: NewsItem) => {
+      let s = 0;
+      if (interests) {
+        const t = (n.full || n.title) + (n.tag || "");
+        for (const w of interests.split(/[,，、\s]+/).filter((x) => x.length >= 2)) if (t.includes(w)) s += 2;
+        if (n.tag && interests.includes(n.tag)) s += 1;
+      }
+      if (n.light !== false) s += 0.5;
+      return s;
+    };
+    // 稳定排序：同分保持小麦给的推荐顺序
+    return pool.map((n, i) => ({ n, i, s: score(n) })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.n);
+  }, [news, hiddenTags, lowMood, interests]);
+  // 每次显示 3 条，「换一批」轮着看候选池里的其他新闻
+  const newsPages = Math.max(1, Math.ceil(newsPicks.length / 3));
+  const shownNews = newsPicks.slice((newsPage % newsPages) * 3, (newsPage % newsPages) * 3 + 3);
+  // 新闻是哪天的（60s 一般上午 10 点左右更新，早上看到的可能是昨天的）
+  const newsDateLabel = !news?.date ? "" : news.date === today ? "今天" : news.date === yesterday ? "昨天" : news.date.slice(5).replace("-", "/");
+
+  // On This Day：拉往年那几天的新闻快照（「那天发生了什么」）
+  useEffect(() => {
+    const dates = Array.from(new Set(otd.map((d) => d.date))).slice(0, 5);
+    if (!dates.length || !getToken()) return;
+    newsDays(dates).then((r) => setOtdNews(r?.days || {})).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otd.map((d) => d.date).join(",")]);
+  const otdHeadline = useMemo(() => {
+    for (const d of otd) { const n = otdNews[d.date]?.items?.[0]; if (n?.title) return n.title; }
+    return "";
+  }, [otd, otdNews]);
+
+  // ===== 小麦少说几句：一页只有一个主发言位 =====
+  // 写前：顶部小麦的一句话；写后：顶部不说，只在今天的日记下面回应（今日看点里的点评默认收起，展开才看到）
+  const showTopNote = !!note;
   const sky = skyFor(hour, weather?.description);
   const showWriteHint = useHint("today-write");
   const greet = hour < 6 ? "夜深了" : hour < 11 ? "早上好" : hour < 14 ? "中午好" : hour < 18 ? "下午好" : "晚上好";
@@ -374,7 +449,7 @@ export default function TodayPage({ diaries }: Props) {
 
       <main className="max-w-xl mx-auto px-4 pt-5 space-y-4">
         {/* 🌾 小麦的一句话 */}
-        {note && (
+        {showTopNote && (
           <div className="flex items-start gap-2.5">
             <Xiaomai mood={moodFor({ hour, streak })} size={44} className="shrink-0 -mt-1" />
             <div className="flex-1 rounded-2xl rounded-tl-md bg-amber-50 border border-amber-100 px-3.5 py-2.5 text-sm text-paper-ink leading-relaxed shadow-sm animate-pop-in">
@@ -431,15 +506,15 @@ export default function TodayPage({ diaries }: Props) {
           </div>
         </section>
 
-        {/* 今日一问：不知道写什么的时候给个引子 */}
+        {/* 今日一问（晚上 9 点后还没写，换成「睡前一句」） */}
         <section className="card px-5 py-4 relative overflow-hidden">
           <span aria-hidden className="absolute -right-2 -top-6 text-[88px] leading-none text-paper-line/60 select-none">“</span>
           <div className="relative flex items-center justify-between">
-            <span className="section-label">💭 今日一问</span>
+            <span className="section-label">{lateNoWrite ? "🌙 睡前一句" : "💭 今日一问"}</span>
             <button type="button" onClick={() => setPromptShift((x) => x + 1)} className="text-[11px] px-2 py-0.5 rounded-full border border-paper-line/70 text-paper-ink2 hover:text-paper-ink hover:bg-paper-surface">🔄 换一个</button>
           </div>
-          <button type="button" onClick={() => openEditorWith(nav, { prompt })} className="relative w-full text-left mt-2">
-            <div className="text-[17px] text-paper-ink leading-relaxed border-l-[3px] border-paper-accent/50 pl-3">{prompt}</div>
+          <button type="button" onClick={() => openEditorWith(nav, { prompt: lateNoWrite ? "今天过得怎么样？" : prompt })} className="relative w-full text-left mt-2">
+            <div className="text-[17px] text-paper-ink leading-relaxed border-l-[3px] border-paper-accent/50 pl-3">{lateNoWrite ? "今天过得怎么样？一句话也行，明天的你会想看到的。" : prompt}</div>
             <div className="text-xs text-paper-accent mt-3 font-medium">用这个开始写 ›</div>
           </button>
         </section>
@@ -465,6 +540,16 @@ export default function TodayPage({ diaries }: Props) {
             </div>
           );
         })}
+
+        {/* 昨天没写：补写入口（日期自动设成昨天） */}
+        {missedYesterday && (
+          <button type="button" onClick={() => nav(`/editor?date=${yesterday}`)}
+            className="w-full px-4 py-2.5 flex items-center gap-3 rounded-2xl border border-dashed border-paper-line text-left text-sm text-paper-ink2 hover:bg-paper-surface transition">
+            <span className="text-lg shrink-0">🗓️</span>
+            <span className="flex-1 min-w-0">昨天忘了写？现在补几句也来得及</span>
+            <span className="shrink-0 text-xs text-paper-accent">补写昨天 ›</span>
+          </button>
+        )}
 
         {/* 今天解锁的时光胶囊 */}
         {unlockedCapsules.length > 0 && (
@@ -520,15 +605,19 @@ export default function TodayPage({ diaries }: Props) {
                 {moodById(otd[0].moodId)?.icon ? moodById(otd[0].moodId)!.icon + " " : ""}
                 {otd[0].title || firstText(otd[0]) || "那天你写了一篇日记"}
               </span>
+              {otdHeadline && <span className="block text-[11px] text-paper-ink3 mt-0.5 truncate">📰 那天的新闻：{otdHeadline}</span>}
             </span>
             <span className="text-paper-ink3 shrink-0">›</span>
           </button>
         )}
-        {/* 还没有往年日记：告诉用户明年会发生什么（已写今天的才提示，新用户先不打扰） */}
-        {otd.length === 0 && diaries.some((d) => d.date === today) && (
+
+        {/* 还没有往年日记：告诉用户明年会发生什么（今天写没写都显示，文案不同） */}
+        {otd.length === 0 && (
           <div className="w-full px-4 py-2.5 flex items-center gap-3 rounded-2xl border border-dashed border-paper-line text-xs text-paper-ink3">
             <span className="text-lg shrink-0 opacity-70">🎞️</span>
-            <span className="min-w-0"><span className="font-medium text-paper-ink2">On This Day</span> · 明年的今天，小麦会把今天的日记翻出来给你看 🌾</span>
+            <span className="min-w-0"><span className="font-medium text-paper-ink2">On This Day</span> · {written
+              ? "明年的今天，小麦会把今天的日记翻出来给你看 🌾"
+              : "今天写下的日记，明年的今天小麦会翻出来给你看 🌾"}</span>
           </div>
         )}
 
@@ -612,59 +701,51 @@ export default function TodayPage({ diaries }: Props) {
           </section>
         )}
 
-        {/* 小麦认识的人 */}
-        {topPeople.length > 0 && (
+        {/* 📰 今日看点：默认 3 条，「换一批」看别的；按兴趣 / 心情 / 不感兴趣挑；心情不好时默认收起 */}
+        {newsOn && !isNewUser && (lowMood && !newsOpen ? (
+          <button type="button" onClick={() => setNewsOpen(true)} className="w-full text-center text-xs text-paper-ink3 hover:text-paper-ink py-1">
+            📰 今天先不看新闻也没关系 · 想看点一下
+          </button>
+        ) : (
           <section className="card px-4 py-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="section-label">👤 小麦认识的人</span>
-              <button type="button" onClick={() => nav("/people")} className="text-xs text-paper-ink3 hover:text-paper-ink">全部 ›</button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {topPeople.map((p) => (
-                <button key={p.id} type="button" onClick={() => nav(`/people/${p.id}`)}
-                  className="flex items-center gap-1.5 text-sm pl-1 pr-3 py-1 rounded-full bg-paper-surface border border-paper-line/70 hover:bg-paper-line/40">
-                  <span className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-100 to-amber-300 flex items-center justify-center text-xs text-paper-ink">{p.title.slice(0, 1)}</span>
-                  {p.title}{p.mentions > 1 ? <span className="text-[11px] text-paper-ink2">×{p.mentions}</span> : null}
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* 📰 新闻：默认关闭；打开后每天看几条标题，也可以拿来当写作引子 */}
-        {newsOn ? (
-          <section className="card px-4 py-3">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
               <span className="section-label shrink-0">📰 今日看点</span>
+              {newsDateLabel && <span className="text-[10px] text-paper-ink3">{newsDateLabel}{news?.updated ? ` ${news.updated.slice(11, 16)}` : ""} 更新</span>}
               <span className="flex-1" />
               <button type="button" onClick={() => setNewsOn(false)} className="shrink-0 text-xs text-paper-ink3 hover:text-paper-ink">关闭</button>
             </div>
-            {/* 每日微语放顶上、单独一行完整显示，当成今天想说的话 */}
-            {news?.tip ? <div className="mt-1 mb-2 text-xs text-paper-ink2 leading-relaxed">💭 {news.tip}</div> : <div className="mb-2" />}
+            {news?.tip ? <div className="mt-1 text-xs text-paper-ink2 leading-relaxed">💭 {news.tip}</div> : null}
+            <div className="mt-2">
             {!news ? (
               <div className="text-xs text-paper-ink2 animate-pulse">加载中…</div>
             ) : !news.enabled ? (
               <div className="text-xs text-paper-ink2">新闻功能还没开放，敬请期待～</div>
-            ) : news.items.length === 0 ? (
-              <div className="text-xs text-paper-ink2">暂时没有新内容</div>
+            ) : newsPicks.length === 0 ? (
+              <div className="text-xs text-paper-ink2">{hiddenTags.length ? "你关心的分类今天没有新内容" : "暂时没有新内容"}</div>
             ) : (
               <ul className="divide-y divide-paper-line/50">
-                {news.items.slice(0, 3).map((n) => {
+                {shownNews.map((n) => {
                   const tag = NEWS_TAG_STYLE[n.tag || ""] || NEWS_TAG_STYLE["社会"];
-                  const title = n.link
-                    ? <a href={n.link} target="_blank" rel="noopener noreferrer" title={n.full || n.title} className="hover:underline">{n.title}</a>
-                    : <span title={n.full || n.title}>{n.title}</span>;
+                  const full = n.full || n.title;
                   return (
                     <li key={n.link || n.title} className="py-2 first:pt-0 last:pb-0">
-                      <div className="flex items-center gap-2">
-                        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded-full ${tag.cls}`}>{tag.icon} {n.tag || "社会"}</span>
-                        <span className="flex-1 min-w-0 truncate text-sm text-paper-ink">{title}</span>
+                      <div className="flex items-start gap-2">
+                        <span className={`shrink-0 mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full ${tag.cls}`}>{tag.icon} {n.tag || "社会"}</span>
+                        {n.link
+                          ? <a href={n.link} target="_blank" rel="noopener noreferrer" title={full} className="flex-1 min-w-0 line-clamp-2 text-sm leading-snug text-paper-ink hover:underline">{n.title}</a>
+                          : <span title={full} className="flex-1 min-w-0 line-clamp-2 text-sm leading-snug text-paper-ink">{n.title}</span>}
                       </div>
-                      <div className="mt-1 flex items-center gap-2 pl-0.5">
-                        {n.say
-                          ? <span className="flex-1 min-w-0 text-xs text-paper-ink2 truncate">🌾 {n.say}</span>
-                          : <span className="flex-1" />}
-                        <button type="button" onClick={() => openEditorWith(nav, { prompt: `今天看到：${n.full || n.title}。我的想法是……` })}
+                      <div className="mt-1 flex items-center gap-3 pl-0.5">
+                        {n.say ? <span className="flex-1 min-w-0 text-xs text-paper-ink2 truncate">🌾 {n.say}</span> : <span className="flex-1" />}
+                        {(
+                          <button type="button" onClick={() => { hideTag(n.tag || "社会"); toast(`以后少给你看「${n.tag || "社会"}」类新闻`, "ok"); }}
+                            className="shrink-0 text-[11px] text-paper-ink3 hover:text-paper-ink">不感兴趣</button>
+                        )}
+                        <button type="button" onClick={() => openEditorWith(nav, {
+                            title: `📰 ${n.title.length > 18 ? n.title.slice(0, 18) + "…" : n.title}`,
+                            body: `今天看到一条新闻：${full}${n.link ? `\n（原文：${n.link}）` : ""}\n\n我的看法：`,
+                            tags: ["看点", n.tag || "社会"],
+                          })}
                           className="shrink-0 text-[11px] text-paper-accent hover:underline">💬 写写看法</button>
                       </div>
                     </li>
@@ -672,8 +753,22 @@ export default function TodayPage({ diaries }: Props) {
                 })}
               </ul>
             )}
+            </div>
+            {news?.enabled && (newsPicks.length > 3 || hiddenTags.length > 0) && (
+              <div className="mt-2 pt-2 border-t border-paper-line/50 flex items-center justify-between text-[11px] text-paper-ink3">
+                {hiddenTags.length > 0
+                  ? <button type="button" onClick={() => { setHiddenTags([]); try { localStorage.removeItem("mydiary.news.hidden"); } catch {} }} className="hover:text-paper-ink truncate">已隐藏：{hiddenTags.join("、")} · 恢复</button>
+                  : <span>{newsPicks.length > 3 ? `第 ${(newsPage % newsPages) + 1}/${newsPages} 组 · 共 ${newsPicks.length} 条` : ""}</span>}
+                <span className="flex items-center gap-3 shrink-0">
+                  {newsPicks.length > 3 && (
+                    <button type="button" onClick={() => setNewsPage((p) => p + 1)} className="hover:text-paper-ink">🔄 换一批</button>
+                  )}
+                </span>
+              </div>
+            )}
           </section>
-        ) : (
+        ))}
+        {!newsOn && !isNewUser && (
           <button type="button" onClick={() => setNewsOn(true)} className="w-full text-center text-xs text-paper-ink3 hover:text-paper-ink py-1">
             ＋ 在这里显示每日看点
           </button>
@@ -704,6 +799,7 @@ export default function TodayPage({ diaries }: Props) {
             </div>
           </button>
         )}
+
       </main>
 
       <BottomDock active="home" />

@@ -431,11 +431,18 @@ export function diaryReply(diaryId: string) {
 export function dailyNote(payload: { date: string; weather?: { temp: number; description: string } | null; events?: string[] }) {
   return request<{ note: string }>("/api/ai/daily-note", { method: "POST", body: JSON.stringify(payload) });
 }
-// 今日看点：items 由小麦挑过（tag 分类 / title 短标题 / full 原标题 / say 小麦的一句话），挑选失败时只有 tag
-export type NewsItem = { title: string; link: string; tag?: string; full?: string; say?: string };
-export type NewsData = { enabled: boolean; items: NewsItem[]; tip?: string; picked?: boolean; error?: string };
-export function listNews() {
-  return request<NewsData>("/api/news");
+// 今日看点：items 是小麦挑过的候选池（最多 8 条，tag 分类 / full 原标题 / say 小麦的一句话 / light 是否轻松）
+// 前端按个人兴趣、今天心情、不感兴趣的分类再选 3 条；date 是新闻对应的日期
+export type NewsItem = { title: string; link: string; tag?: string; full?: string; say?: string; light?: boolean };
+export type NewsData = { enabled: boolean; items: NewsItem[]; tip?: string; picked?: boolean; error?: string; date?: string; updated?: string };
+// fresh=true：「刷新」按钮用，后端跳过 30 分钟缓存去拉最新的
+export function listNews(fresh = false) {
+  return request<NewsData>("/api/news" + (fresh ? "?fresh=1" : ""));
+}
+// On This Day：往年那几天的新闻快照
+export function newsDays(dates: string[]) {
+  return request<{ days: Record<string, { items: { title: string; tag?: string; link?: string }[]; tip?: string }> }>(
+    "/api/news/days?dates=" + encodeURIComponent(dates.join(",")));
 }
 
 // ====== 👤 人物页（「我的生活」知识库）======

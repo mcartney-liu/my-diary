@@ -49,6 +49,8 @@ function gpsFailedMessage(err?: LocationResult["gpsError"]): string {
 interface Props {
   initialDiary?: Diary;
   initialTemplateId?: string;
+  /** 新建时预填的日期（补写昨天），不传就是今天 */
+  initialDate?: string;
   initialPolished?: {
     title?: string;
     blocks?: DiaryBlock[];
@@ -418,10 +420,10 @@ const BlockRow = memo(function BlockRow({
   );
 });
 
-export default function EditorPage({ initialDiary, initialTemplateId, initialPolished, onSave, onSoftDelete, onCancel, onCreated, allDiaries }: Props) {
+export default function EditorPage({ initialDiary, initialDate, initialTemplateId, initialPolished, onSave, onSoftDelete, onCancel, onCreated, allDiaries }: Props) {
   const [title, setTitle] = useState(initialPolished?.title ?? initialDiary?.title ?? "");
   // 日期可以改：补写昨天、出游回来补几天（不能选未来）
-  const [date, setDate] = useState(initialDiary?.date ?? today());
+  const [date, setDate] = useState(initialDiary?.date ?? initialDate ?? today());
   const [moodId, setMoodId] = useState<MoodId | null>(initialPolished?.moodId ?? initialDiary?.moodId ?? null);
   const [blocks, setBlocksRaw] = useState<DiaryBlock[]>(() => {
     const raw = initialPolished?.blocks?.length      ? initialPolished.blocks

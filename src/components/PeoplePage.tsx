@@ -8,7 +8,7 @@ import { toast, confirmAsync, promptAsync } from "../uiFeedback";
 import { moodById } from "../data";
 import {
   lifeOverview, lifePage, lifeRename, lifeMerge, lifeDelete, kbOverview, kbQuickCreate, wikiDeleteKb, lifeRepairLinks, kbCleanDescriptions, kbDescText,
-  type LifeItem, type LifeKind, type LifePageDetail, type KbCard,
+  lifeRecent, type LifeItem, type LifeKind, type LifePageDetail, type KbCard, type LifeLink,
 } from "../api";
 import CollectSheet from "./CollectSheet";
 import EmptyState from "./EmptyState";
@@ -45,10 +45,13 @@ function ago(ts: number | null): string {
 // 上：🌾 我的生活（小麦从日记里自动整理的人物 / 地点 / 事件）
 // 下：📚 我的知识库（菜谱、读书、旅行……自己建的库），一句话就能新建，粘贴就能收录
 function KnowledgeHub() {
+  const nav = useNavigate();
   const [cards, setCards] = useState<KbCard[] | null>(null);
   const [presets, setPresets] = useState<KbCard[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [life, setLife] = useState<KbCard | null>(null);
+  // 小麦最近整理了（从「今天」页搬过来：属于知识，不属于今天）
+  const [recent, setRecent] = useState<{ created: LifeLink[]; updated: LifeLink[] } | null>(null);
   const [collectFor, setCollectFor] = useState<string | undefined | null>(null);   // null = 关闭；undefined = 让小麦选
   const [openKb, setOpenKb] = useState<(KbCard & { official?: boolean; graph?: boolean }) | null>(null);
   const [creating, setCreating] = useState(false);
@@ -61,6 +64,7 @@ function KnowledgeHub() {
       .catch(() => { setLoadError(true); setCards([]); });
   };
   useEffect(() => {
+    lifeRecent(3).then(setRecent).catch(() => {});
     load();
     // 一次性修复旧数据：每个人物 / 地点只挂在真正提到 TA 的日记上（v1 = 2026-11-25 的修复）
     try {
@@ -123,6 +127,26 @@ function KnowledgeHub() {
       <MemoriesHeader current="people" subtitle="小麦帮你整理的人、地方，和你收藏的知识" />
       <main className="max-w-2xl mx-auto px-4 pt-3 space-y-6">
         {/* 🌾 我的生活 */}
+        {recent && (recent.created.length > 0 || recent.updated.length > 0) && (
+          <section className="rounded-2xl bg-gradient-to-br from-amber-50 to-paper-card border border-amber-100 px-4 py-3">
+            <div className="text-xs font-medium text-paper-ink mb-1.5">🌾 小麦最近整理了</div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {recent.created.length > 0 && <span className="text-[11px] text-paper-ink2">新认识了</span>}
+              {recent.created.map((l) => (
+                <button key={"c" + l.id} type="button" onClick={() => nav("/people/" + l.id)}
+                  className="text-xs px-2.5 py-0.5 rounded-full bg-paper-card border border-amber-200 text-paper-ink hover:bg-amber-50">
+                  {l.kind === "person" ? "👤" : l.kind === "place" ? "📍" : "✨"} {l.title}
+                </button>
+              ))}
+              {recent.updated.length > 0 && <span className="text-[11px] text-paper-ink2 ml-1">又多了解了</span>}
+              {recent.updated.map((l) => (
+                <button key={"u" + l.id} type="button" onClick={() => nav("/people/" + l.id)}
+                  className="text-xs px-2.5 py-0.5 rounded-full bg-paper-card border border-paper-line/70 text-paper-ink2 hover:text-paper-ink">{l.title}</button>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section>
           <div className="flex items-baseline justify-between mb-2 px-1">
             <h2 className="text-sm font-semibold text-paper-ink">🌾 我的生活</h2>
