@@ -87,3 +87,7 @@ NEWS_60S_URL = "https://mydiary-60s.mcartneyliu.workers.dev/v2/60s"
 NEWS_SOURCES_ARTICLE = "https://sspai.com/feed, https://mydiary-rsshub.mcartneyliu.workers.dev/zhihu/daily?format=json"
 # 科普频道：果壳科学
 NEWS_SOURCES_SCIENCE = "https://mydiary-rsshub.mcartneyliu.workers.dev/guokr/scientific?format=json"
+# 自然频道：每日一图（NatGeo Photo of the Day）
+NEWS_SOURCES_NATURE = "https://mydiary-rsshub.mcartneyliu.workers.dev/natgeo/dailyphoto?format=json"
+# 书影频道：豆瓣新书榜 + 即将上映电影 + Bangumi 每日新番
+NEWS_SOURCES_CULTURE = "https://mydiary-rsshub.mcartneyliu.workers.dev/douban/book/rank?format=json&limit=10, https://mydiary-rsshub.mcartneyliu.workers.dev/douban/movie/coming?format=json&limit=10, https://mydiary-rsshub.mcartneyliu.workers.dev/bangumi.tv/calendar/today?format=json"
