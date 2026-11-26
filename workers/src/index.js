@@ -3027,7 +3027,8 @@ function guessNewsTag(title) {
 async function pickNewsWithXiaomai(env, items) {
   // 挑一个「候选池」（最多 8 条）：前端再按每个人的兴趣 / 今天的心情 / 不感兴趣的分类从里面选 3 条，AI 不用按人调用
   if (!items?.length) return null;
-  const list = items.slice(0, 15).map((n, i) => `${i}. ${n.title}`).join('\n');
+  // 有摘要的来源（RSS）把摘要前 80 字也给小麦，帮它判断；60s 只有标题
+  const list = items.slice(0, 20).map((n, i) => `${i}. ${n.srcTags?.length ? '[' + n.srcTags.join('/') + '] ' : ''}${n.title}${n.summary ? '｜' + n.summary.slice(0, 80) : ''}`).join('\n');
   const sys = '你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。从用户给的新闻里挑 12 条（不足 12 条就全挑），按推荐程度排序：优先和普通人生活相关、积极或有趣的；尽量覆盖不同分类；避开灾难、伤亡、犯罪、政治争议。'
     + '每条输出：i（原序号）、tag（只能是 ' + NEWS_TAGS.join('/') + ' 之一）、title（新闻标题，25~40 字，必须交代清楚“谁/什么事 + 时间或地点 + 关键数字或结果”，像正式新闻标题一样有信息量；原标题已经清楚就基本照用，只去掉多余修饰，不要缩成口号，不加引号）、say（小麦的一句话，30 字以内，可带 1 个 emoji，说这件事对普通人意味着什么或一个实用小建议，不要重复标题）。'
     + '另外给每条一个 light（true=轻松积极，false=偏严肃或沉重）。只输出 JSON：{"picks":[{"i":0,"tag":"生活","title":"...","say":"...","light":true}]}';
@@ -3046,6 +3047,8 @@ async function pickNewsWithXiaomai(env, items) {
       title: String(p.title || src.title).slice(0, 60),
       full: src.title,
       link: src.link,
+      summary: src.summary || '',
+      source: src.source || '',
       tag: NEWS_TAGS.includes(p.tag) ? p.tag : guessNewsTag(src.title),
       say: String(p.say || '').slice(0, 50),
       light: p.light !== false,
@@ -3091,17 +3094,117 @@ async function handleNewsDays(request, env) {
 // ===== GET /api/news — 「今天」页的新闻标题（用户自己开启，默认关闭）=====
 // 新闻源由部署者配置：Worker 环境变量 NEWS_RSS_URL（一个 RSS/Atom 地址）
 // 没配置时返回 enabled:false，前端显示"暂未开放"；结果用 Cache API 缓存 30 分钟
+// ===== 新闻来源适配器 =====
+// 每种来源只负责「拉取 + 解析成统一格式」：{ title, link, summary, source }
+// 后面的小麦挑选 / 打标签 / 缓存 / 每日快照对所有来源只写一份
+// 配置（wrangler.toml [vars]）：
+//   NEWS_SOURCES = "https://60s.xxx/v2/60s, https://rsshub.xxx/xinhua/..."   多个来源逗号分隔，合并去重
+//   兼容旧变量：NEWS_60S_URL / NEWS_RSS_URL
+// 类型自动识别：返回 JSON 且有 data.news → 60s；XML 有 <item>/<entry> → RSS/Atom
+// 服务绑定：只有来源域名和 60s Worker 一致（含 "60s"）且配了 NEWS_60S 绑定时才走绑定（绕过同账号 workers.dev 1042 拦截）
+function newsSourceList(env) {
+  const raw = String(env.NEWS_SOURCES || [env.NEWS_60S_URL, env.NEWS_RSS_URL].filter(Boolean).join(','));
+  return raw.split(/[,\n]/).map((s) => s.trim()).filter((s) => /^https?:\/\//.test(s)).slice(0, 5);
+}
+function newsDecode(t) {
+  return String(t || '')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+const NEWS_ADAPTERS = {
+  // 60s：{ data: { date, news: [{title, link}] | string[], tip, api_updated } }
+  '60s'(raw) {
+    let j = null; try { j = JSON.parse(raw); } catch { return null; }
+    const d = j?.data ?? j ?? {};
+    if (!Array.isArray(d.news)) return null;
+    const items = d.news.map((n) => typeof n === 'string' ? { title: n, link: '' } : { title: n?.title || '', link: n?.link || '' })
+      .map((n) => ({
+        title: String(n.title).replace(/^\d+[、.．]\s*/, '').replace(/[；;。]$/, '').slice(0, 120),
+        link: /^https?:\/\//.test(n.link) ? n.link : '',
+        summary: '',
+        source: '60s 读懂世界',
+      }));
+    return {
+      items,
+      tip: String(d.tip || ''),
+      date: /^\d{4}-\d{2}-\d{2}$/.test(String(d.date || '')) ? d.date : '',
+      updated: String(d.api_updated || d.updated || '').slice(0, 19),
+    };
+  },
+  // JSON Feed（RSSHub 加 ?format=json 时返回这个）：{ title, items: [{ title, url, content_html, summary, date_published, tags }] }
+  jsonfeed(raw) {
+    let j = null; try { j = JSON.parse(raw); } catch { return null; }
+    if (!Array.isArray(j?.items) || !/jsonfeed/i.test(String(j.version || '')) && !j.items.some((x) => x?.url || x?.content_html)) return null;
+    const channel = String(j.title || '').slice(0, 30);
+    let latest = 0;
+    const items = j.items.slice(0, 30).map((n) => {
+      const ts = Date.parse(n?.date_published || n?.date_modified || '');
+      if (ts > latest) latest = ts;
+      return {
+        title: newsDecode(n?.title || '').slice(0, 120),
+        link: /^https?:\/\//.test(n?.url || '') ? n.url : '',
+        summary: newsDecode(n?.summary || n?.content_html || n?.content_text || '').slice(0, 600),
+        source: channel,
+        // 来源自带分类（如澎湃的 tags），给小麦打标签时参考
+        srcTags: Array.isArray(n?.tags) ? n.tags.slice(0, 3).map(String) : [],
+      };
+    }).filter((n) => n.title);
+    const d = latest ? new Date(latest + 8 * 3600_000) : null;   // 按北京时间算日期
+    return { items, tip: '', date: d ? d.toISOString().slice(0, 10) : '', updated: d ? d.toISOString().slice(0, 19).replace('T', ' ') : '' };
+  },
+  // RSS 2.0 / Atom（RSSHub、官方媒体 RSS 都是这个）
+  rss(raw) {
+    if (!/<(rss|feed|channel)[\s>]/i.test(raw)) return null;
+    const channel = newsDecode((raw.match(/<channel[\s\S]*?<title[^>]*>([\s\S]*?)<\/title>/i) || raw.match(/<feed[\s\S]*?<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1]).slice(0, 30);
+    const items = [];
+    const re = /<(item|entry)[\s>][\s\S]*?<\/\1>/g;
+    let m, latest = 0;
+    while ((m = re.exec(raw)) && items.length < 30) {
+      const b = m[0];
+      const title = newsDecode((b.match(/<title[^>]*>([\s\S]*?)<\/title>/) || [])[1]);
+      let link = newsDecode((b.match(/<link[^>]*>([\s\S]*?)<\/link>/) || [])[1]);
+      if (!link) link = (b.match(/<link[^>]*href="([^"]+)"/) || [])[1] || '';
+      // 摘要：description / summary / content:encoded / content，去掉 HTML 只留文字
+      const desc = newsDecode((b.match(/<(description|summary|content:encoded|content)[^>]*>([\s\S]*?)<\/\1>/) || [])[2]);
+      const ts = Date.parse(newsDecode((b.match(/<(pubDate|published|updated|dc:date)[^>]*>([\s\S]*?)<\/\1>/) || [])[2]));
+      if (ts > latest) latest = ts;
+      if (title) items.push({ title: title.slice(0, 120), link: /^https?:\/\//.test(link) ? link : '', summary: desc.slice(0, 600), source: channel });
+    }
+    const d = latest ? new Date(latest + 8 * 3600_000) : null;   // 按北京时间算日期
+    return { items, tip: '', date: d ? d.toISOString().slice(0, 10) : '', updated: d ? d.toISOString().slice(0, 19).replace('T', ' ') : '' };
+  },
+};
+async function fetchNewsSource(env, url) {
+  const init = { headers: { 'User-Agent': 'MyDiary/1.0', 'Accept': 'application/json, application/rss+xml, application/atom+xml, application/xml, text/xml, */*' }, cf: { cacheTtl: 1800 } };
+  // 同账号下的 Worker（60s / 自建 RSSHub）要走服务绑定，否则 workers.dev 互相请求会被 1042 拦截
+  const host = new URL(url).hostname;
+  const binding = /60s/i.test(host) ? env.NEWS_60S : /rsshub/i.test(host) ? env.NEWS_RSSHUB : null;
+  const res = binding?.fetch ? await binding.fetch(new Request(url, init)) : await fetch(url, init);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const raw = (await res.text()).slice(0, 500000);
+  for (const [name, parse] of Object.entries(NEWS_ADAPTERS)) {
+    const r = parse(raw);
+    if (r?.items?.length) return { ...r, type: name };
+  }
+  throw new Error('格式不认识（既不是 60s JSON 也不是 RSS/Atom）');
+}
+
+// ===== GET /api/news — 「今天」页的今日看点 =====
 async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
-  // 两种源：NEWS_60S_URL（「60s 读懂世界」开源 API，JSON，如 https://你的域名/v2/60s）优先；否则 NEWS_RSS_URL（RSS/Atom）
-  const src = String(env.NEWS_60S_URL || env.NEWS_RSS_URL || '').trim();
-  if (!src) return json({ enabled: false, items: [] });
+  const sources = newsSourceList(env);
+  if (!sources.length) return json({ enabled: false, items: [] });
 
   const cache = caches.default;
-  const cacheKey = new Request('https://cache.mydiary.internal/news-v3?src=' + encodeURIComponent(src));
+  const cacheKey = new Request('https://cache.mydiary.internal/news-v4?src=' + encodeURIComponent(sources.join('|')));
   const hit = await cache.match(cacheKey);
-  // ?fresh=1（用户点「刷新」）：缓存超过 10 分钟才重新拉，避免很多人连点导致反复调 AI
+  // ?fresh=1：缓存超过 10 分钟才重新拉，避免很多人连点导致反复调 AI
   const fresh = new URL(request.url).searchParams.get('fresh') === '1';
   if (hit) {
     const cached = await hit.json();
@@ -3110,57 +3213,47 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   }
 
   try {
-    // 同一账号下 Worker 直接 fetch 另一个 *.workers.dev Worker 会被 Cloudflare 拦截（error 1042）
-    // → 配了服务绑定 NEWS_60S 时走绑定调用（wrangler.toml: [[env.dev.services]] binding="NEWS_60S" service="mydiary-60s"）
-    const reqInit = { headers: { 'User-Agent': 'MyDiary/1.0', 'Accept': 'application/json, application/xml, text/xml, */*' }, cf: { cacheTtl: 1800 } };
-    const res = env.NEWS_60S?.fetch ? await env.NEWS_60S.fetch(new Request(src, reqInit)) : await fetch(src, reqInit);
-    if (!res.ok) {
-      console.error('[news] 拉取失败:', res.status, (await res.text().catch(() => '')).slice(0, 200));
-      return json({ enabled: true, items: [], error: 'HTTP ' + res.status });
+    // 多个来源并行拉，单个失败不影响其他
+    const results = await Promise.allSettled(sources.map((u) => fetchNewsSource(env, u)));
+    const ok = [], errors = [];
+    results.forEach((r, i) => r.status === 'fulfilled' ? ok.push(r.value) : errors.push(`${new URL(sources[i]).hostname}: ${r.reason?.message || r.reason}`));
+    if (errors.length) console.error('[news] 部分来源失败:', errors.join(' | '));
+    if (!ok.length) return json({ enabled: true, items: [], error: errors.join(' | ').slice(0, 200) });
+
+    // 合并 + 去重（标题前 14 个字相同算同一条），每个来源轮流取，避免一个来源占满
+    const seen = new Set(), items = [];
+    const maxLen = Math.max(...ok.map((r) => r.items.length));
+    for (let k = 0; k < maxLen && items.length < 20; k++) {
+      for (const r of ok) {
+        const n = r.items[k];
+        if (!n) continue;
+        const key = n.title.replace(/\s/g, '').slice(0, 14);
+        if (seen.has(key)) continue;
+        seen.add(key); items.push(n);
+      }
     }
-    const raw = (await res.text()).slice(0, 300000);
-    // —— JSON：60s API（{ code, data: { news: [{title, link}] | string[], tip } }，也兼容不包 data 的返回）——
-    if (/^\s*[{[]/.test(raw)) {
-      let j = null; try { j = JSON.parse(raw); } catch {}
-      const d = j?.data ?? j ?? {};
-      const list = Array.isArray(d.news) ? d.news : [];
-      const items = list.map((n) => typeof n === 'string' ? { title: n, link: '' } : { title: n?.title || '', link: n?.link || '' })
-        .map((n) => ({ title: String(n.title).replace(/^\d+[、.．]\s*/, '').replace(/[；;。]$/, '').slice(0, 80), link: /^https?:\/\//.test(n.link) ? n.link : '' }))
-        .filter((n) => n.title).slice(0, 15);
-      const picked = await pickNewsWithXiaomai(env, items).catch(() => null);
-      const out = { enabled: true, items: picked || items.slice(0, 12).map((n) => ({ ...n, tag: guessNewsTag(n.title), light: true })), tip: String(d.tip || '').slice(0, 120), picked: !!picked,
-        date: /^\d{4}-\d{2}-\d{2}$/.test(String(d.date || '')) ? d.date : '',          // 新闻是哪天的（60s 一般上午才更新，早上看到的可能是昨天的）
-        updated: String(d.api_updated || d.updated || '').slice(0, 19),
-        fetched_at: Date.now() };
-      // 记住「那天的新闻」：每天一份快照（所有用户共用），以后 On This Day 里能看到那天发生了什么
-      if (out.date && out.items.length) ctx?.waitUntil?.(saveNewsSnapshot(env, out.date, out.items.slice(0, 5), out.tip).catch((e) => console.warn('[news] 快照保存失败:', e.message)));
-      ctx?.waitUntil?.(cache.put(cacheKey, new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=1800' } })));
-      return json(out);
-    }
-    const xml = raw;
-    const decode = (t) => String(t || '')
-      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-      .trim();
-    const items = [];
-    const re = /<(item|entry)[\s>][\s\S]*?<\/\1>/g;
-    let m;
-    while ((m = re.exec(xml)) && items.length < 5) {
-      const block = m[0];
-      const title = decode((block.match(/<title[^>]*>([\s\S]*?)<\/title>/) || [])[1]);
-      let link = decode((block.match(/<link[^>]*>([\s\S]*?)<\/link>/) || [])[1]);
-      if (!link) link = (block.match(/<link[^>]*href="([^"]+)"/) || [])[1] || '';
-      if (title && /^https?:\/\//.test(link)) items.push({ title: title.slice(0, 80), link });
-    }
-    const out = { enabled: true, items };
-    ctx?.waitUntil?.(cache.put(cacheKey, new Response(JSON.stringify(out), {
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=1800' },
-    })));
+    const tip = (ok.find((r) => r.tip)?.tip || '').slice(0, 120);
+    const date = ok.map((r) => r.date).filter(Boolean).sort().pop() || '';
+    const updated = ok.map((r) => r.updated).filter(Boolean).sort().pop() || '';
+
+    const picked = await pickNewsWithXiaomai(env, items).catch(() => null);
+    const fallback = items.slice(0, 12).map((n) => ({ ...n, tag: guessNewsTag(n.title), light: true }));
+    const out = {
+      enabled: true,
+      items: picked || fallback,
+      tip, picked: !!picked,
+      date,            // 新闻是哪天的（60s 一般上午才更新，早上看到的可能是昨天的）
+      updated,
+      sources: ok.map((r) => r.type),
+      fetched_at: Date.now(),
+    };
+    // 记住「那天的新闻」：每天一份快照（所有用户共用），以后 On This Day 里能看到那天发生了什么
+    if (out.date && out.items.length) ctx?.waitUntil?.(saveNewsSnapshot(env, out.date, out.items.slice(0, 5), out.tip).catch((e) => console.warn('[news] 快照保存失败:', e.message)));
+    ctx?.waitUntil?.(cache.put(cacheKey, new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=1800' } })));
     return json(out);
   } catch (e) {
     console.error('[news] 失败:', e.message);
-    return json({ enabled: true, items: [] });
+    return json({ enabled: true, items: [], error: e.message });
   }
 }
 
