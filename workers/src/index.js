@@ -3111,10 +3111,14 @@ function newsDecode(t) {
   return String(t || '')
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
+    // 保留段落：</p> <br> </div> 换成换行，详情里能按段显示
+    .replace(/<\s*br\s*\/?>/gi, '\n').replace(/<\/\s*(p|div|h\d|li)\s*>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/\s+/g, ' ')
+    .replace(/&ldquo;|&rdquo;/g, '"').replace(/&mdash;/g, '—').replace(/&hellip;/g, '…')
+    .replace(/[ \t\u3000]+/g, ' ')
+    .replace(/ *\n[\s]*/g, '\n')
     .trim();
 }
 const NEWS_ADAPTERS = {
@@ -3149,7 +3153,8 @@ const NEWS_ADAPTERS = {
       return {
         title: newsDecode(n?.title || '').slice(0, 120),
         link: /^https?:\/\//.test(n?.url || '') ? n.url : '',
-        summary: newsDecode(n?.summary || n?.content_html || n?.content_text || '').slice(0, 600),
+        // 正文：优先 content_html（RSSHub 给的更完整），最多 1500 字，详情里完整显示 + 标明来源
+        summary: newsDecode(n?.content_html || n?.content_text || n?.summary || '').slice(0, 1500),
         source: channel,
         // 来源自带分类（如澎湃的 tags），给小麦打标签时参考
         srcTags: Array.isArray(n?.tags) ? n.tags.slice(0, 3).map(String) : [],
@@ -3174,7 +3179,7 @@ const NEWS_ADAPTERS = {
       const desc = newsDecode((b.match(/<(description|summary|content:encoded|content)[^>]*>([\s\S]*?)<\/\1>/) || [])[2]);
       const ts = Date.parse(newsDecode((b.match(/<(pubDate|published|updated|dc:date)[^>]*>([\s\S]*?)<\/\1>/) || [])[2]));
       if (ts > latest) latest = ts;
-      if (title) items.push({ title: title.slice(0, 120), link: /^https?:\/\//.test(link) ? link : '', summary: desc.slice(0, 600), source: channel });
+      if (title) items.push({ title: title.replace(/\s+/g, ' ').slice(0, 120), link: /^https?:\/\//.test(link) ? link : '', summary: desc.slice(0, 1500), source: channel });
     }
     const d = latest ? new Date(latest + 8 * 3600_000) : null;   // 按北京时间算日期
     return { items, tip: '', date: d ? d.toISOString().slice(0, 10) : '', updated: d ? d.toISOString().slice(0, 19).replace('T', ' ') : '' };
@@ -3216,9 +3221,16 @@ async function handleNewsDetail(request, env, _JWT_SECRET, _params, ctx) {
       const raw = await callLLM(env, [
         { role: 'system', content: '你帮用户快速看懂一条新闻。只根据给你的标题和摘要提炼 3 条要点，每条 30 字以内，按重要程度排序；只写摘要里明确写了的事实，不推测、不补充摘要里没有的数字和细节；摘要信息不够就少写。只输出 JSON：{"points":["...","..."]}' },
         { role: 'user', content: `标题：${title}\n摘要：${summary}` },
-      ], 300);
-      const m = String(raw || '').match(/\{[\s\S]*\}/);
+      ], 700);
+      // 模型有时不按 JSON 输出（或前面带了思考内容）：先找 JSON，找不到就按「1. / · / -」开头的行拆
+      const txt = String(raw || '').replace(/<think>[\s\S]*?<\/think>/g, '');
+      const m = txt.match(/\{[\s\S]*"points"[\s\S]*\}/);
       try { points = (JSON.parse(m?.[0] || '{}').points || []).map((p) => String(p).slice(0, 60)).filter(Boolean).slice(0, 3); } catch {}
+      if (!points.length) {
+        points = txt.split('\n').map((l) => l.trim()).filter((l) => /^(\d+[.、)）]|[·•\-*])\s*/.test(l))
+          .map((l) => l.replace(/^(\d+[.、)）]|[·•\-*])\s*/, '').replace(/^["“]|["”],?$/g, '').slice(0, 60)).filter((l) => l.length >= 4).slice(0, 3);
+      }
+      if (!points.length) console.warn('[news/detail] 要点解析失败:', txt.slice(0, 200));
       if (points.length) ctx?.waitUntil?.(cache.put(key, new Response(JSON.stringify({ points }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' } })));
     }
   }
@@ -3250,7 +3262,7 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   if (!sources.length) return json({ enabled: false, items: [] });
 
   const cache = caches.default;
-  const cacheKey = new Request('https://cache.mydiary.internal/news-v4?src=' + encodeURIComponent(sources.join('|')));
+  const cacheKey = new Request('https://cache.mydiary.internal/news-v5?src=' + encodeURIComponent(sources.join('|')));
   const hit = await cache.match(cacheKey);
   // ?fresh=1：缓存超过 10 分钟才重新拉，避免很多人连点导致反复调 AI
   const fresh = new URL(request.url).searchParams.get('fresh') === '1';

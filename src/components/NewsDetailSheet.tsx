@@ -18,11 +18,9 @@ export default function NewsDetailSheet({
   const key = item ? (item.full || item.title) : "";
   const [data, setData] = useState<{ points: string[]; relate: string; question: string } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
 
   useEffect(() => {
     if (!open || !item) return;
-    setShowSummary(false);
     const c = detailCache.get(key);
     if (c) { setData(c); return; }
     setData(null);
@@ -42,21 +40,21 @@ export default function NewsDetailSheet({
 
   return (
     <Modal open={open} onClose={onClose} size="md" scrollable
-      title={<span className="text-sm text-paper-ink2">📰 今日看点{item.source ? ` · ${item.source}` : ""}</span>}
+      title={<span className="text-xs font-normal text-paper-ink3">📰 今日看点{item.source ? ` · ${item.source}` : ""}</span>}
       footer={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 px-5 py-3">
           {item.link && (
-            <a href={item.link} target="_blank" rel="noopener noreferrer" className="btn-secondary flex-1 justify-center text-center">看原文 ›</a>
+            <a href={item.link} target="_blank" rel="noopener noreferrer" className="btn-secondary flex-1 justify-center text-center !h-10">看原文 ›</a>
           )}
-          <button type="button" className="btn-primary flex-1"
+          <button type="button" className="btn-primary flex-1 !h-10"
             onClick={() => onWrite(item, { points: data?.points || [], question: data?.question || "" })}>
             💬 写写看法
           </button>
         </div>
       }
     >
-      <div className="space-y-4">
-        <h3 className="text-base font-semibold text-paper-ink leading-snug">{full}</h3>
+      <div className="px-5 pt-4 pb-5 space-y-4">
+        <h3 className="text-[17px] font-semibold text-paper-ink leading-relaxed">{full}</h3>
 
         {/* 小麦提炼的要点（只有带摘要的来源才有） */}
         {summary.length >= 40 && (
@@ -74,20 +72,14 @@ export default function NewsDetailSheet({
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-paper-ink2 leading-relaxed line-clamp-4">{summary}</p>
+              <p className="text-xs text-paper-ink3">小麦这次没整理出重点，直接看下面的正文吧</p>
             )}
-            {data?.points?.length ? (
-              <button type="button" onClick={() => setShowSummary((v) => !v)} className="mt-2 text-[11px] text-paper-ink3 hover:text-paper-ink">
-                {showSummary ? "收起原文摘要" : "看原文摘要"}
-              </button>
-            ) : null}
-            {showSummary && <p className="mt-1.5 text-xs text-paper-ink2 leading-relaxed bg-paper-surface rounded-xl px-3 py-2">{summary}</p>}
           </section>
         )}
 
         {/* 和你有什么关系 */}
-        <section className="rounded-2xl bg-amber-50/70 border border-amber-100 px-3.5 py-3">
-          <div className="text-[11px] text-amber-800/80 mb-1">和你有什么关系</div>
+        <section className="rounded-2xl bg-amber-50 border border-amber-100 px-4 py-3.5">
+          <div className="text-[11px] font-medium text-amber-800 mb-1.5">🌾 和你有什么关系</div>
           {loading && !data ? (
             <div className="h-3.5 w-4/5 rounded bg-amber-100/70 animate-pulse" />
           ) : (
@@ -101,9 +93,30 @@ export default function NewsDetailSheet({
           )}
         </section>
 
-        <p className="text-[10px] text-paper-ink3 leading-relaxed">
-          要点由小麦根据来源提供的摘要整理，可能有遗漏，以原文为准。
-        </p>
+        {data?.points?.length ? (
+          <p className="text-[10px] text-paper-ink3 leading-relaxed">
+            要点由小麦根据来源提供的摘要整理，可能有遗漏，以原文为准。
+          </p>
+        ) : null}
+
+        {/* 正文：来源 RSS 自己提供的内容，完整显示 + 标明来源（不额外抓原文网页） */}
+        {summary && (
+          <section className="pt-3 border-t border-paper-line/60">
+            <div className="text-[11px] text-paper-ink3 mb-2">📄 正文{item.source ? ` · 来自${item.source}` : ""}</div>
+            <div className="space-y-2.5">
+              {summary.split(/\n+/).map((p) => p.trim()).filter(Boolean).map((p, i) => (
+                <p key={i} className="text-sm text-paper-ink leading-[1.85]">{p}</p>
+              ))}
+            </div>
+            {/* 底部已经有「看原文」按钮；这里只在正文被截断时提示一下 */}
+            {item.link && summary.length >= 1400 && (
+              <a href={item.link} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-xs text-paper-accent hover:underline">
+                后面还有，去原文继续看 ›
+              </a>
+            )}
+            <p className="mt-2 text-[10px] text-paper-ink3">内容由{item.source || "来源网站"}通过 RSS 提供，版权归原作者所有。</p>
+          </section>
+        )}
       </div>
     </Modal>
   );
