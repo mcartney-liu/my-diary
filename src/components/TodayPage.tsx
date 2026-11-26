@@ -939,9 +939,9 @@ export default function TodayPage({ diaries }: Props) {
       <BottomDock active="home" />
 
       {/* 频道广场：勾选想在今天页看到的频道（存在本机） */}
-      <Modal open={showPlaza} onClose={() => setShowPlaza(false)} size="sm" title="频道广场">
+      <Modal open={showPlaza} onClose={() => setShowPlaza(false)} size="sm" title="频道广场" scrollable>
         <div className="px-5 pt-3 pb-5">
-          <p className="text-xs text-paper-ink2 mb-3">选你想在「今天」看到的频道，至少留一个。</p>
+          <p className="text-xs text-paper-ink2 mb-3">选你想在「今天」看到的频道，至少留一个。{subscribed ? `已选 ${subscribed.filter((c) => channels.includes(c)).length} 个` : ""}</p>
           <ul className="space-y-2">
             {ALL_CHANNELS.map((c) => {
               const on = !subscribed || subscribed.includes(c);
@@ -973,6 +973,7 @@ export default function TodayPage({ diaries }: Props) {
       </Modal>
 
       <NewsDetailSheet
+        label={`${CHANNEL_META[channel].icon} ${CHANNEL_META[channel].label}`}
         item={newsDetailItem}
         open={!!newsDetailItem}
         onClose={() => setNewsDetailItem(null)}

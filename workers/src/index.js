@@ -3235,6 +3235,16 @@ async function fetchNewsSource(env, url) {
 // ===== POST /api/news/detail — 今日看点详情：小麦根据来源自带的摘要提炼要点（不抓原文网页，不编造）=====
 // body: { title, summary, link, source }；要点按「标题+摘要」缓存 1 天，所有用户共用
 // 「和你有什么关系」带上这个用户的兴趣，单独生成（短、便宜），不缓存
+// 宽松解析模型输出：去掉 <think>、```json 代码块，找第一个 {...}；失败返回 null
+function parseLLMJson(raw) {
+  const txt = String(raw || '').replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```(?:json)?/gi, '');
+  const m = txt.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch {}
+  // 截断的 JSON：去掉最后一个不完整的字段再补 }
+  try { return JSON.parse(m[0].replace(/,\s*"[^"]*"?\s*:?\s*"?[^"]*$/, '') + '}'); } catch { return null; }
+}
+
 async function handleNewsDetail(request, env, _JWT_SECRET, _params, ctx) {
   const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
@@ -3243,46 +3253,48 @@ async function handleNewsDetail(request, env, _JWT_SECRET, _params, ctx) {
   const summary = newsPlain(body?.summary || '').slice(0, 1200);
   if (!title) return json({ error: 'title required' }, 400);
 
-  let points = [];
-  if (summary.length >= 40) {
-    const cache = caches.default;
-    const key = new Request('https://cache.mydiary.internal/news-detail-v1?k=' + encodeURIComponent((title + '|' + summary.slice(0, 200)).slice(0, 400)));
-    const hit = await cache.match(key);
-    if (hit) points = (await hit.json())?.points || [];
-    else {
-      const raw = await callLLM(env, [
-        { role: 'system', content: '你帮用户快速看懂一条新闻。只根据给你的标题和摘要提炼 3 条要点，每条 30 字以内，按重要程度排序；只写摘要里明确写了的事实，不推测、不补充摘要里没有的数字和细节；摘要信息不够就少写。只输出 JSON：{"points":["...","..."]}' },
-        { role: 'user', content: `标题：${title}\n摘要：${summary}` },
-      ], 700);
-      // 模型有时不按 JSON 输出（或前面带了思考内容）：先找 JSON，找不到就按「1. / · / -」开头的行拆
-      const txt = String(raw || '').replace(/<think>[\s\S]*?<\/think>/g, '');
-      const m = txt.match(/\{[\s\S]*"points"[\s\S]*\}/);
-      try { points = (JSON.parse(m?.[0] || '{}').points || []).map((p) => String(p).slice(0, 60)).filter(Boolean).slice(0, 3); } catch {}
-      if (!points.length) {
-        points = txt.split('\n').map((l) => l.trim()).filter((l) => /^(\d+[.、)）]|[·•\-*])\s*/.test(l))
-          .map((l) => l.replace(/^(\d+[.、)）]|[·•\-*])\s*/, '').replace(/^["“]|["”],?$/g, '').slice(0, 60)).filter((l) => l.length >= 4).slice(0, 3);
-      }
-      if (!points.length) console.warn('[news/detail] 要点解析失败:', txt.slice(0, 200));
-      if (points.length) ctx?.waitUntil?.(cache.put(key, new Response(JSON.stringify({ points }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' } })));
-    }
-  }
+  // 一次调用同时出「要点 + 和你有什么关系 + 写作小问题」（原来两次调用，第二次常因限流 / 并发失败）
+  // 要点按内容缓存 1 天（所有人共用）；relate / question 按「用户 + 内容」缓存 1 天
+  const cache = caches.default;
+  const contentKey = encodeURIComponent((title + '|' + summary.slice(0, 200)).slice(0, 400));
+  const pKey = new Request('https://cache.mydiary.internal/news-detail-v2?k=' + contentKey);
+  const rKey = new Request('https://cache.mydiary.internal/news-relate-v1?u=' + encodeURIComponent(user.uid) + '&k=' + contentKey);
+  const [pHit, rHit] = await Promise.all([cache.match(pKey), cache.match(rKey)]);
+  let points = pHit ? ((await pHit.json().catch(() => ({})))?.points || []) : null;
+  let rel = rHit ? await rHit.json().catch(() => null) : null;
+  const needPoints = points === null && summary.length >= 40;
+  if (points === null) points = [];
+  if (!needPoints && rel) return json({ points, relate: rel.relate || '', question: rel.question || '' });
 
-  // 和你有什么关系：参考用户资料里的兴趣 / 身份（没有就按普通人的角度）
-  let relate = '', question = '';
+  let who = '';
   try {
     const u = await env.DB.prepare('SELECT identity, interests FROM users WHERE id = ?').bind(user.uid).first();
-    const who = [u?.identity, u?.interests].filter(Boolean).join('；').slice(0, 120);
-    const raw = await callLLM(env, [
-      { role: 'system', content: '你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。针对一条新闻输出：relate（这件事和这个用户的日常生活可能有什么关系，或一个实用的小提醒，40 字以内，不要说教，不确定就说对普通人的影响）、question（一个能引出用户自己经历或想法的写日记小问题，25 字以内）。只输出 JSON：{"relate":"...","question":"..."}' },
-      { role: 'user', content: `用户：${who || '没有填写资料'}\n新闻：${title}${summary ? '\n摘要：' + summary.slice(0, 300) : ''}` },
-    ], 200);
-    const m = String(raw || '').match(/\{[\s\S]*\}/);
-    const j = JSON.parse(m?.[0] || '{}');
-    relate = String(j.relate || '').slice(0, 80);
-    question = String(j.question || '').slice(0, 50);
-  } catch (e) {
-    console.warn('[news/detail] relate 失败:', e.message);
+    who = [u?.identity, u?.interests].filter(Boolean).join('；').slice(0, 120);
+  } catch {}
+
+  const sys = '你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。根据给你的标题和摘要输出 JSON：'
+    + (needPoints ? 'points（3 条要点，每条 30 字以内，按重要程度排序；只写摘要里明确写了的事实，不推测、不补充摘要里没有的数字和细节；信息不够就少写），' : '')
+    + 'relate（这件事和这个用户的日常生活可能有什么关系，或一个实用的小提醒，40 字以内，不说教；用户没填资料就按普通人的角度），'
+    + 'question（一个能引出用户自己经历或想法的写日记小问题，25 字以内）。'
+    + '只输出 JSON，不要其他文字：' + (needPoints ? '{"points":["...","..."],"relate":"...","question":"..."}' : '{"relate":"...","question":"..."}');
+  const msgs = [
+    { role: 'system', content: sys },
+    { role: 'user', content: `用户：${who || '没有填写资料'}\n标题：${title}${summary ? '\n摘要：' + summary : ''}` },
+  ];
+  let j = parseLLMJson(await callLLM(env, msgs, 900));
+  if (!j) {
+    console.warn('[news/detail] 第一次输出解析失败，重试一次');
+    j = parseLLMJson(await callLLM(env, msgs, 900));
   }
+  if (!j) console.warn('[news/detail] 两次都没拿到有效 JSON');
+
+  if (needPoints) {
+    points = (Array.isArray(j?.points) ? j.points : []).map((p) => String(p).slice(0, 60)).filter(Boolean).slice(0, 3);
+    if (points.length) ctx?.waitUntil?.(cache.put(pKey, new Response(JSON.stringify({ points }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' } })));
+  }
+  const relate = rel?.relate || String(j?.relate || '').slice(0, 80);
+  const question = rel?.question || String(j?.question || '').slice(0, 50);
+  if (!rel && (relate || question)) ctx?.waitUntil?.(cache.put(rKey, new Response(JSON.stringify({ relate, question }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' } })));
   return json({ points, relate, question });
 }
 

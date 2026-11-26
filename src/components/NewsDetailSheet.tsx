@@ -9,11 +9,13 @@ import { newsDetail, type NewsItem } from "../api";
 const detailCache = new Map<string, { points: string[]; relate: string; question: string }>();
 
 export default function NewsDetailSheet({
-  item, open, onClose, onWrite,
+  item, open, onClose, onWrite, label,
 }: {
   item: NewsItem | null;
   open: boolean;
   onClose: () => void;
+  /** 弹窗左上角的频道名，比如「🔭 涨知识」；不传就是「📰 今日看点」 */
+  label?: string;
   /** 写写看法：带上新闻、要点和小麦的问题去写日记 */
   onWrite: (item: NewsItem, extra: { points: string[]; question: string }) => void;
 }) {
@@ -52,7 +54,7 @@ export default function NewsDetailSheet({
   return (
     <>
     <Modal open={open && !collecting} onClose={onClose} size="md" scrollable
-      title={<span className="text-xs font-normal text-paper-ink3">📰 今日看点{item.source ? ` · ${item.source}` : ""}</span>}
+      title={<span className="text-xs font-normal text-paper-ink3">{label || "📰 今日看点"}{item.source ? ` · ${item.source}` : ""}</span>}
       footer={
         <div className="flex items-center gap-2 px-5 py-3">
           {item.link && (
