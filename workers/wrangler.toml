@@ -30,6 +30,11 @@ remote = true
 binding = "NEWS_60S"
 service = "mydiary-60s"
 
+# RSSHub 新闻聚合服务绑定：chinanews + thepaper 等中文新闻
+[[services]]
+binding = "NEWS_RSSHUB"
+service = "mydiary-rsshub"
+
 # 验证码 KV（5 分钟 TTL 在代码里写）
 [[kv_namespaces]]
 binding = "verify_codes"
@@ -70,6 +75,15 @@ remote = true
 binding = "NEWS_60S"
 service = "mydiary-60s"
 
+[[env.dev.services]]
+binding = "NEWS_RSSHUB"
+service = "mydiary-rsshub"
+
 [env.dev.vars]
-# 「今日看点」新闻源：60s 开放接口（单独部署的 Worker）
+# 「今日看点」新闻源：优先用 NEWS_SOURCES 多源并行拉取，fallback NEWS_60S_URL
+NEWS_SOURCES = "https://mydiary-rsshub.mcartneyliu.workers.dev/chinanews?format=json&limit=20&filterout=娱乐|明星, https://mydiary-rsshub.mcartneyliu.workers.dev/thepaper/featured?format=json&limit=20, https://mydiary-60s.mcartneyliu.workers.dev/v2/60s"
 NEWS_60S_URL = "https://mydiary-60s.mcartneyliu.workers.dev/v2/60s"
+# 好文频道：少数派（直源 RSS，自建 RSSHub JSON 超时）+ 知乎日报
+NEWS_SOURCES_ARTICLE = "https://sspai.com/feed, https://mydiary-rsshub.mcartneyliu.workers.dev/zhihu/daily?format=json"
+# 科普频道：果壳科学
+NEWS_SOURCES_SCIENCE = "https://mydiary-rsshub.mcartneyliu.workers.dev/guokr/scientific?format=json"
