@@ -13,6 +13,7 @@ import LifeLinks from "./LifeLinks";
 import Xiaomai, { moodFor } from "./Xiaomai";
 import { useHint } from "./useOnce";
 import BottomDock from "./BottomDock";
+import NewsDetailSheet from "./NewsDetailSheet";
 import OnboardingWizard from "./OnboardingWizard";
 import FeatureTour, { hasSeenTour, markTourSeen, type TourStep } from "./FeatureTour";
 
@@ -210,6 +211,20 @@ export default function TodayPage({ diaries }: Props) {
   const [newsOpen, setNewsOpen] = useState(false);   // 只在心情不好时用：点一下才显示
   const [newsPage, setNewsPage] = useState(0);        // 「换一批」翻到第几组
   // 「刷新」按钮已去掉：60s 每天一份，刷新基本不会变；用「换一批」看候选池里的其他新闻
+  // 详情弹窗 + 写写看法（列表和弹窗共用）
+  const [newsDetailItem, setNewsDetailItem] = useState<NewsItem | null>(null);
+  const writeAboutNews = (n: NewsItem, extra?: { points: string[]; question: string }) => {
+    const full = n.full || n.title;
+    const lines = [`今天看到一条新闻：${full}`];
+    if (extra?.points?.length) lines.push(...extra.points.map((p) => `· ${p}`));
+    if (n.link) lines.push(`（原文：${n.link}）`);
+    lines.push("", extra?.question ? `${extra.question}` : "我的看法：");
+    openEditorWith(nav, {
+      title: `📰 ${n.title.length > 18 ? n.title.slice(0, 18) + "…" : n.title}`,
+      body: lines.join("\n") + (extra?.question ? "\n" : ""),
+      tags: ["看点", n.tag || "社会"],
+    });
+  };
   // 不感兴趣的分类（点「不感兴趣」后这一类不再出现）
   const [hiddenTags, setHiddenTags] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem("mydiary.news.hidden") || "[]"); } catch { return []; } });
   const hideTag = (tag: string) => setHiddenTags((list) => {
@@ -731,9 +746,12 @@ export default function TodayPage({ diaries }: Props) {
                     <li key={n.link || n.title} className="py-2 first:pt-0 last:pb-0">
                       <div className="flex items-start gap-2">
                         <span className={`shrink-0 mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full ${tag.cls}`}>{tag.icon} {n.tag || "社会"}</span>
-                        {n.link
-                          ? <a href={n.link} target="_blank" rel="noopener noreferrer" title={full} className="flex-1 min-w-0 line-clamp-2 text-sm leading-snug text-paper-ink hover:underline">{n.title}</a>
-                          : <span title={full} className="flex-1 min-w-0 line-clamp-2 text-sm leading-snug text-paper-ink">{n.title}</span>}
+                        {/* 点标题：弹出详情（小麦划重点 / 和你有什么关系 / 看原文） */}
+                        <button type="button" onClick={() => setNewsDetailItem(n)} title={full}
+                          className="flex-1 min-w-0 text-left line-clamp-2 text-sm leading-snug text-paper-ink hover:text-paper-accent">
+                          {n.title}
+                          {n.summary ? <span className="ml-1 text-[11px] text-paper-ink3">›</span> : null}
+                        </button>
                       </div>
                       <div className="mt-1 flex items-center gap-3 pl-0.5">
                         {n.say ? <span className="flex-1 min-w-0 text-xs text-paper-ink2 truncate">🌾 {n.say}</span> : <span className="flex-1" />}
@@ -741,11 +759,7 @@ export default function TodayPage({ diaries }: Props) {
                           <button type="button" onClick={() => { hideTag(n.tag || "社会"); toast(`以后少给你看「${n.tag || "社会"}」类新闻`, "ok"); }}
                             className="shrink-0 text-[11px] text-paper-ink3 hover:text-paper-ink">不感兴趣</button>
                         )}
-                        <button type="button" onClick={() => openEditorWith(nav, {
-                            title: `📰 ${n.title.length > 18 ? n.title.slice(0, 18) + "…" : n.title}`,
-                            body: `今天看到一条新闻：${full}${n.link ? `\n（原文：${n.link}）` : ""}\n\n我的看法：`,
-                            tags: ["看点", n.tag || "社会"],
-                          })}
+                        <button type="button" onClick={() => writeAboutNews(n)}
                           className="shrink-0 text-[11px] text-paper-accent hover:underline">💬 写写看法</button>
                       </div>
                     </li>
@@ -803,6 +817,13 @@ export default function TodayPage({ diaries }: Props) {
       </main>
 
       <BottomDock active="home" />
+
+      <NewsDetailSheet
+        item={newsDetailItem}
+        open={!!newsDetailItem}
+        onClose={() => setNewsDetailItem(null)}
+        onWrite={(n, extra) => { setNewsDetailItem(null); writeAboutNews(n, extra); }}
+      />
 
       {showOnboarding && (
         <OnboardingWizard

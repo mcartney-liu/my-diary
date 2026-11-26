@@ -163,6 +163,7 @@ export default {
       ["POST",   "/api/ai/daily-note",   handleDailyNote],
       ["GET",    "/api/news",            handleNews],
       ["GET",    "/api/news/days",       handleNewsDays],
+      ["POST",   "/api/news/detail",     handleNewsDetail],
       ["GET",    "/api/memory",          handleListMemory],
       ["POST",   "/api/memory",          handleAddMemory],
       ["PUT",    "/api/memory",          handleEditMemory],
@@ -3192,6 +3193,53 @@ async function fetchNewsSource(env, url) {
     if (r?.items?.length) return { ...r, type: name };
   }
   throw new Error('格式不认识（既不是 60s JSON 也不是 RSS/Atom）');
+}
+
+// ===== POST /api/news/detail — 今日看点详情：小麦根据来源自带的摘要提炼要点（不抓原文网页，不编造）=====
+// body: { title, summary, link, source }；要点按「标题+摘要」缓存 1 天，所有用户共用
+// 「和你有什么关系」带上这个用户的兴趣，单独生成（短、便宜），不缓存
+async function handleNewsDetail(request, env, _JWT_SECRET, _params, ctx) {
+  const user = await authUser(request, jwtSecrets(env));
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  let body; try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
+  const title = String(body?.title || '').slice(0, 160);
+  const summary = String(body?.summary || '').slice(0, 1200);
+  if (!title) return json({ error: 'title required' }, 400);
+
+  let points = [];
+  if (summary.length >= 40) {
+    const cache = caches.default;
+    const key = new Request('https://cache.mydiary.internal/news-detail-v1?k=' + encodeURIComponent((title + '|' + summary.slice(0, 200)).slice(0, 400)));
+    const hit = await cache.match(key);
+    if (hit) points = (await hit.json())?.points || [];
+    else {
+      const raw = await callLLM(env, [
+        { role: 'system', content: '你帮用户快速看懂一条新闻。只根据给你的标题和摘要提炼 3 条要点，每条 30 字以内，按重要程度排序；只写摘要里明确写了的事实，不推测、不补充摘要里没有的数字和细节；摘要信息不够就少写。只输出 JSON：{"points":["...","..."]}' },
+        { role: 'user', content: `标题：${title}\n摘要：${summary}` },
+      ], 300);
+      const m = String(raw || '').match(/\{[\s\S]*\}/);
+      try { points = (JSON.parse(m?.[0] || '{}').points || []).map((p) => String(p).slice(0, 60)).filter(Boolean).slice(0, 3); } catch {}
+      if (points.length) ctx?.waitUntil?.(cache.put(key, new Response(JSON.stringify({ points }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' } })));
+    }
+  }
+
+  // 和你有什么关系：参考用户资料里的兴趣 / 身份（没有就按普通人的角度）
+  let relate = '', question = '';
+  try {
+    const u = await env.DB.prepare('SELECT identity, interests FROM users WHERE id = ?').bind(user.uid).first();
+    const who = [u?.identity, u?.interests].filter(Boolean).join('；').slice(0, 120);
+    const raw = await callLLM(env, [
+      { role: 'system', content: '你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。针对一条新闻输出：relate（这件事和这个用户的日常生活可能有什么关系，或一个实用的小提醒，40 字以内，不要说教，不确定就说对普通人的影响）、question（一个能引出用户自己经历或想法的写日记小问题，25 字以内）。只输出 JSON：{"relate":"...","question":"..."}' },
+      { role: 'user', content: `用户：${who || '没有填写资料'}\n新闻：${title}${summary ? '\n摘要：' + summary.slice(0, 300) : ''}` },
+    ], 200);
+    const m = String(raw || '').match(/\{[\s\S]*\}/);
+    const j = JSON.parse(m?.[0] || '{}');
+    relate = String(j.relate || '').slice(0, 80);
+    question = String(j.question || '').slice(0, 50);
+  } catch (e) {
+    console.warn('[news/detail] relate 失败:', e.message);
+  }
+  return json({ points, relate, question });
 }
 
 // ===== GET /api/news — 「今天」页的今日看点 =====

@@ -440,6 +440,13 @@ export function listNews(fresh = false) {
   return request<NewsData>("/api/news" + (fresh ? "?fresh=1" : ""));
 }
 // On This Day：往年那几天的新闻快照
+// 今日看点详情：小麦根据摘要提炼的要点 + 和你有什么关系 + 写作小问题
+export function newsDetail(n: { title: string; summary?: string; link?: string; source?: string }) {
+  return request<{ points: string[]; relate: string; question: string }>("/api/news/detail", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: n.title, summary: n.summary || "", link: n.link || "", source: n.source || "" }),
+  });
+}
 export function newsDays(dates: string[]) {
   return request<{ days: Record<string, { items: { title: string; tag?: string; link?: string }[]; tip?: string }> }>(
     "/api/news/days?dates=" + encodeURIComponent(dates.join(",")));
