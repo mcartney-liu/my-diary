@@ -3106,10 +3106,12 @@ async function handleNewsDays(request, env) {
 // 服务绑定：只有来源域名和 60s Worker 一致（含 "60s"）且配了 NEWS_60S 绑定时才走绑定（绕过同账号 workers.dev 1042 拦截）
 // 频道：news 新闻 / article 好文 / science 科普 / psy 心理 / quote 一句话（quote 用本地句库，不依赖外部）
 // 每个频道一组来源：NEWS_SOURCES（新闻）、NEWS_SOURCES_ARTICLE（好文）、NEWS_SOURCES_SCIENCE（科普）、NEWS_SOURCES_PSY（心理）
-const NEWS_CHANNELS = ['news', 'article', 'science', 'psy', 'quote'];
+const NEWS_CHANNELS = ['news', 'article', 'science', 'nature', 'culture', 'psy', 'quote'];
 function newsSourceList(env, channel = 'news') {
   const raw = channel === 'article' ? String(env.NEWS_SOURCES_ARTICLE || '')
     : channel === 'science' ? String(env.NEWS_SOURCES_SCIENCE || '')
+    : channel === 'nature' ? String(env.NEWS_SOURCES_NATURE || '')
+    : channel === 'culture' ? String(env.NEWS_SOURCES_CULTURE || '')
     : channel === 'psy' ? String(env.NEWS_SOURCES_PSY || '')
     : String(env.NEWS_SOURCES || [env.NEWS_60S_URL, env.NEWS_RSS_URL].filter(Boolean).join(','));
   return raw.split(/[,\n]/).map((s) => s.trim()).filter((s) => /^https?:\/\//.test(s)).slice(0, 5);
@@ -3288,24 +3290,36 @@ async function handleNewsDetail(request, env, _JWT_SECRET, _params, ctx) {
 const CHANNEL_TAGS = {
   article: ['生活', '人物', '随笔', '读书', '旅行', '美食', '成长'],
   science: ['自然', '宇宙', '生命', '人体', '科技', '历史', '冷知识'],
+  nature: ['风景', '动物', '人文', '海洋', '天空'],
+  culture: ['新书', '电影', '动画', '展览'],
   psy: ['情绪', '关系', '自我', '睡眠', '压力', '亲子', '习惯'],
 };
 function newsChannelPrompt(channel) {
   const tags = (CHANNEL_TAGS[channel] || []).join('/');
   if (channel === 'psy') {
     return '你是日记 App 里的小伙伴"小麦"，语气温暖、不说教。从给你的心理学 / 自我成长内容里挑 12 条（不足就全挑），按对普通人有帮助的程度排序；'
-      + '优先：情绪调节、亲密关系、自我接纳、压力和睡眠、好习惯；避开药物、诊断、自杀自伤等需要专业介入的话题，避开标题党和贩卖焦虑的内容。英文内容请翻译成中文。'
+      + '优先：情绪调节、亲密关系、自我接纳、压力和睡眠、好习惯；避开药物、诊断、自杀自伤等需要专业介入的话题，避开标题党和贩卖焦虑的内容。英文内容的 title 保留英文原文（不要翻译），say 用中文。'
       + '每条输出：i（原序号）、tag（只能是 ' + tags + ' 之一）、title（中文标题，15~35 字，说清楚讲的是什么，不要标题党）、say（小麦的一句话，30 字以内，给一个今天就能试的小方法，可带 1 个 emoji）、light（true=轻松，false=偏沉重）。'
       + '只输出 JSON：{"picks":[{"i":0,"tag":"情绪","title":"...","say":"...","light":true}]}';
   }
+  if (channel === 'nature') {
+    return '你是日记 App 里的小伙伴"小麦"，温柔、有画面感。下面是每日一图（风景 / 动物 / 人文摄影）。全部保留，按画面让人放松的程度排序（不足 12 条就全挑），避开灾难和伤亡。'
+      + '每条输出：i（原序号）、tag（只能是 ' + tags + ' 之一）、title（英文标题保留英文原文，中文照用；15~40 字以内）、say（小麦的一句话，25 字以内，像看到这张照片时的感受，或一个“今天你看到了什么风景”的小问题，可带 1 个 emoji）、light（true/false）。'
+      + '只输出 JSON：{"picks":[{"i":0,"tag":"风景","title":"...","say":"...","light":true}]}';
+  }
+  if (channel === 'culture') {
+    return '你是日记 App 里的小伙伴"小麦"，像一个爱看书看电影的朋友。下面是新书、即将上映的电影、新番动画。挑 12 条（不足就全挑），优先口碑好、适合周末、能引出读后感 / 观后感的；尽量书、电影、动画都有。'
+      + '每条输出：i（原序号）、tag（只能是 ' + tags + ' 之一）、title（作品名 + 一句话说明，比如“《XX》：讲……的故事”，20~40 字）、say（小麦的一句话，30 字以内，比如“适合一个人的周末午后”或一个想写的问题，可带 1 个 emoji）、light（true/false）。'
+      + '只输出 JSON：{"picks":[{"i":0,"tag":"新书","title":"...","say":"...","light":true}]}';
+  }
   if (channel === 'science') {
     return '你是日记 App 里的小伙伴"小麦"，好奇、口语化。从给你的科普内容里挑 12 篇（不足就全挑），按有趣又涨知识的程度排序；'
-      + '优先：日常生活里能用上的科学、自然和宇宙的奇妙、人体小知识、冷知识；避开医疗建议、伪科学、灾难伤亡。英文内容请翻译成中文。'
+      + '优先：日常生活里能用上的科学、自然和宇宙的奇妙、人体小知识、冷知识；避开医疗建议、伪科学、灾难伤亡。英文内容的 title 保留英文原文（不要翻译），say 用中文。'
       + '每条输出：i（原序号）、tag（只能是 ' + tags + ' 之一）、title（中文标题，15~35 字，说清楚讲的是什么，不要标题党）、say（小麦的一句话，30 字以内，用“原来……”或一个好玩的问题点出最有意思的地方，可带 1 个 emoji）、light（true=轻松，false=偏沉重）。'
       + '只输出 JSON：{"picks":[{"i":0,"tag":"冷知识","title":"...","say":"...","light":true}]}';
   }
   return '你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。从给你的文章里挑 12 篇（不足就全挑），按值得一读的程度排序；'
-    + '优先：生活方式、人物故事、随笔、读书、旅行、美食、个人成长这类读完会让人想写点什么的；避开纯广告、产品测评、新闻快讯、技术教程。英文内容请翻译成中文。'
+    + '优先：生活方式、人物故事、随笔、读书、旅行、美食、个人成长这类读完会让人想写点什么的；避开纯广告、产品测评、新闻快讯、技术教程。英文内容的 title 保留英文原文（不要翻译），say 用中文。'
     + '每条输出：i（原序号）、tag（只能是 ' + tags + ' 之一）、title（中文标题，15~35 字，保留原标题的味道）、say（小麦的一句话，30 字以内，说说这篇打动人的地方或读完可以想想的问题，可带 1 个 emoji）、light（true=轻松，false=偏沉重）。'
     + '只输出 JSON：{"picks":[{"i":0,"tag":"生活","title":"...","say":"...","light":true}]}';
 }
@@ -3439,7 +3453,7 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   if (!sources.length) return json({ enabled: false, channel, channels, items: [] });
 
   const cache = caches.default;
-  const cacheKey = new Request('https://cache.mydiary.internal/news-v6?ch=' + channel + '&src=' + encodeURIComponent(sources.join('|')));
+  const cacheKey = new Request('https://cache.mydiary.internal/news-v7?ch=' + channel + '&src=' + encodeURIComponent(sources.join('|')));
   const hit = await cache.match(cacheKey);
   // ?fresh=1：缓存超过 10 分钟才重新拉，避免很多人连点导致反复调 AI
   const fresh = q.get('fresh') === '1';

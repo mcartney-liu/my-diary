@@ -71,6 +71,8 @@ const CHANNEL_META: Record<NewsChannel, { icon: string; name: string; label: str
   news:    { icon: "📰", name: "新闻", label: "今日看点", desc: "每天挑几条和生活有关的新闻，小麦告诉你和你有什么关系" },
   article: { icon: "📖", name: "好文", label: "今日好文", desc: "生活方式、随笔、人物故事，读完会想写点什么" },
   science: { icon: "🔭", name: "科普", label: "涨知识", desc: "自然、宇宙、人体和冷知识，喜欢的可以收进知识库" },
+  nature:  { icon: "🏞️", name: "每日一图", label: "每日一图", desc: "国家地理的风景、动物和人文摄影，看一眼放松一下" },
+  culture: { icon: "🎬", name: "书影", label: "书和电影", desc: "新书、即将上映的电影和新番，周末看什么、读什么" },
   psy:     { icon: "🧠", name: "心理", label: "心理小站", desc: "情绪、关系、睡眠的小练习，今天就能试一试" },
   quote:   { icon: "🌙", name: "一句话", label: "今日一句", desc: "诗词和好句子，当作今天的写作引子" },
 };
@@ -100,6 +102,17 @@ const NEWS_TAG_STYLE: Record<string, { icon: string; cls: string }> = {
   历史: { icon: "🏺", cls: "bg-amber-50 text-amber-800" },
   冷知识: { icon: "💡", cls: "bg-yellow-50 text-yellow-700" },
   // 心理
+  // 每日一图
+  风景: { icon: "🏔️", cls: "bg-emerald-50 text-emerald-700" },
+  动物: { icon: "🐾", cls: "bg-orange-50 text-orange-700" },
+  人文: { icon: "🏮", cls: "bg-rose-50 text-rose-700" },
+  海洋: { icon: "🌊", cls: "bg-sky-50 text-sky-700" },
+  天空: { icon: "🌌", cls: "bg-indigo-50 text-indigo-700" },
+  // 书影
+  新书: { icon: "📕", cls: "bg-amber-50 text-amber-800" },
+  电影: { icon: "🎞️", cls: "bg-stone-100 text-stone-700" },
+  动画: { icon: "✨", cls: "bg-pink-50 text-pink-700" },
+  展览: { icon: "🖼️", cls: "bg-violet-50 text-violet-700" },
   情绪: { icon: "💗", cls: "bg-rose-50 text-rose-700" },
   关系: { icon: "🤝", cls: "bg-violet-50 text-violet-700" },
   自我: { icon: "🪞", cls: "bg-indigo-50 text-indigo-700" },

@@ -434,7 +434,7 @@ export function dailyNote(payload: { date: string; weather?: { temp: number; des
 // 今日看点：items 是小麦挑过的候选池（最多 8 条，tag 分类 / full 原标题 / say 小麦的一句话 / light 是否轻松）
 // 前端按个人兴趣、今天心情、不感兴趣的分类再选 3 条；date 是新闻对应的日期
 export type NewsItem = { title: string; link: string; tag?: string; full?: string; say?: string; light?: boolean; summary?: string; source?: string; image?: string };
-export type NewsChannel = "news" | "article" | "science" | "psy" | "quote";
+export type NewsChannel = "news" | "article" | "science" | "nature" | "culture" | "psy" | "quote";
 export type NewsData = { enabled: boolean; items: NewsItem[]; tip?: string; picked?: boolean; error?: string; date?: string; updated?: string; channel?: NewsChannel; channels?: NewsChannel[]; wallpaper?: string };
 // channel：新闻 / 好文 / 心理 / 一句话；fresh=true 跳过 30 分钟缓存
 export function listNews(fresh = false, channel: NewsChannel = "news") {
