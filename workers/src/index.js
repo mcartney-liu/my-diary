@@ -3103,11 +3103,12 @@ async function handleNewsDays(request, env) {
 //   兼容旧变量：NEWS_60S_URL / NEWS_RSS_URL
 // 类型自动识别：返回 JSON 且有 data.news → 60s；XML 有 <item>/<entry> → RSS/Atom
 // 服务绑定：只有来源域名和 60s Worker 一致（含 "60s"）且配了 NEWS_60S 绑定时才走绑定（绕过同账号 workers.dev 1042 拦截）
-// 频道：news 新闻 / article 好文 / psy 心理 / quote 一句话（quote 用本地句库，不依赖外部）
-// 每个频道一组来源：NEWS_SOURCES（新闻）、NEWS_SOURCES_ARTICLE（好文）、NEWS_SOURCES_PSY（心理）
-const NEWS_CHANNELS = ['news', 'article', 'psy', 'quote'];
+// 频道：news 新闻 / article 好文 / science 科普 / psy 心理 / quote 一句话（quote 用本地句库，不依赖外部）
+// 每个频道一组来源：NEWS_SOURCES（新闻）、NEWS_SOURCES_ARTICLE（好文）、NEWS_SOURCES_SCIENCE（科普）、NEWS_SOURCES_PSY（心理）
+const NEWS_CHANNELS = ['news', 'article', 'science', 'psy', 'quote'];
 function newsSourceList(env, channel = 'news') {
   const raw = channel === 'article' ? String(env.NEWS_SOURCES_ARTICLE || '')
+    : channel === 'science' ? String(env.NEWS_SOURCES_SCIENCE || '')
     : channel === 'psy' ? String(env.NEWS_SOURCES_PSY || '')
     : String(env.NEWS_SOURCES || [env.NEWS_60S_URL, env.NEWS_RSS_URL].filter(Boolean).join(','));
   return raw.split(/[,\n]/).map((s) => s.trim()).filter((s) => /^https?:\/\//.test(s)).slice(0, 5);
@@ -3267,6 +3268,7 @@ async function handleNewsDetail(request, env, _JWT_SECRET, _params, ctx) {
 // 频道自己的分类（前端按这个显示小标签）
 const CHANNEL_TAGS = {
   article: ['生活', '人物', '随笔', '读书', '旅行', '美食', '成长'],
+  science: ['自然', '宇宙', '生命', '人体', '科技', '历史', '冷知识'],
   psy: ['情绪', '关系', '自我', '睡眠', '压力', '亲子', '习惯'],
 };
 function newsChannelPrompt(channel) {
@@ -3276,6 +3278,12 @@ function newsChannelPrompt(channel) {
       + '优先：情绪调节、亲密关系、自我接纳、压力和睡眠、好习惯；避开药物、诊断、自杀自伤等需要专业介入的话题，避开标题党和贩卖焦虑的内容。英文内容请翻译成中文。'
       + '每条输出：i（原序号）、tag（只能是 ' + tags + ' 之一）、title（中文标题，15~35 字，说清楚讲的是什么，不要标题党）、say（小麦的一句话，30 字以内，给一个今天就能试的小方法，可带 1 个 emoji）、light（true=轻松，false=偏沉重）。'
       + '只输出 JSON：{"picks":[{"i":0,"tag":"情绪","title":"...","say":"...","light":true}]}';
+  }
+  if (channel === 'science') {
+    return '你是日记 App 里的小伙伴"小麦"，好奇、口语化。从给你的科普内容里挑 12 篇（不足就全挑），按有趣又涨知识的程度排序；'
+      + '优先：日常生活里能用上的科学、自然和宇宙的奇妙、人体小知识、冷知识；避开医疗建议、伪科学、灾难伤亡。英文内容请翻译成中文。'
+      + '每条输出：i（原序号）、tag（只能是 ' + tags + ' 之一）、title（中文标题，15~35 字，说清楚讲的是什么，不要标题党）、say（小麦的一句话，30 字以内，用“原来……”或一个好玩的问题点出最有意思的地方，可带 1 个 emoji）、light（true=轻松，false=偏沉重）。'
+      + '只输出 JSON：{"picks":[{"i":0,"tag":"冷知识","title":"...","say":"...","light":true}]}';
   }
   return '你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。从给你的文章里挑 12 篇（不足就全挑），按值得一读的程度排序；'
     + '优先：生活方式、人物故事、随笔、读书、旅行、美食、个人成长这类读完会让人想写点什么的；避开纯广告、产品测评、新闻快讯、技术教程。英文内容请翻译成中文。'

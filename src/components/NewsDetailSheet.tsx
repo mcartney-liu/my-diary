@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Modal from "./Modal";
+import CollectSheet from "./CollectSheet";
 import { newsDetail, type NewsItem } from "../api";
 
 // 今日看点详情：完整标题 · 来源摘要 · 小麦提炼的要点 · 和你有什么关系 · 看原文 / 写写看法
@@ -18,6 +19,7 @@ export default function NewsDetailSheet({
   const key = item ? (item.full || item.title) : "";
   const [data, setData] = useState<{ points: string[]; relate: string; question: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [collecting, setCollecting] = useState(false);
 
   useEffect(() => {
     if (!open || !item) return;
@@ -37,14 +39,26 @@ export default function NewsDetailSheet({
   if (!item) return null;
   const full = item.full || item.title;
   const summary = (item.summary || "").trim();
+  // 收进知识库：标题 + 小麦划的重点 + 正文 + 出处，交给小麦按库的分类整理
+  const collectText = [
+    full,
+    data?.points?.length ? "要点：\n" + data.points.map((p) => "· " + p).join("\n") : "",
+    summary,
+    item.link ? `来源：${item.source || ""} ${item.link}` : (item.source ? `来源：${item.source}` : ""),
+  ].filter(Boolean).join("\n\n");
 
   return (
-    <Modal open={open} onClose={onClose} size="md" scrollable
+    <>
+    <Modal open={open && !collecting} onClose={onClose} size="md" scrollable
       title={<span className="text-xs font-normal text-paper-ink3">📰 今日看点{item.source ? ` · ${item.source}` : ""}</span>}
       footer={
         <div className="flex items-center gap-2 px-5 py-3">
           {item.link && (
-            <a href={item.link} target="_blank" rel="noopener noreferrer" className="btn-secondary flex-1 justify-center text-center !h-10">看原文 ›</a>
+            <a href={item.link} target="_blank" rel="noopener noreferrer" className="btn-secondary flex-1 justify-center text-center !h-10 !px-2">看原文 ›</a>
+          )}
+          {/* 有正文的内容（好文 / 科普 / 心理 / 新闻）都可以收进知识库，以后问小麦能找到 */}
+          {summary.length >= 40 && (
+            <button type="button" onClick={() => setCollecting(true)} className="btn-secondary flex-1 !h-10 !px-2">📥 收进知识库</button>
           )}
           <button type="button" className="btn-primary flex-1 !h-10"
             onClick={() => onWrite(item, { points: data?.points || [], question: data?.question || "" })}>
@@ -121,5 +135,7 @@ export default function NewsDetailSheet({
         )}
       </div>
     </Modal>
+    <CollectSheet open={open && collecting} onClose={() => setCollecting(false)} onDone={() => { setCollecting(false); onClose(); }} initialText={collectText} />
+    </>
   );
 }

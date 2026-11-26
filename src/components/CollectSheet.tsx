@@ -5,8 +5,10 @@ import { registerModalClose } from "../uiModalStack";
 
 // 「＋ 收进知识库」：粘贴一段文字 → 小麦自动判断放进哪个知识库 → 后台自动整理
 // 都不合适时，给一个建议的新库名，点一下就建好并收进去
-export default function CollectSheet({ open, onClose, defaultKbId, onDone }: {
+export default function CollectSheet({ open, onClose, defaultKbId, onDone, initialText }: {
   open: boolean; onClose: () => void; defaultKbId?: string; onDone?: (kbId: string) => void;
+  /** 预填内容（比如从今日看点「收进知识库」带进来的文章） */
+  initialText?: string;
 }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -14,7 +16,7 @@ export default function CollectSheet({ open, onClose, defaultKbId, onDone }: {
   const [newName, setNewName] = useState("");
 
   useEffect(() => { if (open) return registerModalClose(onClose); }, [open, onClose]);
-  useEffect(() => { if (!open) { setText(""); setChoose(null); setNewName(""); } }, [open]);
+  useEffect(() => { if (!open) { setText(""); setChoose(null); setNewName(""); } else if (initialText) setText(initialText); }, [open, initialText]);
   if (!open) return null;
 
   async function submit(kbId?: string) {

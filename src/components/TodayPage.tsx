@@ -68,6 +68,7 @@ function firstText(d: Diary): string {
 const CHANNEL_META: Record<NewsChannel, { icon: string; name: string; label: string }> = {
   news:    { icon: "📰", name: "新闻", label: "今日看点" },
   article: { icon: "📖", name: "好文", label: "今日好文" },
+  science: { icon: "🔭", name: "科普", label: "涨知识" },
   psy:     { icon: "🧠", name: "心理", label: "心理小站" },
   quote:   { icon: "🌙", name: "一句话", label: "今日一句" },
 };
@@ -87,6 +88,14 @@ const NEWS_TAG_STYLE: Record<string, { icon: string; cls: string }> = {
   旅行: { icon: "🧳", cls: "bg-sky-50 text-sky-700" },
   美食: { icon: "🍜", cls: "bg-orange-50 text-orange-700" },
   成长: { icon: "🌱", cls: "bg-emerald-50 text-emerald-700" },
+  // 心理
+  // 科普（科技 / 历史 / 健康 已有）
+  自然: { icon: "🌿", cls: "bg-emerald-50 text-emerald-700" },
+  宇宙: { icon: "🪐", cls: "bg-indigo-50 text-indigo-700" },
+  生命: { icon: "🧬", cls: "bg-teal-50 text-teal-700" },
+  人体: { icon: "🫀", cls: "bg-rose-50 text-rose-700" },
+  历史: { icon: "🏺", cls: "bg-amber-50 text-amber-800" },
+  冷知识: { icon: "💡", cls: "bg-yellow-50 text-yellow-700" },
   // 心理
   情绪: { icon: "💗", cls: "bg-rose-50 text-rose-700" },
   关系: { icon: "🤝", cls: "bg-violet-50 text-violet-700" },
