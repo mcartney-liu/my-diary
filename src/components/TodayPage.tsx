@@ -14,6 +14,7 @@ import Xiaomai, { moodFor } from "./Xiaomai";
 import { useHint } from "./useOnce";
 import BottomDock from "./BottomDock";
 import NewsDetailSheet from "./NewsDetailSheet";
+import Modal from "./Modal";
 import OnboardingWizard from "./OnboardingWizard";
 import FeatureTour, { hasSeenTour, markTourSeen, type TourStep } from "./FeatureTour";
 
@@ -65,13 +66,14 @@ function firstText(d: Diary): string {
 }
 // 今日看点的分类标签样式
 // 今日看点的频道
-const CHANNEL_META: Record<NewsChannel, { icon: string; name: string; label: string }> = {
-  news:    { icon: "📰", name: "新闻", label: "今日看点" },
-  article: { icon: "📖", name: "好文", label: "今日好文" },
-  science: { icon: "🔭", name: "科普", label: "涨知识" },
-  psy:     { icon: "🧠", name: "心理", label: "心理小站" },
-  quote:   { icon: "🌙", name: "一句话", label: "今日一句" },
+const CHANNEL_META: Record<NewsChannel, { icon: string; name: string; label: string; desc: string }> = {
+  news:    { icon: "📰", name: "新闻", label: "今日看点", desc: "每天挑几条和生活有关的新闻，小麦告诉你和你有什么关系" },
+  article: { icon: "📖", name: "好文", label: "今日好文", desc: "生活方式、随笔、人物故事，读完会想写点什么" },
+  science: { icon: "🔭", name: "科普", label: "涨知识", desc: "自然、宇宙、人体和冷知识，喜欢的可以收进知识库" },
+  psy:     { icon: "🧠", name: "心理", label: "心理小站", desc: "情绪、关系、睡眠的小练习，今天就能试一试" },
+  quote:   { icon: "🌙", name: "一句话", label: "今日一句", desc: "诗词和好句子，当作今天的写作引子" },
 };
+const ALL_CHANNELS = Object.keys(CHANNEL_META) as NewsChannel[];
 const NEWS_TAG_STYLE: Record<string, { icon: string; cls: string }> = {
   生活: { icon: "🏠", cls: "bg-amber-50 text-amber-800" },
   科技: { icon: "🚀", cls: "bg-sky-50 text-sky-700" },
@@ -245,6 +247,14 @@ export default function TodayPage({ diaries }: Props) {
     try { const c = localStorage.getItem("mydiary.today.channel") as NewsChannel | null; return c && c in CHANNEL_META ? c : "news"; } catch { return "news"; }
   });
   const [channels, setChannels] = useState<NewsChannel[]>(["news"]);
+  // 频道广场：用户订阅的频道（没设置过 = 全部订阅；后端没有内容的频道自动不显示）
+  const [subscribed, setSubscribed] = useState<NewsChannel[] | null>(() => {
+    try { const v = JSON.parse(localStorage.getItem("mydiary.today.channels") || "null"); return Array.isArray(v) ? v : null; } catch { return null; }
+  });
+  const [showPlaza, setShowPlaza] = useState(false);
+  const saveSubscribed = (list: NewsChannel[]) => { setSubscribed(list); try { localStorage.setItem("mydiary.today.channels", JSON.stringify(list)); } catch {} };
+  // 今天页显示的频道 = 后端可用 ∩ 用户订阅（当前频道即使没订阅也保留，比如心情不好时自动切到心理）
+  const shownChannels = channels.filter((c) => !subscribed || subscribed.includes(c) || c === channel);
   const newsCacheRef = useRef<Partial<Record<NewsChannel, NewsData>>>({});
   const [newsOpen, setNewsOpen] = useState(false);   // 只在心情不好时用：点一下才显示
   const [newsPage, setNewsPage] = useState(0);        // 「换一批」翻到第几组
@@ -785,12 +795,14 @@ export default function TodayPage({ diaries }: Props) {
               <span className="section-label shrink-0">{CHANNEL_META[channel].icon} {CHANNEL_META[channel].label}</span>
               {channel === "news" && newsDateLabel && <span className="text-[10px] text-paper-ink3">{newsDateLabel}{news?.updated ? ` ${news.updated.slice(11, 16)}` : ""} 更新</span>}
               <span className="flex-1" />
+              <button type="button" onClick={() => setShowPlaza(true)} title="频道广场：选你想看的频道"
+                className="shrink-0 text-xs text-paper-ink3 hover:text-paper-ink">⚙️ 频道</button>
               <button type="button" onClick={() => setNewsOn(false)} className="shrink-0 text-xs text-paper-ink3 hover:text-paper-ink">关闭</button>
             </div>
-            {/* 频道切换：新闻 / 好文 / 心理 / 一句话（只显示后端配了来源的） */}
-            {channels.length > 1 && (
+            {/* 频道切换：只显示后端有内容、并且用户订阅了的频道 */}
+            {shownChannels.length > 1 && (
               <div className="mt-2 flex gap-1.5 overflow-x-auto no-scrollbar">
-                {channels.map((c) => (
+                {shownChannels.map((c) => (
                   <button key={c} type="button" onClick={() => { setChannel(c); setNewsPage(0); }}
                     className={`shrink-0 text-[11px] px-2.5 py-1 rounded-full border transition ${c === channel ? "bg-paper-ink text-paper-bg border-paper-ink" : "bg-paper-card text-paper-ink2 border-paper-line/70 hover:text-paper-ink"}`}>
                     {CHANNEL_META[c].icon} {CHANNEL_META[c].name}
@@ -897,6 +909,40 @@ export default function TodayPage({ diaries }: Props) {
       </main>
 
       <BottomDock active="home" />
+
+      {/* 频道广场：勾选想在今天页看到的频道（存在本机） */}
+      <Modal open={showPlaza} onClose={() => setShowPlaza(false)} size="sm" title="频道广场">
+        <div className="px-5 pt-3 pb-5">
+          <p className="text-xs text-paper-ink2 mb-3">选你想在「今天」看到的频道，至少留一个。</p>
+          <ul className="space-y-2">
+            {ALL_CHANNELS.map((c) => {
+              const on = !subscribed || subscribed.includes(c);
+              const ready = channels.includes(c);
+              return (
+                <li key={c}>
+                  <button type="button" disabled={!ready}
+                    onClick={() => {
+                      const cur = subscribed ?? ALL_CHANNELS;
+                      const next = on ? cur.filter((x) => x !== c) : [...cur, c];
+                      if (!next.length) { toast("至少留一个频道吧", "error"); return; }
+                      saveSubscribed(next);
+                      if (on && c === channel) setChannel(next.find((x) => channels.includes(x)) || "news");
+                    }}
+                    className={`w-full flex items-start gap-3 text-left px-3 py-2.5 rounded-2xl border transition disabled:opacity-50 ${on && ready ? "border-paper-accent/40 bg-amber-50/50" : "border-paper-line/70 bg-paper-card hover:bg-paper-surface"}`}>
+                    <span className="text-xl shrink-0">{CHANNEL_META[c].icon}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-medium text-paper-ink">{CHANNEL_META[c].name}{!ready && <span className="ml-1.5 text-[10px] text-paper-ink3">准备中</span>}</span>
+                      <span className="block text-xs text-paper-ink2 mt-0.5 leading-relaxed">{CHANNEL_META[c].desc}</span>
+                    </span>
+                    <span className={`shrink-0 mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center text-[11px] ${on && ready ? "bg-paper-accent border-paper-accent text-white" : "border-paper-line"}`}>{on && ready ? "✓" : ""}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="mt-3 text-[11px] text-paper-ink3">更多频道陆续上线中 🌾</p>
+        </div>
+      </Modal>
 
       <NewsDetailSheet
         item={newsDetailItem}
