@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Modal from "./Modal";
 import CollectSheet from "./CollectSheet";
+import SafeImg from "./SafeImg";
 import { newsDetail, type NewsItem } from "../api";
 
 // 今日看点详情：完整标题 · 来源摘要 · 小麦提炼的要点 · 和你有什么关系 · 看原文 / 写写看法
@@ -39,11 +40,12 @@ export default function NewsDetailSheet({
   if (!item) return null;
   const full = item.full || item.title;
   const summary = (item.summary || "").trim();
+  const plainLen = summary.replace(/\[\[img:[^\]]*\]\]/g, "").trim().length;
   // 收进知识库：标题 + 小麦划的重点 + 正文 + 出处，交给小麦按库的分类整理
   const collectText = [
     full,
     data?.points?.length ? "要点：\n" + data.points.map((p) => "· " + p).join("\n") : "",
-    summary,
+    summary.replace(/\[\[img:([^\]]*)\]\]/g, "（图片：$1）"),
     item.link ? `来源：${item.source || ""} ${item.link}` : (item.source ? `来源：${item.source}` : ""),
   ].filter(Boolean).join("\n\n");
 
@@ -57,7 +59,7 @@ export default function NewsDetailSheet({
             <a href={item.link} target="_blank" rel="noopener noreferrer" className="btn-secondary flex-1 justify-center text-center !h-10 !px-2">看原文 ›</a>
           )}
           {/* 有正文的内容（好文 / 科普 / 心理 / 新闻）都可以收进知识库，以后问小麦能找到 */}
-          {summary.length >= 40 && (
+          {plainLen >= 40 && (
             <button type="button" onClick={() => setCollecting(true)} className="btn-secondary flex-1 !h-10 !px-2">📥 收进知识库</button>
           )}
           <button type="button" className="btn-primary flex-1 !h-10"
@@ -69,9 +71,11 @@ export default function NewsDetailSheet({
     >
       <div className="px-5 pt-4 pb-5 space-y-4">
         <h3 className="text-[17px] font-semibold text-paper-ink leading-relaxed">{full}</h3>
+        {/* 封面大图（正文里也有同一张时，正文里那张不重复显示） */}
+        <SafeImg src={item.image} className="w-full max-h-64 object-cover rounded-2xl bg-paper-surface" />
 
         {/* 小麦提炼的要点（只有带摘要的来源才有） */}
-        {summary.length >= 40 && (
+        {plainLen >= 40 && (
           <section>
             <div className="text-[11px] text-paper-ink3 mb-1.5">🌾 小麦帮你划的重点</div>
             {loading && !data ? (
@@ -118,12 +122,22 @@ export default function NewsDetailSheet({
           <section className="pt-3 border-t border-paper-line/60">
             <div className="text-[11px] text-paper-ink3 mb-2">📄 正文{item.source ? ` · 来自${item.source}` : ""}</div>
             <div className="space-y-2.5">
-              {summary.split(/\n+/).map((p) => p.trim()).filter(Boolean).map((p, i) => (
-                <p key={i} className="text-sm text-paper-ink leading-[1.85]">{p}</p>
-              ))}
+              {(() => {
+                let imgs = 0;
+                return summary.split(/\n+/).map((p) => p.trim()).filter(Boolean).map((p, i) => {
+                  const m = p.match(/^\[\[img:(https?:\/\/[^\]\s]+)\]\]$/);
+                  if (m) {
+                    if (m[1] === item.image || imgs >= 4) return null;
+                    imgs++;
+                    return <SafeImg key={i} src={m[1]} className="w-full rounded-xl bg-paper-surface" />;
+                  }
+                  const text = p.replace(/\[\[img:[^\]]*\]\]/g, "").trim();
+                  return text ? <p key={i} className="text-sm text-paper-ink leading-[1.85]">{text}</p> : null;
+                });
+              })()}
             </div>
             {/* 底部已经有「看原文」按钮；这里只在正文被截断时提示一下 */}
-            {item.link && summary.length >= 1400 && (
+            {item.link && plainLen >= 2300 && (
               <a href={item.link} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-xs text-paper-accent hover:underline">
                 后面还有，去原文继续看 ›
               </a>

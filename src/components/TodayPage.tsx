@@ -14,6 +14,7 @@ import Xiaomai, { moodFor } from "./Xiaomai";
 import { useHint } from "./useOnce";
 import BottomDock from "./BottomDock";
 import NewsDetailSheet from "./NewsDetailSheet";
+import SafeImg from "./SafeImg";
 import Modal from "./Modal";
 import OnboardingWizard from "./OnboardingWizard";
 import FeatureTour, { hasSeenTour, markTourSeen, type TourStep } from "./FeatureTour";
@@ -810,6 +811,16 @@ export default function TodayPage({ diaries }: Props) {
                 ))}
               </div>
             )}
+            {/* 🌙 一句话：今天的壁纸当书签头图（取不到就不显示） */}
+            {channel === "quote" && news?.wallpaper ? (
+              <div className="mt-2 relative rounded-2xl overflow-hidden h-28 bg-gradient-to-br from-indigo-100 to-amber-50">
+                <SafeImg src={news.wallpaper} className="absolute inset-0 w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
+                {newsPicks[0] && (
+                  <p className="absolute left-3 right-3 bottom-2.5 text-white text-[15px] leading-relaxed drop-shadow line-clamp-2">{newsPicks[0].title}</p>
+                )}
+              </div>
+            ) : null}
             {channel === "news" && news?.tip ? <div className="mt-1 text-xs text-paper-ink2 leading-relaxed">💭 {news.tip}</div> : null}
             <div className="mt-2">
             {!news ? (
@@ -843,6 +854,10 @@ export default function TodayPage({ diaries }: Props) {
                           className="flex-1 min-w-0 text-left line-clamp-2 text-sm leading-snug text-paper-ink hover:text-paper-accent">
                           {n.title}
                           {n.summary ? <span className="ml-1 text-[11px] text-paper-ink3">›</span> : null}
+                        </button>
+                        {/* 缩略图：没有图 / 加载失败就不占位 */}
+                        <button type="button" onClick={() => setNewsDetailItem(n)} className="shrink-0 empty:hidden">
+                          <SafeImg src={n.image} className="w-16 h-16 rounded-xl object-cover bg-paper-surface" />
                         </button>
                       </div>
                       <div className="mt-1 flex items-center gap-3 pl-0.5">

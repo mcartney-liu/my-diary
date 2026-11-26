@@ -3029,7 +3029,7 @@ async function pickNewsWithXiaomai(env, items, channel = 'news') {
   // 挑一个「候选池」（最多 8 条）：前端再按每个人的兴趣 / 今天的心情 / 不感兴趣的分类从里面选 3 条，AI 不用按人调用
   if (!items?.length) return null;
   // 有摘要的来源（RSS）把摘要前 80 字也给小麦，帮它判断；60s 只有标题
-  const list = items.slice(0, 20).map((n, i) => `${i}. ${n.srcTags?.length ? '[' + n.srcTags.join('/') + '] ' : ''}${n.title}${n.summary ? '｜' + n.summary.slice(0, 80) : ''}`).join('\n');
+  const list = items.slice(0, 20).map((n, i) => `${i}. ${n.srcTags?.length ? '[' + n.srcTags.join('/') + '] ' : ''}${n.title}${n.summary ? '｜' + newsPlain(n.summary).slice(0, 80) : ''}`).join('\n');
   const sys = channel !== 'news' ? newsChannelPrompt(channel) : ('你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。从用户给的新闻里挑 12 条（不足 12 条就全挑），按推荐程度排序：优先和普通人生活相关、积极或有趣的；尽量覆盖不同分类；避开灾难、伤亡、犯罪、政治争议。'
     + '每条输出：i（原序号）、tag（只能是 ' + NEWS_TAGS.join('/') + ' 之一）、title（新闻标题，25~40 字，必须交代清楚“谁/什么事 + 时间或地点 + 关键数字或结果”，像正式新闻标题一样有信息量；原标题已经清楚就基本照用，只去掉多余修饰，不要缩成口号，不加引号）、say（小麦的一句话，30 字以内，可带 1 个 emoji，说这件事对普通人意味着什么或一个实用小建议，不要重复标题）。'
     + '另外给每条一个 light（true=轻松积极，false=偏严肃或沉重）。只输出 JSON：{"picks":[{"i":0,"tag":"生活","title":"...","say":"...","light":true}]}');
@@ -3049,6 +3049,7 @@ async function pickNewsWithXiaomai(env, items, channel = 'news') {
       full: src.title,
       link: src.link,
       summary: src.summary || '',
+      image: src.image || '',
       source: src.source || '',
       tag: channel !== 'news' ? (CHANNEL_TAGS[channel]?.includes(p.tag) ? p.tag : CHANNEL_TAGS[channel]?.[0] || '') : NEWS_TAGS.includes(p.tag) ? p.tag : guessNewsTag(src.title),
       say: String(p.say || '').slice(0, 50),
@@ -3068,7 +3069,7 @@ async function saveNewsSnapshot(env, date, items, tip) {
   await ensureNewsTable(env);
   // 同一天只存第一份（INSERT OR IGNORE），避免每 30 分钟覆盖一次
   await env.DB.prepare('INSERT OR IGNORE INTO news_daily (date, items, tip, created_at) VALUES (?, ?, ?, ?)')
-    .bind(date, JSON.stringify(items.map((n) => ({ title: n.title, tag: n.tag || '', link: n.link || '' }))), tip || '', Date.now()).run();
+    .bind(date, JSON.stringify(items.map((n) => ({ title: n.title, tag: n.tag || '', link: n.link || '', image: n.image || '' }))), tip || '', Date.now()).run();
 }
 // GET /api/news/days?dates=2025-11-25,2024-11-25 —— On This Day 用：那几天的新闻快照
 async function handleNewsDays(request, env) {
@@ -3118,12 +3119,24 @@ function newsSourceList(env, channel = 'news') {
 function newsChannelsAvailable(env) {
   return NEWS_CHANNELS.filter((c) => c === 'quote' || c === 'psy' || newsSourceList(env, c).length > 0);
 }
+// 正文里第一张图（列表缩略图 / 详情大图用）
+function newsFirstImage(text) {
+  const m = String(text || '').match(/\[\[img:(https?:\/\/[^\]\s]+)\]\]/);
+  return m ? m[1] : '';
+}
+// 给 AI 用的纯文字（去掉图片占位）
+function newsPlain(text) {
+  return String(text || '').replace(/\[\[img:[^\]]*\]\]/g, '').replace(/\n{2,}/g, '\n').trim();
+}
 function newsDecode(t) {
   return String(t || '')
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
     // 保留段落：</p> <br> </div> 换成换行，详情里能按段显示
-    .replace(/<\s*br\s*\/?>/gi, '\n').replace(/<\/\s*(p|div|h\d|li)\s*>/gi, '\n')
+    // 图片：保留成单独一行的 [[img:URL]] 占位，详情里按原位置显示（只要 http(s) 链接，过滤 1x1 统计像素 / 表情小图）
+    .replace(/<img\b[^>]*?\s(?:data-src|data-original|src)\s*=\s*["']([^"']+)["'][^>]*>/gi, (all, u) =>
+      /^https?:\/\//.test(u) && !/(1x1|pixel|spacer|emoji|icon|avatar|\.gif(\?|$))/i.test(u) && !/width=["']?[1-9]["'\s>]/i.test(all) ? `\n[[img:${u}]]\n` : ' ')
+    .replace(/<\s*br\s*\/?>/gi, '\n').replace(/<\/\s*(p|div|h\d|li|figure)\s*>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
@@ -3165,7 +3178,9 @@ const NEWS_ADAPTERS = {
         title: newsDecode(n?.title || '').slice(0, 120),
         link: /^https?:\/\//.test(n?.url || '') ? n.url : '',
         // 正文：优先 content_html（RSSHub 给的更完整），最多 1500 字，详情里完整显示 + 标明来源
-        summary: newsDecode(n?.content_html || n?.content_text || n?.summary || '').slice(0, 1500),
+        summary: newsDecode(n?.content_html || n?.content_text || n?.summary || '').slice(0, 2500),
+        image: (/^https?:\/\//.test(n?.image || '') ? n.image : /^https?:\/\//.test(n?.banner_image || '') ? n.banner_image : '')
+          || newsFirstImage(newsDecode(n?.content_html || '')),
         source: channel,
         // 来源自带分类（如澎湃的 tags），给小麦打标签时参考
         srcTags: Array.isArray(n?.tags) ? n.tags.slice(0, 3).map(String) : [],
@@ -3190,7 +3205,11 @@ const NEWS_ADAPTERS = {
       const desc = newsDecode((b.match(/<(description|summary|content:encoded|content)[^>]*>([\s\S]*?)<\/\1>/) || [])[2]);
       const ts = Date.parse(newsDecode((b.match(/<(pubDate|published|updated|dc:date)[^>]*>([\s\S]*?)<\/\1>/) || [])[2]));
       if (ts > latest) latest = ts;
-      if (title) items.push({ title: title.replace(/\s+/g, ' ').slice(0, 120), link: /^https?:\/\//.test(link) ? link : '', summary: desc.slice(0, 1500), source: channel });
+      // 配图：enclosure(image/*) / media:content / media:thumbnail，没有就用正文第一张
+      const enc = (b.match(/<enclosure[^>]*url="([^"]+)"[^>]*type="image[^"]*"/i) || b.match(/<enclosure[^>]*type="image[^"]*"[^>]*url="([^"]+)"/i) || [])[1]
+        || (b.match(/<media:(?:content|thumbnail)[^>]*url="([^"]+)"/i) || [])[1] || '';
+      const image = (/^https?:\/\//.test(enc) ? enc : '') || newsFirstImage(desc);
+      if (title) items.push({ title: newsPlain(title).replace(/\s+/g, ' ').slice(0, 120), link: /^https?:\/\//.test(link) ? link : '', summary: desc.slice(0, 2500), image, source: channel });
     }
     const d = latest ? new Date(latest + 8 * 3600_000) : null;   // 按北京时间算日期
     return { items, tip: '', date: d ? d.toISOString().slice(0, 10) : '', updated: d ? d.toISOString().slice(0, 19).replace('T', ' ') : '' };
@@ -3219,7 +3238,7 @@ async function handleNewsDetail(request, env, _JWT_SECRET, _params, ctx) {
   if (!user) return json({ error: 'unauthorized' }, 401);
   let body; try { body = await request.json(); } catch { return json({ error: 'invalid json' }, 400); }
   const title = String(body?.title || '').slice(0, 160);
-  const summary = String(body?.summary || '').slice(0, 1200);
+  const summary = newsPlain(body?.summary || '').slice(0, 1200);
   if (!title) return json({ error: 'title required' }, 400);
 
   let points = [];
@@ -3318,6 +3337,25 @@ const DAILY_QUOTES = [
   { text: '日子是过以后，不是过以前。', from: '电影《驴得水》' },
   { text: '生活不是我们活过的日子，而是我们记住的日子。', from: '加西亚·马尔克斯' },
 ];
+// 🌙 一句话的背景：每日壁纸（60s 的 /v2/bing，取不到就返回空，前端用渐变背景）
+async function dailyWallpaper(env, dateStr, ctx) {
+  const base = newsSourceList(env, 'news').find((u) => /60s/i.test(new URL(u).hostname));
+  if (!base) return '';
+  const cache = caches.default;
+  const key = new Request('https://cache.mydiary.internal/wallpaper-v1?d=' + dateStr);
+  const hit = await cache.match(key);
+  if (hit) return (await hit.json().catch(() => ({})))?.url || '';
+  try {
+    const u = new URL(base); u.pathname = '/v2/bing'; u.search = '';
+    const init = { headers: { 'User-Agent': 'MyDiary/1.0', Accept: 'application/json' } };
+    const res = env.NEWS_60S?.fetch ? await env.NEWS_60S.fetch(new Request(u.toString(), init)) : await fetch(u.toString(), init);
+    const j = res.ok ? await res.json().catch(() => null) : null;
+    const url = [j?.data?.cover, j?.data?.cover_4k, j?.data?.url, j?.cover].find((x) => /^https?:\/\//.test(String(x || ''))) || '';
+    ctx?.waitUntil?.(cache.put(key, new Response(JSON.stringify({ url }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=' + (url ? 86400 : 3600) } })));
+    return url;
+  } catch { return ''; }
+}
+
 function dailyQuoteItems(dateStr) {
   return dailyQuoteLocal(dateStr);
 }
@@ -3391,7 +3429,7 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   // 🌙 一句话：本地句库，不走网络
   if (channel === 'quote') {
     const d = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
-    return json({ enabled: true, channel, channels, items: await dailyQuoteWithHitokoto(d, ctx), tip: '', picked: false, date: d, updated: '' });
+    return json({ enabled: true, channel, channels, items: await dailyQuoteWithHitokoto(d, ctx), tip: '', picked: false, date: d, updated: '', wallpaper: await dailyWallpaper(env, d, ctx) });
   }
   const sources = newsSourceList(env, channel);
   const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
@@ -3401,7 +3439,7 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   if (!sources.length) return json({ enabled: false, channel, channels, items: [] });
 
   const cache = caches.default;
-  const cacheKey = new Request('https://cache.mydiary.internal/news-v5?ch=' + channel + '&src=' + encodeURIComponent(sources.join('|')));
+  const cacheKey = new Request('https://cache.mydiary.internal/news-v6?ch=' + channel + '&src=' + encodeURIComponent(sources.join('|')));
   const hit = await cache.match(cacheKey);
   // ?fresh=1：缓存超过 10 分钟才重新拉，避免很多人连点导致反复调 AI
   const fresh = q.get('fresh') === '1';
