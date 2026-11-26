@@ -434,10 +434,13 @@ export function dailyNote(payload: { date: string; weather?: { temp: number; des
 // 今日看点：items 是小麦挑过的候选池（最多 8 条，tag 分类 / full 原标题 / say 小麦的一句话 / light 是否轻松）
 // 前端按个人兴趣、今天心情、不感兴趣的分类再选 3 条；date 是新闻对应的日期
 export type NewsItem = { title: string; link: string; tag?: string; full?: string; say?: string; light?: boolean; summary?: string; source?: string };
-export type NewsData = { enabled: boolean; items: NewsItem[]; tip?: string; picked?: boolean; error?: string; date?: string; updated?: string };
-// fresh=true：「刷新」按钮用，后端跳过 30 分钟缓存去拉最新的
-export function listNews(fresh = false) {
-  return request<NewsData>("/api/news" + (fresh ? "?fresh=1" : ""));
+export type NewsChannel = "news" | "article" | "psy" | "quote";
+export type NewsData = { enabled: boolean; items: NewsItem[]; tip?: string; picked?: boolean; error?: string; date?: string; updated?: string; channel?: NewsChannel; channels?: NewsChannel[] };
+// channel：新闻 / 好文 / 心理 / 一句话；fresh=true 跳过 30 分钟缓存
+export function listNews(fresh = false, channel: NewsChannel = "news") {
+  const q = new URLSearchParams({ channel });
+  if (fresh) q.set("fresh", "1");
+  return request<NewsData>("/api/news?" + q.toString());
 }
 // On This Day：往年那几天的新闻快照
 // 今日看点详情：小麦根据摘要提炼的要点 + 和你有什么关系 + 写作小问题

@@ -114,7 +114,9 @@ export default function NewsDetailSheet({
                 后面还有，去原文继续看 ›
               </a>
             )}
-            <p className="mt-2 text-[10px] text-paper-ink3">内容由{item.source || "来源网站"}通过 RSS 提供，版权归原作者所有。</p>
+            {item.link ? (
+              <p className="mt-2 text-[10px] text-paper-ink3">内容由{item.source || "来源网站"}通过 RSS 提供，版权归原作者所有。</p>
+            ) : null}
           </section>
         )}
       </div>

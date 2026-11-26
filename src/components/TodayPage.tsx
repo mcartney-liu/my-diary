@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { computeStreak, fmtDate, moodById, MOOD_TAGS, PROMPTS, onThisDay } from "../data";
 import { templateById } from "../templates";
-import { getProfile, listMilestones, listPlans, diaryReply, dailyNote, listNews, newsDays, getToken, lifeRecent, type Milestone, type Plan, type LifeLink, type NewsData, type NewsItem } from "../api";
+import { getProfile, listMilestones, listPlans, diaryReply, dailyNote, listNews, newsDays, getToken, lifeRecent, type Milestone, type Plan, type LifeLink, type NewsData, type NewsItem, type NewsChannel } from "../api";
 import { fetchLocationAuto, fetchWeather } from "../weather";
 import { dayEvents, springFestivalCountdown, weatherTip } from "../today";
 import type { WeatherInfo } from "../types";
@@ -64,6 +64,13 @@ function firstText(d: Diary): string {
   return t.trim();
 }
 // 今日看点的分类标签样式
+// 今日看点的频道
+const CHANNEL_META: Record<NewsChannel, { icon: string; name: string; label: string }> = {
+  news:    { icon: "📰", name: "新闻", label: "今日看点" },
+  article: { icon: "📖", name: "好文", label: "今日好文" },
+  psy:     { icon: "🧠", name: "心理", label: "心理小站" },
+  quote:   { icon: "🌙", name: "一句话", label: "今日一句" },
+};
 const NEWS_TAG_STYLE: Record<string, { icon: string; cls: string }> = {
   生活: { icon: "🏠", cls: "bg-amber-50 text-amber-800" },
   科技: { icon: "🚀", cls: "bg-sky-50 text-sky-700" },
@@ -73,6 +80,22 @@ const NEWS_TAG_STYLE: Record<string, { icon: string; cls: string }> = {
   体育: { icon: "⚽", cls: "bg-orange-50 text-orange-700" },
   文娱: { icon: "🎬", cls: "bg-pink-50 text-pink-700" },
   健康: { icon: "🍎", cls: "bg-rose-50 text-rose-700" },
+  // 好文
+  人物: { icon: "👤", cls: "bg-violet-50 text-violet-700" },
+  随笔: { icon: "✍️", cls: "bg-stone-100 text-stone-700" },
+  读书: { icon: "📚", cls: "bg-amber-50 text-amber-800" },
+  旅行: { icon: "🧳", cls: "bg-sky-50 text-sky-700" },
+  美食: { icon: "🍜", cls: "bg-orange-50 text-orange-700" },
+  成长: { icon: "🌱", cls: "bg-emerald-50 text-emerald-700" },
+  // 心理
+  情绪: { icon: "💗", cls: "bg-rose-50 text-rose-700" },
+  关系: { icon: "🤝", cls: "bg-violet-50 text-violet-700" },
+  自我: { icon: "🪞", cls: "bg-indigo-50 text-indigo-700" },
+  睡眠: { icon: "😴", cls: "bg-sky-50 text-sky-700" },
+  压力: { icon: "🎈", cls: "bg-amber-50 text-amber-800" },
+  亲子: { icon: "🧸", cls: "bg-orange-50 text-orange-700" },
+  习惯: { icon: "⏰", cls: "bg-emerald-50 text-emerald-700" },
+  一句话: { icon: "🌙", cls: "bg-indigo-50 text-indigo-700" },
 };
 
 function firstImage(d: Diary): string | null {
@@ -208,6 +231,12 @@ export default function TodayPage({ diaries }: Props) {
   // 今日看点：默认开（只露 1 条，点「展开」看 3 条）；用户点过「关闭」就记住
   const [newsOn, setNewsOn] = useState(() => { try { return localStorage.getItem("mydiary.today.news") !== "0"; } catch { return true; } });
   const [news, setNews] = useState<NewsData | null>(null);
+  // 频道：记住上次看的；心情不好时自动切到心理 / 好文（下面 effect）
+  const [channel, setChannel] = useState<NewsChannel>(() => {
+    try { const c = localStorage.getItem("mydiary.today.channel") as NewsChannel | null; return c && c in CHANNEL_META ? c : "news"; } catch { return "news"; }
+  });
+  const [channels, setChannels] = useState<NewsChannel[]>(["news"]);
+  const newsCacheRef = useRef<Partial<Record<NewsChannel, NewsData>>>({});
   const [newsOpen, setNewsOpen] = useState(false);   // 只在心情不好时用：点一下才显示
   const [newsPage, setNewsPage] = useState(0);        // 「换一批」翻到第几组
   // 「刷新」按钮已去掉：60s 每天一份，刷新基本不会变；用「换一批」看候选池里的其他新闻
@@ -299,10 +328,21 @@ export default function TodayPage({ diaries }: Props) {
 
   useEffect(() => {
     try { localStorage.setItem("mydiary.today.news", newsOn ? "1" : "0"); } catch {}
-    if (!newsOn || news) return;
-    listNews().then(setNews).catch(() => setNews({ enabled: true, items: [] }));
+    try { localStorage.setItem("mydiary.today.channel", channel); } catch {}
+    if (!newsOn) return;
+    const c = newsCacheRef.current[channel];
+    if (c) { setNews(c); return; }
+    setNews(null);
+    let cancelled = false;
+    listNews(false, channel).then((r) => {
+      if (cancelled) return;
+      newsCacheRef.current[channel] = r;
+      setNews(r);
+      if (r.channels?.length) setChannels(r.channels);
+    }).catch(() => { if (!cancelled) setNews({ enabled: true, items: [] }); });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newsOn]);
+  }, [newsOn, channel]);
 
   const tip = weather ? weatherTip(weather.description, weather.temp) : "";
 
@@ -396,6 +436,8 @@ export default function TodayPage({ diaries }: Props) {
   const newsPicks = useMemo<NewsItem[]>(() => {
     let pool = (news?.items || []).filter((n) => !hiddenTags.includes(n.tag || "社会"));
     if (lowMood) pool = pool.filter((n) => n.light !== false && !["财经", "国际", "社会"].includes(n.tag || ""));
+    // 一句话频道不按兴趣排序，保持每天的顺序
+    if (channel === "quote") return pool;
     const score = (n: NewsItem) => {
       let s = 0;
       if (interests) {
@@ -408,7 +450,14 @@ export default function TodayPage({ diaries }: Props) {
     };
     // 稳定排序：同分保持小麦给的推荐顺序
     return pool.map((n, i) => ({ n, i, s: score(n) })).sort((a, b) => b.s - a.s || a.i - b.i).map((x) => x.n);
-  }, [news, hiddenTags, lowMood, interests]);
+  }, [news, hiddenTags, lowMood, interests, channel]);
+  // 心情不好：今天自动切到「心理」（没有就「好文」/「一句话」），只切一次，用户手动切回来就不管了
+  const moodSwitchedRef = useRef(false);
+  useEffect(() => {
+    if (!lowMood || moodSwitchedRef.current || channel !== "news") return;
+    const to = (["psy", "article", "quote"] as NewsChannel[]).find((c) => channels.includes(c));
+    if (to) { moodSwitchedRef.current = true; setChannel(to); setNewsPage(0); }
+  }, [lowMood, channels, channel]);
   // 每次显示 3 条，「换一批」轮着看候选池里的其他新闻
   const newsPages = Math.max(1, Math.ceil(newsPicks.length / 3));
   const shownNews = newsPicks.slice((newsPage % newsPages) * 3, (newsPage % newsPages) * 3 + 3);
@@ -717,24 +766,35 @@ export default function TodayPage({ diaries }: Props) {
         )}
 
         {/* 📰 今日看点：默认 3 条，「换一批」看别的；按兴趣 / 心情 / 不感兴趣挑；心情不好时默认收起 */}
-        {newsOn && !isNewUser && (lowMood && !newsOpen ? (
+        {newsOn && !isNewUser && (lowMood && channel === "news" && !newsOpen ? (
           <button type="button" onClick={() => setNewsOpen(true)} className="w-full text-center text-xs text-paper-ink3 hover:text-paper-ink py-1">
             📰 今天先不看新闻也没关系 · 想看点一下
           </button>
         ) : (
           <section className="card px-4 py-3">
             <div className="flex items-center gap-2">
-              <span className="section-label shrink-0">📰 今日看点</span>
-              {newsDateLabel && <span className="text-[10px] text-paper-ink3">{newsDateLabel}{news?.updated ? ` ${news.updated.slice(11, 16)}` : ""} 更新</span>}
+              <span className="section-label shrink-0">{CHANNEL_META[channel].icon} {CHANNEL_META[channel].label}</span>
+              {channel === "news" && newsDateLabel && <span className="text-[10px] text-paper-ink3">{newsDateLabel}{news?.updated ? ` ${news.updated.slice(11, 16)}` : ""} 更新</span>}
               <span className="flex-1" />
               <button type="button" onClick={() => setNewsOn(false)} className="shrink-0 text-xs text-paper-ink3 hover:text-paper-ink">关闭</button>
             </div>
-            {news?.tip ? <div className="mt-1 text-xs text-paper-ink2 leading-relaxed">💭 {news.tip}</div> : null}
+            {/* 频道切换：新闻 / 好文 / 心理 / 一句话（只显示后端配了来源的） */}
+            {channels.length > 1 && (
+              <div className="mt-2 flex gap-1.5 overflow-x-auto no-scrollbar">
+                {channels.map((c) => (
+                  <button key={c} type="button" onClick={() => { setChannel(c); setNewsPage(0); }}
+                    className={`shrink-0 text-[11px] px-2.5 py-1 rounded-full border transition ${c === channel ? "bg-paper-ink text-paper-bg border-paper-ink" : "bg-paper-card text-paper-ink2 border-paper-line/70 hover:text-paper-ink"}`}>
+                    {CHANNEL_META[c].icon} {CHANNEL_META[c].name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {channel === "news" && news?.tip ? <div className="mt-1 text-xs text-paper-ink2 leading-relaxed">💭 {news.tip}</div> : null}
             <div className="mt-2">
             {!news ? (
               <div className="text-xs text-paper-ink2 animate-pulse">加载中…</div>
             ) : !news.enabled ? (
-              <div className="text-xs text-paper-ink2">新闻功能还没开放，敬请期待～</div>
+              <div className="text-xs text-paper-ink2">{channel === "news" ? "新闻功能还没开放，敬请期待～" : "这个频道还在准备中～"}</div>
             ) : newsPicks.length === 0 ? (
               <div className="text-xs text-paper-ink2">{hiddenTags.length ? "你关心的分类今天没有新内容" : "暂时没有新内容"}</div>
             ) : (
@@ -742,6 +802,17 @@ export default function TodayPage({ diaries }: Props) {
                 {shownNews.map((n) => {
                   const tag = NEWS_TAG_STYLE[n.tag || ""] || NEWS_TAG_STYLE["社会"];
                   const full = n.full || n.title;
+                  // 🌙 一句话：大字引用 + 出处，点「用这句开始写」当成今天的写作引子
+                  if (channel === "quote") return (
+                    <li key={n.title} className="py-3 first:pt-1 last:pb-1">
+                      <p className="text-[15px] text-paper-ink leading-relaxed border-l-[3px] border-indigo-200 pl-3">{n.title}</p>
+                      <div className="mt-1.5 flex items-center gap-3 pl-3.5">
+                        <span className="flex-1 min-w-0 text-[11px] text-paper-ink3 truncate">—— {n.source}</span>
+                        <button type="button" onClick={() => openEditorWith(nav, { body: `「${n.title}」——${n.source}\n\n读到这句，我想到：`, tags: ["一句话"] })}
+                          className="shrink-0 text-[11px] text-paper-accent hover:underline">✍️ 用这句开始写</button>
+                      </div>
+                    </li>
+                  );
                   return (
                     <li key={n.link || n.title} className="py-2 first:pt-0 last:pb-0">
                       <div className="flex items-start gap-2">
@@ -756,7 +827,7 @@ export default function TodayPage({ diaries }: Props) {
                       <div className="mt-1 flex items-center gap-3 pl-0.5">
                         {n.say ? <span className="flex-1 min-w-0 text-xs text-paper-ink2 truncate">🌾 {n.say}</span> : <span className="flex-1" />}
                         {(
-                          <button type="button" onClick={() => { hideTag(n.tag || "社会"); toast(`以后少给你看「${n.tag || "社会"}」类新闻`, "ok"); }}
+                          <button type="button" onClick={() => { hideTag(n.tag || "社会"); toast(`以后少给你看「${n.tag || "社会"}」类内容`, "ok"); }}
                             className="shrink-0 text-[11px] text-paper-ink3 hover:text-paper-ink">不感兴趣</button>
                         )}
                         <button type="button" onClick={() => writeAboutNews(n)}

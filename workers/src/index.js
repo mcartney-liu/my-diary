@@ -3025,14 +3025,14 @@ function guessNewsTag(title) {
 }
 
 // 小麦从 15 条里挑 3 条和生活相关、轻松一点的，缩短标题、配一句话（结果随 /api/news 缓存 30 分钟，所有用户共用）
-async function pickNewsWithXiaomai(env, items) {
+async function pickNewsWithXiaomai(env, items, channel = 'news') {
   // 挑一个「候选池」（最多 8 条）：前端再按每个人的兴趣 / 今天的心情 / 不感兴趣的分类从里面选 3 条，AI 不用按人调用
   if (!items?.length) return null;
   // 有摘要的来源（RSS）把摘要前 80 字也给小麦，帮它判断；60s 只有标题
   const list = items.slice(0, 20).map((n, i) => `${i}. ${n.srcTags?.length ? '[' + n.srcTags.join('/') + '] ' : ''}${n.title}${n.summary ? '｜' + n.summary.slice(0, 80) : ''}`).join('\n');
-  const sys = '你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。从用户给的新闻里挑 12 条（不足 12 条就全挑），按推荐程度排序：优先和普通人生活相关、积极或有趣的；尽量覆盖不同分类；避开灾难、伤亡、犯罪、政治争议。'
+  const sys = channel !== 'news' ? newsChannelPrompt(channel) : ('你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。从用户给的新闻里挑 12 条（不足 12 条就全挑），按推荐程度排序：优先和普通人生活相关、积极或有趣的；尽量覆盖不同分类；避开灾难、伤亡、犯罪、政治争议。'
     + '每条输出：i（原序号）、tag（只能是 ' + NEWS_TAGS.join('/') + ' 之一）、title（新闻标题，25~40 字，必须交代清楚“谁/什么事 + 时间或地点 + 关键数字或结果”，像正式新闻标题一样有信息量；原标题已经清楚就基本照用，只去掉多余修饰，不要缩成口号，不加引号）、say（小麦的一句话，30 字以内，可带 1 个 emoji，说这件事对普通人意味着什么或一个实用小建议，不要重复标题）。'
-    + '另外给每条一个 light（true=轻松积极，false=偏严肃或沉重）。只输出 JSON：{"picks":[{"i":0,"tag":"生活","title":"...","say":"...","light":true}]}';
+    + '另外给每条一个 light（true=轻松积极，false=偏严肃或沉重）。只输出 JSON：{"picks":[{"i":0,"tag":"生活","title":"...","say":"...","light":true}]}');
   const raw = await callLLM(env, [
     { role: 'system', content: sys },
     { role: 'user', content: list },
@@ -3050,7 +3050,7 @@ async function pickNewsWithXiaomai(env, items) {
       link: src.link,
       summary: src.summary || '',
       source: src.source || '',
-      tag: NEWS_TAGS.includes(p.tag) ? p.tag : guessNewsTag(src.title),
+      tag: channel !== 'news' ? (CHANNEL_TAGS[channel]?.includes(p.tag) ? p.tag : CHANNEL_TAGS[channel]?.[0] || '') : NEWS_TAGS.includes(p.tag) ? p.tag : guessNewsTag(src.title),
       say: String(p.say || '').slice(0, 50),
       light: p.light !== false,
     });
@@ -3103,9 +3103,19 @@ async function handleNewsDays(request, env) {
 //   兼容旧变量：NEWS_60S_URL / NEWS_RSS_URL
 // 类型自动识别：返回 JSON 且有 data.news → 60s；XML 有 <item>/<entry> → RSS/Atom
 // 服务绑定：只有来源域名和 60s Worker 一致（含 "60s"）且配了 NEWS_60S 绑定时才走绑定（绕过同账号 workers.dev 1042 拦截）
-function newsSourceList(env) {
-  const raw = String(env.NEWS_SOURCES || [env.NEWS_60S_URL, env.NEWS_RSS_URL].filter(Boolean).join(','));
+// 频道：news 新闻 / article 好文 / psy 心理 / quote 一句话（quote 用本地句库，不依赖外部）
+// 每个频道一组来源：NEWS_SOURCES（新闻）、NEWS_SOURCES_ARTICLE（好文）、NEWS_SOURCES_PSY（心理）
+const NEWS_CHANNELS = ['news', 'article', 'psy', 'quote'];
+function newsSourceList(env, channel = 'news') {
+  const raw = channel === 'article' ? String(env.NEWS_SOURCES_ARTICLE || '')
+    : channel === 'psy' ? String(env.NEWS_SOURCES_PSY || '')
+    : String(env.NEWS_SOURCES || [env.NEWS_60S_URL, env.NEWS_RSS_URL].filter(Boolean).join(','));
   return raw.split(/[,\n]/).map((s) => s.trim()).filter((s) => /^https?:\/\//.test(s)).slice(0, 5);
+}
+// 哪些频道有内容（前端只显示这些标签）
+// quote（本地句库 + 一言）和 psy（本地心理小练习兜底）没配来源也能用
+function newsChannelsAvailable(env) {
+  return NEWS_CHANNELS.filter((c) => c === 'quote' || c === 'psy' || newsSourceList(env, c).length > 0);
 }
 function newsDecode(t) {
   return String(t || '')
@@ -3254,22 +3264,143 @@ async function handleNewsDetail(request, env, _JWT_SECRET, _params, ctx) {
   return json({ points, relate, question });
 }
 
+// 频道自己的分类（前端按这个显示小标签）
+const CHANNEL_TAGS = {
+  article: ['生活', '人物', '随笔', '读书', '旅行', '美食', '成长'],
+  psy: ['情绪', '关系', '自我', '睡眠', '压力', '亲子', '习惯'],
+};
+function newsChannelPrompt(channel) {
+  const tags = (CHANNEL_TAGS[channel] || []).join('/');
+  if (channel === 'psy') {
+    return '你是日记 App 里的小伙伴"小麦"，语气温暖、不说教。从给你的心理学 / 自我成长内容里挑 12 条（不足就全挑），按对普通人有帮助的程度排序；'
+      + '优先：情绪调节、亲密关系、自我接纳、压力和睡眠、好习惯；避开药物、诊断、自杀自伤等需要专业介入的话题，避开标题党和贩卖焦虑的内容。英文内容请翻译成中文。'
+      + '每条输出：i（原序号）、tag（只能是 ' + tags + ' 之一）、title（中文标题，15~35 字，说清楚讲的是什么，不要标题党）、say（小麦的一句话，30 字以内，给一个今天就能试的小方法，可带 1 个 emoji）、light（true=轻松，false=偏沉重）。'
+      + '只输出 JSON：{"picks":[{"i":0,"tag":"情绪","title":"...","say":"...","light":true}]}';
+  }
+  return '你是日记 App 里的小伙伴"小麦"，语气温暖、口语化。从给你的文章里挑 12 篇（不足就全挑），按值得一读的程度排序；'
+    + '优先：生活方式、人物故事、随笔、读书、旅行、美食、个人成长这类读完会让人想写点什么的；避开纯广告、产品测评、新闻快讯、技术教程。英文内容请翻译成中文。'
+    + '每条输出：i（原序号）、tag（只能是 ' + tags + ' 之一）、title（中文标题，15~35 字，保留原标题的味道）、say（小麦的一句话，30 字以内，说说这篇打动人的地方或读完可以想想的问题，可带 1 个 emoji）、light（true=轻松，false=偏沉重）。'
+    + '只输出 JSON：{"picks":[{"i":0,"tag":"生活","title":"...","say":"...","light":true}]}';
+}
+
+// 🌙 一句话：本地句库（诗词 / 名言），按日期轮换，不依赖外部接口，永远可用
+const DAILY_QUOTES = [
+  { text: '人生如逆旅，我亦是行人。', from: '苏轼《临江仙·送钱穆父》' },
+  { text: '行到水穷处，坐看云起时。', from: '王维《终南别业》' },
+  { text: '竹杖芒鞋轻胜马，谁怕？一蓑烟雨任平生。', from: '苏轼《定风波》' },
+  { text: '晚来天欲雪，能饮一杯无？', from: '白居易《问刘十九》' },
+  { text: '此心安处是吾乡。', from: '苏轼《定风波·南海归赠王定国侍人寓娘》' },
+  { text: '莫听穿林打叶声，何妨吟啸且徐行。', from: '苏轼《定风波》' },
+  { text: '春有百花秋有月，夏有凉风冬有雪。若无闲事挂心头，便是人间好时节。', from: '无门慧开' },
+  { text: '山中何事？松花酿酒，春水煎茶。', from: '张可久《人月圆·山中书事》' },
+  { text: '长风破浪会有时，直挂云帆济沧海。', from: '李白《行路难》' },
+  { text: '海内存知己，天涯若比邻。', from: '王勃《送杜少府之任蜀州》' },
+  { text: '纸上得来终觉浅，绝知此事要躬行。', from: '陆游《冬夜读书示子聿》' },
+  { text: '小楼一夜听春雨，深巷明朝卖杏花。', from: '陆游《临安春雨初霁》' },
+  { text: '绿蚁新醅酒，红泥小火炉。', from: '白居易《问刘十九》' },
+  { text: '人间有味是清欢。', from: '苏轼《浣溪沙》' },
+  { text: '且将新火试新茶，诗酒趁年华。', from: '苏轼《望江南·超然台作》' },
+  { text: '一生大笑能几回，斗酒相逢须醉倒。', from: '岑参《凉州馆中与诸判官夜集》' },
+  { text: '醉后不知天在水，满船清梦压星河。', from: '唐珙《题龙阳县青草湖》' },
+  { text: '不乱于心，不困于情，不畏将来，不念过往。', from: '丰子恺（常被引用）' },
+  { text: '你要做一个不动声色的大人了。', from: '村上春树（常被引用）' },
+  { text: '世界上只有一种英雄主义，就是看清生活的真相之后依然热爱生活。', from: '罗曼·罗兰（常被引用）' },
+  { text: '慢慢来，比较快。', from: '俗语' },
+  { text: '今天的你，已经比昨天多走了一步。', from: '小麦' },
+  { text: '日子是过以后，不是过以前。', from: '电影《驴得水》' },
+  { text: '生活不是我们活过的日子，而是我们记住的日子。', from: '加西亚·马尔克斯' },
+];
+function dailyQuoteItems(dateStr) {
+  return dailyQuoteLocal(dateStr);
+}
+// 一言（hitokoto.cn，c=i 诗词 / c=d 文学）：免费、无 token；每天缓存一份，失败就只用本地句库
+async function dailyQuoteWithHitokoto(dateStr, ctx) {
+  const local = dailyQuoteLocal(dateStr);
+  const cache = caches.default;
+  const key = new Request('https://cache.mydiary.internal/hitokoto-v1?d=' + dateStr);
+  const hit = await cache.match(key);
+  let remote = hit ? await hit.json().catch(() => null) : null;
+  if (!Array.isArray(remote)) {
+    const calls = Array.from({ length: 6 }, (_, k) => fetch('https://v1.hitokoto.cn/?c=i&c=d&encode=json&_=' + dateStr + k, { headers: { 'User-Agent': 'MyDiary/1.0' } })
+      .then((r) => (r.ok ? r.json() : null)).catch(() => null));
+    remote = (await Promise.all(calls)).filter((j) => j?.hitokoto).map((j) => ({
+      title: String(j.hitokoto).slice(0, 120), full: String(j.hitokoto).slice(0, 200), link: '', summary: '',
+      source: j.from_who ? `${j.from_who}${j.from ? '《' + j.from + '》' : ''}` : (j.from || '一言'),
+      tag: '一句话', say: '', light: true,
+    }));
+    if (remote.length) ctx?.waitUntil?.(cache.put(key, new Response(JSON.stringify(remote), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' } })));
+  }
+  // 一言和本地句库交错，去重
+  const out = [], seen = new Set();
+  for (let k = 0; k < 12 && out.length < 12; k++) for (const q of [remote[k], local[k]]) {
+    if (q && !seen.has(q.title) && out.length < 12) { seen.add(q.title); out.push(q); }
+  }
+  return out;
+}
+
+// 🧠 心理小练习（本地内容，中文心理科普基本没有稳定 RSS）：按日期轮换；配了 NEWS_SOURCES_PSY 时排在来源内容后面
+const PSY_CARDS = [
+  { tag: '情绪', title: '给情绪起个名字：说出“我现在有点焦虑”，情绪就会松一点', say: '今晚试试用一个词描述今天最强烈的感受 💗', summary: '心理学里叫“情绪标记”。研究发现，把感受用语言说出来，比如“我现在很烦”“我有点失落”，往往能让情绪平静一些。不需要分析原因，也不需要立刻解决，只是承认它在那里。\n写日记本身就是一种情绪标记：把模糊的不舒服变成具体的词，往往就没那么重了。' },
+  { tag: '习惯', title: '三件好事练习：每天睡前写下 3 件小小的好事', say: '今天就从“午饭很好吃”这种小事开始写 ✨', summary: '积极心理学里常用的练习：每晚写下当天 3 件顺利或让你开心的事，再简单写一句为什么会发生。坚持一段时间，很多人会发现自己更容易注意到生活里的好事。\n重点不是事情有多大，而是练习“看见”。一杯热咖啡、一句问候都算。' },
+  { tag: '压力', title: '压力大的时候，先做几次慢呼吸：吸气 4 秒、呼气 6 秒', say: '现在就可以试一下，呼气比吸气长一点 🎈', summary: '把呼气拉长，常被用来帮助身体放松下来。做法很简单：用鼻子吸气数到 4，再慢慢呼气数到 6，重复 3～5 次。\n它不能解决让你有压力的事，但能让你在处理之前先稳住自己。' },
+  { tag: '自我', title: '用对朋友说话的语气，对自己说一句话', say: '如果好朋友遇到你今天的事，你会怎么安慰 TA？🪞', summary: '心理学里把这叫“自我关怀”：不顺的时候，像对待好朋友那样对待自己，而不是一味批评。相关研究认为，自我关怀并不会让人懈怠，反而更容易从挫折里恢复。\n下次想骂自己“怎么这么笨”时，可以换成“这件事确实难，你已经尽力了”。' },
+  { tag: '睡眠', title: '睡不着的时候，把脑子里转的事写下来', say: '睡前花 5 分钟，把明天要做的事列个清单 😴', summary: '有研究发现，睡前花几分钟写下第二天的待办，有助于更快入睡。一种解释是：写下来之后，大脑就不用一直提醒自己“别忘了”。\n躺下后思绪停不下来，可以起来把想到的事写在纸上，告诉自己“明天再处理”。' },
+  { tag: '关系', title: '一段关系里很有用的一句话：“你刚才的意思是……对吗？”', say: '今天和家人聊天时，试着复述一次对方的话 🤝', summary: '很多争吵不是因为观点不同，而是觉得“对方没听懂我”。复述对方的意思，能让对方感到被理解，冲突也更容易缓和。\n这在心理咨询里叫“积极倾听”，在日常关系里同样好用。' },
+  { tag: '情绪', title: '难过的时候，允许自己难过一会儿', say: '不用急着好起来，写下来陪自己一会儿 🌧️', summary: '刻意压抑情绪，往往会让它更持久。允许自己难过、给情绪一点时间，反而更容易走出来。\n如果低落持续很久、影响到睡眠和日常生活，记得找身边信任的人或专业的心理咨询师聊聊。' },
+  { tag: '习惯', title: '想养成新习惯？把它挂在一个已有的习惯后面', say: '比如“刷完牙，就写一句日记” ⏰', summary: '行为科学里叫“习惯叠加”：用“做完 A 就做 B”的方式，把新习惯挂在刷牙、倒咖啡这类每天都会做的事后面。新习惯越小越好，小到不需要意志力也能开始。\n写日记也一样，一句话就算完成。' },
+  { tag: '自我', title: '回顾一下：一年前的你，在担心什么？', say: '翻翻以前的日记，看看那些担心后来怎么样了 🌱', summary: '很多让我们焦虑的事，回头看并没有想象中那么糟。人们常常高估坏事的长期影响，低估自己的适应能力。\n这也是写日记的好处：它让你看到，过去的你是怎么一步步走过来的。' },
+  { tag: '压力', title: '把“我必须”换成“我选择”，感受会不一样', say: '把今天的一件“必须”换个说法试试 🎈', summary: '“我必须加班”和“我选择今晚把这件事做完，因为……”说的是同一件事，后者会让人多一点掌控感，而掌控感常被认为能缓解压力。\n有些事确实是被迫的；即便如此，找到其中自己能决定的部分，也会好受一点。' },
+  { tag: '亲子', title: '和孩子聊天，试试问“今天最好玩的事是什么？”', say: '比“今天过得怎么样”更容易打开话匣子 🧸', summary: '笼统的问题常常只能得到“还好”。具体又积极的问题，比如“今天最好玩的事是什么”“有没有谁让你笑了”，更容易让孩子愿意分享。\n对大人也一样。' },
+  { tag: '关系', title: '感谢一个人时，说清楚“谢谢你做了什么”', say: '今天给一个人发一条具体的感谢吧 💌', summary: '具体的感谢，比如“谢谢你昨天帮我带饭，那天我真的太累了”，比一句“谢谢”更能让对方感到被看见。人们也常常低估自己的感谢对别人有多大意义。\n可以先在日记里写下想感谢的人和原因。' },
+];
+function psyLocalItems(dateStr) {
+  let h = 0; for (const c of dateStr) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const n = PSY_CARDS.length, out = [];
+  for (let k = 0; k < n; k++) {
+    const c = PSY_CARDS[(h + k) % n];
+    out.push({ title: c.title, full: c.title, link: '', summary: c.summary, source: '小麦的心理小练习', tag: c.tag, say: c.say, light: true });
+  }
+  return out;
+}
+
+function dailyQuoteLocal(dateStr) {
+  let h = 0; for (const c of dateStr) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const out = [];
+  for (let k = 0; k < 12; k++) {
+    const q = DAILY_QUOTES[(h + k * 7) % DAILY_QUOTES.length];
+    if (!out.some((o) => o.title === q.text)) out.push({ title: q.text, full: q.text, link: '', summary: '', source: q.from, tag: '一句话', say: '', light: true });
+  }
+  return out;
+}
+
 // ===== GET /api/news — 「今天」页的今日看点 =====
 async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
-  const sources = newsSourceList(env);
-  if (!sources.length) return json({ enabled: false, items: [] });
+  const q = new URL(request.url).searchParams;
+  const channel = NEWS_CHANNELS.includes(q.get('channel')) ? q.get('channel') : 'news';
+  const channels = newsChannelsAvailable(env);
+  // 🌙 一句话：本地句库，不走网络
+  if (channel === 'quote') {
+    const d = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+    return json({ enabled: true, channel, channels, items: await dailyQuoteWithHitokoto(d, ctx), tip: '', picked: false, date: d, updated: '' });
+  }
+  const sources = newsSourceList(env, channel);
+  const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+  if (!sources.length && channel === 'psy') {
+    return json({ enabled: true, channel, channels, items: psyLocalItems(today), tip: '', picked: false, date: today, updated: '' });
+  }
+  if (!sources.length) return json({ enabled: false, channel, channels, items: [] });
 
   const cache = caches.default;
-  const cacheKey = new Request('https://cache.mydiary.internal/news-v5?src=' + encodeURIComponent(sources.join('|')));
+  const cacheKey = new Request('https://cache.mydiary.internal/news-v5?ch=' + channel + '&src=' + encodeURIComponent(sources.join('|')));
   const hit = await cache.match(cacheKey);
   // ?fresh=1：缓存超过 10 分钟才重新拉，避免很多人连点导致反复调 AI
-  const fresh = new URL(request.url).searchParams.get('fresh') === '1';
+  const fresh = q.get('fresh') === '1';
   if (hit) {
     const cached = await hit.json();
     const age = Date.now() - Number(cached?.fetched_at || 0);
-    if (!fresh || age < 10 * 60_000) return json(cached);
+    if (!fresh || age < 10 * 60_000) return json({ ...cached, channels });
   }
 
   try {
@@ -3296,21 +3427,22 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
     const date = ok.map((r) => r.date).filter(Boolean).sort().pop() || '';
     const updated = ok.map((r) => r.updated).filter(Boolean).sort().pop() || '';
 
-    const picked = await pickNewsWithXiaomai(env, items).catch(() => null);
-    const fallback = items.slice(0, 12).map((n) => ({ ...n, tag: guessNewsTag(n.title), light: true }));
+    const picked = await pickNewsWithXiaomai(env, items, channel).catch(() => null);
+    const fallback = items.slice(0, 12).map((n) => ({ ...n, tag: channel === 'news' ? guessNewsTag(n.title) : (CHANNEL_TAGS[channel]?.[0] || ''), light: true }));
     const out = {
       enabled: true,
-      items: picked || fallback,
+      channel,
+      items: channel === 'psy' ? [...(picked || fallback), ...psyLocalItems(today)].slice(0, 15) : (picked || fallback),
       tip, picked: !!picked,
       date,            // 新闻是哪天的（60s 一般上午才更新，早上看到的可能是昨天的）
       updated,
       sources: ok.map((r) => r.type),
       fetched_at: Date.now(),
     };
-    // 记住「那天的新闻」：每天一份快照（所有用户共用），以后 On This Day 里能看到那天发生了什么
-    if (out.date && out.items.length) ctx?.waitUntil?.(saveNewsSnapshot(env, out.date, out.items.slice(0, 5), out.tip).catch((e) => console.warn('[news] 快照保存失败:', e.message)));
+    // 记住「那天的新闻」（只存新闻频道）：每天一份快照（所有用户共用），以后 On This Day 里能看到那天发生了什么
+    if (channel === 'news' && out.date && out.items.length) ctx?.waitUntil?.(saveNewsSnapshot(env, out.date, out.items.slice(0, 5), out.tip).catch((e) => console.warn('[news] 快照保存失败:', e.message)));
     ctx?.waitUntil?.(cache.put(cacheKey, new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=1800' } })));
-    return json(out);
+    return json({ ...out, channels });
   } catch (e) {
     console.error('[news] 失败:', e.message);
     return json({ enabled: true, items: [], error: e.message });
