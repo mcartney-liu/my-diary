@@ -807,7 +807,7 @@ export default function TodayPage({ diaries }: Props) {
           <section className="card px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="section-label shrink-0">{CHANNEL_META[channel].icon} {CHANNEL_META[channel].label}</span>
-              {channel === "news" && newsDateLabel && <span className="text-[10px] text-paper-ink3">{newsDateLabel}{news?.updated ? ` ${news.updated.slice(11, 16)}` : ""} 更新</span>}
+              {newsDateLabel && <span className="text-[10px] text-paper-ink3">{newsDateLabel}{news?.updated ? ` ${news.updated.slice(11, 16)}` : ""} 更新</span>}
               <span className="flex-1" />
               <button type="button" onClick={() => setShowPlaza(true)} title="频道广场：选你想看的频道"
                 className="shrink-0 text-xs text-paper-ink3 hover:text-paper-ink">⚙️ 频道</button>

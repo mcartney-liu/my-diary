@@ -1915,8 +1915,11 @@ function sseResponse(ctx, run) {
   });
 }
 
+// 最近一次 callLLM 的失败原因（同一个请求里读，用来在接口返回里带上诊断信息；tail 连不上时也能看到）
+let LAST_LLM_TRACE = [];
 async function callLLM(env, messages, maxTokens = 512, onDelta = null) {
   if (typeof onDelta === 'function') return callLLMStreaming(env, messages, maxTokens, onDelta);
+  LAST_LLM_TRACE = [];
   // strip BOM + trim（PowerShell 管道设 secret 会带 BOM）
   const endpoint = String(env.AGNES_ENDPOINT || '').replace(/^\uFEFF+/, '').trim();
   const apiKey = String(env.AGNES_API_KEY || '').replace(/^\uFEFF+/, '').trim();
@@ -1938,24 +1941,30 @@ async function callLLM(env, messages, maxTokens = 512, onDelta = null) {
       if (res.ok) {
         const data = await res.json();
         const content = data?.choices?.[0]?.message?.content || '';
-        if (content) return content;
+        if (content) { LAST_LLM_TRACE.push('agnes ok'); return content; }
+        LAST_LLM_TRACE.push('agnes 空内容: ' + JSON.stringify(data?.choices?.[0] || data || {}).slice(0, 160));
         console.warn('[callLLM] agnes 返回空内容，fallback', JSON.stringify(data?.choices?.[0] || {}).slice(0, 200));
       } else {
         const errText = await res.text().catch(() => '');
+        LAST_LLM_TRACE.push(`agnes HTTP ${res.status}: ` + errText.slice(0, 160));
         console.warn(`[callLLM] agnes HTTP ${res.status}，fallback:`, errText.slice(0, 200));
       }
     } catch (e) {
+      LAST_LLM_TRACE.push('agnes 异常: ' + (e?.name === 'AbortError' ? '超时 20 秒' : e?.message));
       console.warn('[callLLM] agnes 失败，fallback:', e.message);
     }
   }
+  else LAST_LLM_TRACE.push('agnes 未配置（缺 AGNES_ENDPOINT / AGNES_API_KEY）');
   // fallback: Workers AI llama
   try {
     const r = await env.AI.run(LLM_MODEL, { messages, max_tokens: maxTokens, reasoning: { effort: 'low' }, temperature: 0.3 });
     const content = r?.response || '';
-    if (content) return content;
+    if (content) { LAST_LLM_TRACE.push('workers-ai ok'); return content; }
+    LAST_LLM_TRACE.push('workers-ai 空 response: ' + JSON.stringify(r || {}).slice(0, 120));
     console.warn('[callLLM] Workers AI 返回空 response');
     return '';
   } catch (e) {
+    LAST_LLM_TRACE.push('workers-ai 异常: ' + String(e?.message || e).slice(0, 160));
     console.error('[callLLM] Workers AI 也失败了:', e?.message || e);
     return '';
   }
@@ -3133,6 +3142,8 @@ function newsPlain(text) {
 function newsDecode(t) {
   return String(t || '')
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    // 有的 RSS（如少数派）把 HTML 转义成 &lt;a href=...&gt; 放进 description：先还原成标签，下面再统一去掉
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;(?=[a-z#]+;)/g, '&')
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
     // 保留段落：</p> <br> </div> 换成换行，详情里能按段显示
     // 图片：保留成单独一行的 [[img:URL]] 占位，详情里按原位置显示（只要 http(s) 链接，过滤 1x1 统计像素 / 表情小图）
@@ -3281,10 +3292,15 @@ async function handleNewsDetail(request, env, _JWT_SECRET, _params, ctx) {
     { role: 'system', content: sys },
     { role: 'user', content: `用户：${who || '没有填写资料'}\n标题：${title}${summary ? '\n摘要：' + summary : ''}` },
   ];
-  let j = parseLLMJson(await callLLM(env, msgs, 900));
+  const trace = [];
+  let raw1 = await callLLM(env, msgs, 900);
+  trace.push(...LAST_LLM_TRACE, raw1 ? '输出前 80 字: ' + String(raw1).slice(0, 80) : '输出为空');
+  let j = parseLLMJson(raw1);
   if (!j) {
     console.warn('[news/detail] 第一次输出解析失败，重试一次');
-    j = parseLLMJson(await callLLM(env, msgs, 900));
+    const raw2 = await callLLM(env, msgs, 900);
+    trace.push('重试: ' + LAST_LLM_TRACE.join(' / '), raw2 ? '重试输出前 80 字: ' + String(raw2).slice(0, 80) : '重试输出为空');
+    j = parseLLMJson(raw2);
   }
   if (!j) console.warn('[news/detail] 两次都没拿到有效 JSON');
 
@@ -3295,7 +3311,8 @@ async function handleNewsDetail(request, env, _JWT_SECRET, _params, ctx) {
   const relate = rel?.relate || String(j?.relate || '').slice(0, 80);
   const question = rel?.question || String(j?.question || '').slice(0, 50);
   if (!rel && (relate || question)) ctx?.waitUntil?.(cache.put(rKey, new Response(JSON.stringify({ relate, question }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=86400' } })));
-  return json({ points, relate, question });
+  // 都没生成出来时，把诊断信息带回去（F12 里能看到原因）
+  return json({ points, relate, question, ...(!points.length && !relate ? { _debug: trace } : {}) });
 }
 
 // 频道自己的分类（前端按这个显示小标签）
@@ -3465,7 +3482,7 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   if (!sources.length) return json({ enabled: false, channel, channels, items: [] });
 
   const cache = caches.default;
-  const cacheKey = new Request('https://cache.mydiary.internal/news-v7?ch=' + channel + '&src=' + encodeURIComponent(sources.join('|')));
+  const cacheKey = new Request('https://cache.mydiary.internal/news-v8?ch=' + channel + '&src=' + encodeURIComponent(sources.join('|')));
   const hit = await cache.match(cacheKey);
   // ?fresh=1：缓存超过 10 分钟才重新拉，避免很多人连点导致反复调 AI
   const fresh = q.get('fresh') === '1';

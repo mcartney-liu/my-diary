@@ -32,7 +32,8 @@ export default function NewsDetailSheet({
     setLoading(true);
     let cancelled = false;
     newsDetail({ title: item.full || item.title, summary: item.summary, link: item.link, source: item.source })
-      .then((r) => { if (cancelled) return; detailCache.set(key, r); setData(r); })
+      // 只缓存成功的结果：AI 这次没出来，下次点开还会重新请求（原来空结果也缓存了，刷新页面前一直是空）
+      .then((r) => { if (cancelled) return; if (r.points?.length || r.relate) detailCache.set(key, r); setData(r); })
       .catch(() => { if (!cancelled) setData({ points: [], relate: "", question: "" }); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
