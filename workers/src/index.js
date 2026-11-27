@@ -3068,6 +3068,7 @@ async function pickNewsWithXiaomai(env, items, channel = 'news') {
       link: src.link,
       summary: src.summary || '',
       image: src.image || '',
+      published: src.published || 0,
       source: src.source || '',
       tag: channel !== 'news' ? (CHANNEL_TAGS[channel]?.includes(p.tag) ? p.tag : CHANNEL_TAGS[channel]?.[0] || '') : NEWS_TAGS.includes(p.tag) ? p.tag : guessNewsTag(src.title),
       say: String(p.say || '').slice(0, 50),
@@ -3197,6 +3198,7 @@ const NEWS_ADAPTERS = {
       const ts = Date.parse(n?.date_published || n?.date_modified || '');
       if (ts > latest) latest = ts;
       return {
+        published: ts > 0 ? ts : 0,
         title: newsDecode(n?.title || '').slice(0, 120),
         link: /^https?:\/\//.test(n?.url || '') ? n.url : '',
         // 正文：优先 content_html（RSSHub 给的更完整），最多 1500 字，详情里完整显示 + 标明来源
@@ -3231,7 +3233,7 @@ const NEWS_ADAPTERS = {
       const enc = (b.match(/<enclosure[^>]*url="([^"]+)"[^>]*type="image[^"]*"/i) || b.match(/<enclosure[^>]*type="image[^"]*"[^>]*url="([^"]+)"/i) || [])[1]
         || (b.match(/<media:(?:content|thumbnail)[^>]*url="([^"]+)"/i) || [])[1] || '';
       const image = (/^https?:\/\//.test(enc) ? enc : '') || newsFirstImage(desc);
-      if (title) items.push({ title: newsPlain(title).replace(/\s+/g, ' ').slice(0, 120), link: /^https?:\/\//.test(link) ? link : '', summary: desc.slice(0, 2500), image, source: channel });
+      if (title) items.push({ published: ts > 0 ? ts : 0, title: newsPlain(title).replace(/\s+/g, ' ').slice(0, 120), link: /^https?:\/\//.test(link) ? link : '', summary: desc.slice(0, 2500), image, source: channel });
     }
     const d = latest ? new Date(latest + 8 * 3600_000) : null;   // 按北京时间算日期
     return { items, tip: '', date: d ? d.toISOString().slice(0, 10) : '', updated: d ? d.toISOString().slice(0, 19).replace('T', ' ') : '' };
@@ -3483,6 +3485,8 @@ async function ensureNewsPool(env) {
     title TEXT NOT NULL, full TEXT, link TEXT, source TEXT, tag TEXT, say TEXT, light INTEGER DEFAULT 1,
     image TEXT, summary TEXT,
     opens INTEGER DEFAULT 0, collects INTEGER DEFAULT 0, writes INTEGER DEFAULT 0)`).run();
+  // 来源的发布时间（毫秒）：后加的列，旧表补上（已有就会报错，忽略）
+  try { await env.DB.prepare('ALTER TABLE news_items ADD COLUMN pub_ts INTEGER').run(); } catch {}
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_news_items_ch_day ON news_items(channel, day, first_seen)').run();
   NEWS_POOL_READY = true;
 }
@@ -3500,6 +3504,8 @@ function poolRowToItem(r, since) {
     id: r.id, title: r.title, full: r.full || r.title, link: r.link || '', source: r.source || '',
     tag: r.tag || '', say: r.say || '', light: r.light !== 0, image: r.image || '', summary: r.summary || '',
     isNew: since ? r.first_seen >= since : false,
+    // 时间：优先来源发布时间，没有就用我们第一次抓到的时间；day 是归到哪一天
+    ts: r.pub_ts || r.first_seen, day: r.day,
   };
 }
 // 定时任务：正文 / 图片链接超过 7 天清掉，只留目录
@@ -3544,7 +3550,7 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   if (!sources.length) return json({ enabled: false, channel, channels, items: [] });
 
   const cache = caches.default;
-  const cacheKey = new Request('https://cache.mydiary.internal/news-v9?ch=' + channel + '&src=' + encodeURIComponent(sources.join('|')));
+  const cacheKey = new Request('https://cache.mydiary.internal/news-v10?ch=' + channel + '&src=' + encodeURIComponent(sources.join('|')));
   const hit = await cache.match(cacheKey);
   // ?fresh=1：缓存超过 10 分钟才重新拉，避免很多人连点导致反复调 AI
   const fresh = q.get('fresh') === '1';
@@ -3560,11 +3566,18 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
   const minDay = bjDay(Date.now(), NEWS_POOL_DAYS - 1);
   const days = Array.from({ length: NEWS_POOL_DAYS }, (_, k) => bjDay(Date.now(), k));
   if (reqDay < minDay || reqDay > today2) return json({ enabled: true, channel, channels, items: [], days, day: reqDay, error: '只能看最近 7 天' });
+  // 最近 7 天每天的条数（「全部看点」页的分组标题用）
+  const dayCounts = async () => {
+    try {
+      const r = await env.DB.prepare('SELECT day, COUNT(*) AS n FROM news_items WHERE channel = ? AND day >= ? AND light >= 0 GROUP BY day').bind(channel, minDay).all();
+      return Object.fromEntries((r.results || []).map((x) => [x.day, x.n]));
+    } catch { return {}; }
+  };
   if (reqDay !== today2) {
     try {
       await ensureNewsPool(env);
-      const rows = await env.DB.prepare('SELECT * FROM news_items WHERE channel = ? AND day = ? ORDER BY first_seen DESC LIMIT 80').bind(channel, reqDay).all();
-      return json({ enabled: true, channel, channels, items: (rows.results || []).map((r) => poolRowToItem(r)), picked: true, date: reqDay, day: reqDay, days, total: rows.results?.length || 0 });
+      const rows = await env.DB.prepare('SELECT * FROM news_items WHERE channel = ? AND day = ? AND light >= 0 ORDER BY COALESCE(pub_ts, first_seen) DESC LIMIT 80').bind(channel, reqDay).all();
+      return json({ enabled: true, channel, channels, items: (rows.results || []).map((r) => poolRowToItem(r)), picked: true, date: reqDay, day: reqDay, days, total: rows.results?.length || 0, counts: await dayCounts() });
     } catch (e) {
       return json({ enabled: true, channel, channels, items: [], day: reqDay, days, error: e.message });
     }
@@ -3616,18 +3629,18 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
         // 小麦没挑上的也记下 id（标记为已处理），下次刷新不再重复交给它
         const chosenIds = new Set(chosen.map((c) => c._id));
         const stmts = chosen.map((c, idx) => env.DB.prepare(
-          `INSERT OR IGNORE INTO news_items (id, channel, day, first_seen, title, full, link, source, tag, say, light, image, summary)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+          `INSERT OR IGNORE INTO news_items (id, channel, day, first_seen, title, full, link, source, tag, say, light, image, summary, pub_ts)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
         ).bind(c._id, channel, today2, fetchStart + (chosen.length - idx), String(c.title || '').slice(0, 120), String(c.full || c.title || '').slice(0, 200),
           c.link || '', String(c.source || '').slice(0, 40), c.tag || '', String(c.say || '').slice(0, 80), c.light === false ? 0 : 1,
-          c.image || '', String(c.summary || '').slice(0, 2500)));
+          c.image || '', String(c.summary || '').slice(0, 2500), Number(c.published) > 0 && Number(c.published) <= Date.now() + 3600_000 ? Number(c.published) : null));
         for (const n of fresh) if (!chosenIds.has(n._id)) stmts.push(env.DB.prepare(
           `INSERT OR IGNORE INTO news_items (id, channel, day, first_seen, title, light) VALUES (?,?,?,?,?,-1)`
         ).bind(n._id, channel, today2, fetchStart, String(n.title || '').slice(0, 120)));
         if (stmts.length) await env.DB.batch(stmts);
       }
       // light = -1 是「小麦没挑上」的占位，不给用户看
-      const rows = await env.DB.prepare('SELECT * FROM news_items WHERE channel = ? AND day = ? AND light >= 0 ORDER BY first_seen DESC LIMIT 80').bind(channel, today2).all();
+      const rows = await env.DB.prepare('SELECT * FROM news_items WHERE channel = ? AND day = ? AND light >= 0 ORDER BY COALESCE(pub_ts, first_seen) DESC LIMIT 80').bind(channel, today2).all();
       poolItems = (rows.results || []).map((r) => poolRowToItem(r, fetchStart));
       total = poolItems.length;
     } catch (e) {
@@ -3651,13 +3664,14 @@ async function handleNews(request, env, _JWT_SECRET, _params, ctx) {
       date,            // 新闻是哪天的（60s 一般上午才更新，早上看到的可能是昨天的）
       updated,
       day: today2, days, total,
+      newToday: poolItems ? poolItems.filter((x) => x.isNew).length : 0,
       sources: ok.map((r) => r.type),
       fetched_at: Date.now(),
     };
     // 记住「那天的新闻」（只存新闻频道）：每天一份快照（所有用户共用），以后 On This Day 里能看到那天发生了什么
     if (channel === 'news' && out.date && out.items.length) ctx?.waitUntil?.(saveNewsSnapshot(env, out.date, out.items.slice(0, 5), out.tip).catch((e) => console.warn('[news] 快照保存失败:', e.message)));
     ctx?.waitUntil?.(cache.put(cacheKey, new Response(JSON.stringify(out), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=1800' } })));
-    return json({ ...out, channels });
+    return json({ ...out, channels, counts: await dayCounts() });
   } catch (e) {
     console.error('[news] 失败:', e.message);
     return json({ enabled: true, items: [], error: e.message });

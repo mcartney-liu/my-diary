@@ -433,11 +433,12 @@ export function dailyNote(payload: { date: string; weather?: { temp: number; des
 }
 // 今日看点：items 是小麦挑过的候选池（最多 8 条，tag 分类 / full 原标题 / say 小麦的一句话 / light 是否轻松）
 // 前端按个人兴趣、今天心情、不感兴趣的分类再选 3 条；date 是新闻对应的日期
-export type NewsItem = { id?: string; title: string; link: string; tag?: string; full?: string; say?: string; light?: boolean; summary?: string; source?: string; image?: string; isNew?: boolean };
+export type NewsItem = { id?: string; title: string; link: string; tag?: string; full?: string; say?: string; light?: boolean; summary?: string; source?: string; image?: string; isNew?: boolean;
+  /** 时间（毫秒）：来源发布时间，没有就用第一次抓到的时间；day：归到哪一天 */ ts?: number; day?: string };
 export type NewsChannel = "news" | "article" | "science" | "nature" | "culture" | "psy" | "quote";
 export type NewsData = { enabled: boolean; items: NewsItem[]; tip?: string; picked?: boolean; error?: string; date?: string; updated?: string; channel?: NewsChannel; channels?: NewsChannel[]; wallpaper?: string;
   /** 内容池：当前看的是哪天、最近 7 天有哪些、今天一共多少条 */
-  day?: string; days?: string[]; total?: number };
+  day?: string; days?: string[]; total?: number; counts?: Record<string, number>; newToday?: number; fetched_at?: number };
 // channel：频道；fresh=true 跳过 30 分钟缓存；day：看往期（最近 7 天）
 export function listNews(fresh = false, channel: NewsChannel = "news", day?: string) {
   const q = new URLSearchParams({ channel });

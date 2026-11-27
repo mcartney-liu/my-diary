@@ -34,6 +34,7 @@ const MilestonesPage = lazy(() => import("./components/MilestonesPage"));
 const PlanPage = lazy(() => import("./components/PlanPage"));
 const FinancePage = lazy(() => import("./components/FinancePage"));
 const SourcesPanel = lazy(() => import("./components/SourcesPanel"));
+const NewsFeedPage = lazy(() => import("./components/NewsFeedPage"));
 
 let prefetched = false;
 function prefetchPages() {
@@ -648,6 +649,7 @@ export default function App() {
         <Route path="/shelf" element={<BookShelfPage diaries={diaries} />} />
         <Route path="/sources" element={<SourcesPanel />} />
         <Route path="/xiaomai" element={<XiaomaiPage />} />
+              <Route path="/news" element={<NewsFeedPage />} />
         <Route path="/people" element={<PeoplePage />} />
         <Route path="/people/:id" element={<PeoplePage />} />
         <Route

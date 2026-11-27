@@ -14,6 +14,7 @@ import Xiaomai, { moodFor } from "./Xiaomai";
 import { useHint } from "./useOnce";
 import BottomDock from "./BottomDock";
 import NewsDetailSheet from "./NewsDetailSheet";
+import { CHANNEL_META, ALL_CHANNELS, NEWS_TAG_STYLE, openEditorWith, newsTime } from "../newsMeta";
 import SafeImg from "./SafeImg";
 import Modal from "./Modal";
 import OnboardingWizard from "./OnboardingWizard";
@@ -66,62 +67,6 @@ function firstText(d: Diary): string {
   return t.trim();
 }
 // 今日看点的分类标签样式
-// 今日看点的频道
-const CHANNEL_META: Record<NewsChannel, { icon: string; name: string; label: string; desc: string }> = {
-  news:    { icon: "📰", name: "新闻", label: "今日看点", desc: "每天挑几条和生活有关的新闻，小麦告诉你和你有什么关系" },
-  article: { icon: "📖", name: "好文", label: "今日好文", desc: "生活方式、随笔、人物故事，读完会想写点什么" },
-  science: { icon: "🔭", name: "科普", label: "涨知识", desc: "自然、宇宙、人体和冷知识，喜欢的可以收进知识库" },
-  nature:  { icon: "🏞️", name: "每日一图", label: "每日一图", desc: "国家地理的风景、动物和人文摄影，看一眼放松一下" },
-  culture: { icon: "🎬", name: "书影", label: "书和电影", desc: "新书、即将上映的电影和新番，周末看什么、读什么" },
-  psy:     { icon: "🧠", name: "心理", label: "心理小站", desc: "情绪、关系、睡眠的小练习，今天就能试一试" },
-  quote:   { icon: "🌙", name: "一句话", label: "今日一句", desc: "诗词和好句子，当作今天的写作引子" },
-};
-const ALL_CHANNELS = Object.keys(CHANNEL_META) as NewsChannel[];
-const NEWS_TAG_STYLE: Record<string, { icon: string; cls: string }> = {
-  生活: { icon: "🏠", cls: "bg-amber-50 text-amber-800" },
-  科技: { icon: "🚀", cls: "bg-sky-50 text-sky-700" },
-  国际: { icon: "🌏", cls: "bg-indigo-50 text-indigo-700" },
-  财经: { icon: "💰", cls: "bg-emerald-50 text-emerald-700" },
-  社会: { icon: "📌", cls: "bg-stone-100 text-stone-700" },
-  体育: { icon: "⚽", cls: "bg-orange-50 text-orange-700" },
-  文娱: { icon: "🎬", cls: "bg-pink-50 text-pink-700" },
-  健康: { icon: "🍎", cls: "bg-rose-50 text-rose-700" },
-  // 好文
-  人物: { icon: "👤", cls: "bg-violet-50 text-violet-700" },
-  随笔: { icon: "✍️", cls: "bg-stone-100 text-stone-700" },
-  读书: { icon: "📚", cls: "bg-amber-50 text-amber-800" },
-  旅行: { icon: "🧳", cls: "bg-sky-50 text-sky-700" },
-  美食: { icon: "🍜", cls: "bg-orange-50 text-orange-700" },
-  成长: { icon: "🌱", cls: "bg-emerald-50 text-emerald-700" },
-  // 心理
-  // 科普（科技 / 历史 / 健康 已有）
-  自然: { icon: "🌿", cls: "bg-emerald-50 text-emerald-700" },
-  宇宙: { icon: "🪐", cls: "bg-indigo-50 text-indigo-700" },
-  生命: { icon: "🧬", cls: "bg-teal-50 text-teal-700" },
-  人体: { icon: "🫀", cls: "bg-rose-50 text-rose-700" },
-  历史: { icon: "🏺", cls: "bg-amber-50 text-amber-800" },
-  冷知识: { icon: "💡", cls: "bg-yellow-50 text-yellow-700" },
-  // 心理
-  // 每日一图
-  风景: { icon: "🏔️", cls: "bg-emerald-50 text-emerald-700" },
-  动物: { icon: "🐾", cls: "bg-orange-50 text-orange-700" },
-  人文: { icon: "🏮", cls: "bg-rose-50 text-rose-700" },
-  海洋: { icon: "🌊", cls: "bg-sky-50 text-sky-700" },
-  天空: { icon: "🌌", cls: "bg-indigo-50 text-indigo-700" },
-  // 书影
-  新书: { icon: "📕", cls: "bg-amber-50 text-amber-800" },
-  电影: { icon: "🎞️", cls: "bg-stone-100 text-stone-700" },
-  动画: { icon: "✨", cls: "bg-pink-50 text-pink-700" },
-  展览: { icon: "🖼️", cls: "bg-violet-50 text-violet-700" },
-  情绪: { icon: "💗", cls: "bg-rose-50 text-rose-700" },
-  关系: { icon: "🤝", cls: "bg-violet-50 text-violet-700" },
-  自我: { icon: "🪞", cls: "bg-indigo-50 text-indigo-700" },
-  睡眠: { icon: "😴", cls: "bg-sky-50 text-sky-700" },
-  压力: { icon: "🎈", cls: "bg-amber-50 text-amber-800" },
-  亲子: { icon: "🧸", cls: "bg-orange-50 text-orange-700" },
-  习惯: { icon: "⏰", cls: "bg-emerald-50 text-emerald-700" },
-  一句话: { icon: "🌙", cls: "bg-indigo-50 text-indigo-700" },
-};
 
 function firstImage(d: Diary): string | null {
   const b = d.blocks.find((x) => x.kind === "image" && x.content);
@@ -145,21 +90,6 @@ function dayHash(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) >>> 0;
   return h;
-}
-// 带着预填内容打开编辑器（复用语音快记的 sessionStorage 通道，见 App.tsx EditorPageWrapper）
-function openEditorWith(nav: (p: string) => void, opts: { prompt?: string; moodId?: string; title?: string; body?: string; tags?: string[] }) {
-  const rid = () => "t" + Math.random().toString(36).slice(2, 10);
-  const blocks: any[] = [];
-  if (opts.prompt) blocks.push({ id: rid(), kind: "quote", content: opts.prompt });
-  // body：直接写进正文（比 quote 块更稳，任何模板都会显示），光标接着往下写
-  blocks.push({ id: rid(), kind: "text", content: opts.body || "" });
-  try {
-    sessionStorage.setItem("mydiary.quickentry", JSON.stringify({
-      templateId: "diary", ts: Date.now(),
-      polished: { title: opts.title || "", blocks, mood: opts.moodId, tags: opts.tags || [] },
-    }));
-  } catch {}
-  nav("/editor?template=diary");
 }
 
 // 近期的纪念日 / 倒计时（30 天内）
@@ -811,7 +741,12 @@ export default function TodayPage({ diaries }: Props) {
           <section className="card px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="section-label shrink-0">{CHANNEL_META[channel].icon} {CHANNEL_META[channel].label}</span>
-              {newsDateLabel && <span className="text-[10px] text-paper-ink3">{newsDateLabel}{news?.updated ? ` ${news.updated.slice(11, 16)}` : ""} 更新</span>}
+              {news?.enabled && channel !== "psy" && (
+                <span className="text-[10px] text-paper-ink3 truncate">
+                  {news?.fetched_at && channel !== "quote" ? `${newsTime(news.fetched_at) === "刚刚" ? "刚刚" : newsTime(news.fetched_at)}更新` : newsDateLabel ? `${newsDateLabel}更新` : ""}
+                  {news?.newToday ? ` · 新增 ${news.newToday} 条` : ""}
+                </span>
+              )}
               <span className="flex-1" />
               <button type="button" onClick={() => setShowPlaza(true)} title="频道广场：选你想看的频道"
                 className="shrink-0 text-xs text-paper-ink3 hover:text-paper-ink">⚙️ 频道</button>
@@ -826,21 +761,6 @@ export default function TodayPage({ diaries }: Props) {
                     {CHANNEL_META[c].icon} {CHANNEL_META[c].name}
                   </button>
                 ))}
-              </div>
-            )}
-            {/* 往期：最近 7 天（一句话 / 心理是本地内容，不分天） */}
-            {channel !== "quote" && channel !== "psy" && (news?.days?.length || 0) > 1 && (
-              <div className="mt-2 flex items-center gap-1 overflow-x-auto no-scrollbar text-[11px]">
-                {(news?.days || []).map((d, k) => {
-                  const on = (newsDay || news?.days?.[0]) === d;
-                  const label = k === 0 ? "今天" : k === 1 ? "昨天" : `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
-                  return (
-                    <button key={d} type="button" onClick={() => { setNewsDay(k === 0 ? "" : d); setNewsPage(0); }}
-                      className={`shrink-0 px-2 py-0.5 rounded-full transition ${on ? "bg-amber-100 text-amber-900" : "text-paper-ink3 hover:text-paper-ink"}`}>
-                      {label}
-                    </button>
-                  );
-                })}
               </div>
             )}
             {/* 🌙 一句话：今天的壁纸当书签头图（取不到就不显示） */}
@@ -893,6 +813,11 @@ export default function TodayPage({ diaries }: Props) {
                           <SafeImg src={n.image} className="w-16 h-16 rounded-xl object-cover bg-paper-surface" />
                         </button>
                       </div>
+                      {(n.ts || n.source) && (
+                        <div className="mt-0.5 pl-0.5 text-[10px] text-paper-ink3 truncate">
+                          {[newsTime(n.ts, channel), n.source].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
                       <div className="mt-1 flex items-center gap-3 pl-0.5">
                         {n.say ? <span className="flex-1 min-w-0 text-xs text-paper-ink2 truncate">🌾 {n.say}</span> : <span className="flex-1" />}
                         {(
@@ -908,14 +833,18 @@ export default function TodayPage({ diaries }: Props) {
               </ul>
             )}
             </div>
-            {news?.enabled && (newsPicks.length > 3 || hiddenTags.length > 0) && (
+            {news?.enabled && (newsPicks.length > 3 || hiddenTags.length > 0 || channel !== "quote") && (
               <div className="mt-2 pt-2 border-t border-paper-line/50 flex items-center justify-between text-[11px] text-paper-ink3">
                 {hiddenTags.length > 0
                   ? <button type="button" onClick={() => { setHiddenTags([]); try { localStorage.removeItem("mydiary.news.hidden"); } catch {} }} className="hover:text-paper-ink truncate">已隐藏：{hiddenTags.join("、")} · 恢复</button>
-                  : <span>{newsPicks.length > 3 ? `第 ${(newsPage % newsPages) + 1}/${newsPages} 组 · ${newsDay ? "这天" : "今天"}共 ${newsPicks.length} 条` : ""}</span>}
+                  : <span>{newsPicks.length > 3 ? `今天共 ${newsPicks.length} 条` : ""}</span>}
                 <span className="flex items-center gap-3 shrink-0">
                   {newsPicks.length > 3 && (
                     <button type="button" onClick={() => setNewsPage((p) => p + 1)} className="hover:text-paper-ink">🔄 换一批</button>
+                  )}
+                  {/* 全部看点：单独一页，按天分组连续往下翻（最近 7 天），卡片本身不拉长 */}
+                  {channel !== "quote" && channel !== "psy" && (
+                    <button type="button" onClick={() => nav(`/news?channel=${channel}`)} className="text-paper-accent hover:underline">查看全部 ›</button>
                   )}
                 </span>
               </div>
