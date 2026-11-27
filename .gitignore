@@ -75,3 +75,6 @@ android/app/src/main/assets/capacitor.plugins.json
 
 # D1 生产/测试备份（含真实用户数据，绝对不许入库）
 workers/backup-*.sql
+
+# D1 数据库备份（不要提交）
+backups/

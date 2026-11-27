@@ -13,6 +13,14 @@ head_sampling_rate = 1
 # JWT_SECRET_LEGACY 已删除（双密钥过渡已闭环），不要再配置。
 # 原因：[vars] 会被 commit 进公开仓库，密钥形态暴露在 git 历史里。
 
+# ====== 今日看点：七频道新闻源（生产环境）======
+NEWS_SOURCES = "https://mydiary-rsshub.mcartneyliu.workers.dev/chinanews?format=json&limit=20&filterout=娱乐|明星, https://mydiary-rsshub.mcartneyliu.workers.dev/thepaper/featured?format=json&limit=20, https://mydiary-60s.mcartneyliu.workers.dev/v2/60s"
+NEWS_60S_URL = "https://mydiary-60s.mcartneyliu.workers.dev/v2/60s"
+NEWS_SOURCES_ARTICLE = "https://sspai.com/feed, https://mydiary-rsshub.mcartneyliu.workers.dev/zhihu/daily?format=json"
+NEWS_SOURCES_SCIENCE = "https://mydiary-rsshub.mcartneyliu.workers.dev/guokr/scientific?format=json"
+NEWS_SOURCES_NATURE = "https://mydiary-rsshub.mcartneyliu.workers.dev/natgeo/dailyphoto?format=json"
+NEWS_SOURCES_CULTURE = "https://mydiary-rsshub.mcartneyliu.workers.dev/douban/book/rank?format=json&limit=10, https://mydiary-rsshub.mcartneyliu.workers.dev/douban/movie/coming?format=json&limit=10, https://mydiary-rsshub.mcartneyliu.workers.dev/bangumi.tv/calendar/today?format=json"
+
 # ====== 生产环境（默认） ======
 [[d1_databases]]
 binding = "DB"
