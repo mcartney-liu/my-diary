@@ -433,14 +433,22 @@ export function dailyNote(payload: { date: string; weather?: { temp: number; des
 }
 // 今日看点：items 是小麦挑过的候选池（最多 8 条，tag 分类 / full 原标题 / say 小麦的一句话 / light 是否轻松）
 // 前端按个人兴趣、今天心情、不感兴趣的分类再选 3 条；date 是新闻对应的日期
-export type NewsItem = { title: string; link: string; tag?: string; full?: string; say?: string; light?: boolean; summary?: string; source?: string; image?: string };
+export type NewsItem = { id?: string; title: string; link: string; tag?: string; full?: string; say?: string; light?: boolean; summary?: string; source?: string; image?: string; isNew?: boolean };
 export type NewsChannel = "news" | "article" | "science" | "nature" | "culture" | "psy" | "quote";
-export type NewsData = { enabled: boolean; items: NewsItem[]; tip?: string; picked?: boolean; error?: string; date?: string; updated?: string; channel?: NewsChannel; channels?: NewsChannel[]; wallpaper?: string };
-// channel：新闻 / 好文 / 心理 / 一句话；fresh=true 跳过 30 分钟缓存
-export function listNews(fresh = false, channel: NewsChannel = "news") {
+export type NewsData = { enabled: boolean; items: NewsItem[]; tip?: string; picked?: boolean; error?: string; date?: string; updated?: string; channel?: NewsChannel; channels?: NewsChannel[]; wallpaper?: string;
+  /** 内容池：当前看的是哪天、最近 7 天有哪些、今天一共多少条 */
+  day?: string; days?: string[]; total?: number };
+// channel：频道；fresh=true 跳过 30 分钟缓存；day：看往期（最近 7 天）
+export function listNews(fresh = false, channel: NewsChannel = "news", day?: string) {
   const q = new URLSearchParams({ channel });
   if (fresh) q.set("fresh", "1");
+  if (day) q.set("day", day);
   return request<NewsData>("/api/news?" + q.toString());
+}
+// 今日看点统计：点开 / 收进知识库 / 写看法（只计次数）
+export function trackNews(id: string | undefined, action: "open" | "collect" | "write") {
+  if (!id) return;
+  request("/api/news/track", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, action }) }).catch(() => {});
 }
 // On This Day：往年那几天的新闻快照
 // 今日看点详情：小麦根据摘要提炼的要点 + 和你有什么关系 + 写作小问题

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import Modal from "./Modal";
 import CollectSheet from "./CollectSheet";
 import SafeImg from "./SafeImg";
-import { newsDetail, type NewsItem } from "../api";
+import { newsDetail, trackNews, type NewsItem } from "../api";
 
 // 今日看点详情：完整标题 · 来源摘要 · 小麦提炼的要点 · 和你有什么关系 · 看原文 / 写写看法
 // 要点只根据来源自带的摘要提炼（不抓原文网页、不编造）；没有摘要（如 60s）就只显示后两块
@@ -63,7 +63,7 @@ export default function NewsDetailSheet({
           )}
           {/* 有正文的内容（好文 / 科普 / 心理 / 新闻）都可以收进知识库，以后问小麦能找到 */}
           {plainLen >= 40 && (
-            <button type="button" onClick={() => setCollecting(true)} className="btn-secondary flex-1 !h-10 !px-2">📥 收进知识库</button>
+            <button type="button" onClick={() => { setCollecting(true); trackNews(item.id, "collect"); }} className="btn-secondary flex-1 !h-10 !px-2">📥 收进知识库</button>
           )}
           <button type="button" className="btn-primary flex-1 !h-10"
             onClick={() => onWrite(item, { points: data?.points || [], question: data?.question || "" })}>

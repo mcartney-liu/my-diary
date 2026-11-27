@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { computeStreak, fmtDate, moodById, MOOD_TAGS, PROMPTS, onThisDay } from "../data";
 import { templateById } from "../templates";
-import { getProfile, listMilestones, listPlans, diaryReply, dailyNote, listNews, newsDays, getToken, lifeRecent, type Milestone, type Plan, type LifeLink, type NewsData, type NewsItem, type NewsChannel } from "../api";
+import { getProfile, listMilestones, listPlans, diaryReply, dailyNote, listNews, trackNews, newsDays, getToken, lifeRecent, type Milestone, type Plan, type LifeLink, type NewsData, type NewsItem, type NewsChannel } from "../api";
 import { fetchLocationAuto, fetchWeather } from "../weather";
 import { dayEvents, springFestivalCountdown, weatherTip } from "../today";
 import type { WeatherInfo } from "../types";
@@ -269,13 +269,16 @@ export default function TodayPage({ diaries }: Props) {
   const saveSubscribed = (list: NewsChannel[]) => { setSubscribed(list); try { localStorage.setItem("mydiary.today.channels", JSON.stringify(list)); } catch {} };
   // 今天页显示的频道 = 后端可用 ∩ 用户订阅（当前频道即使没订阅也保留，比如心情不好时自动切到心理）
   const shownChannels = channels.filter((c) => !subscribed || subscribed.includes(c) || c === channel);
-  const newsCacheRef = useRef<Partial<Record<NewsChannel, NewsData>>>({});
+  const newsCacheRef = useRef<Record<string, NewsData>>({});
+  // 内容池：看哪一天（"" = 今天）；只能翻最近 7 天
+  const [newsDay, setNewsDay] = useState("");
   const [newsOpen, setNewsOpen] = useState(false);   // 只在心情不好时用：点一下才显示
   const [newsPage, setNewsPage] = useState(0);        // 「换一批」翻到第几组
   // 「刷新」按钮已去掉：60s 每天一份，刷新基本不会变；用「换一批」看候选池里的其他新闻
   // 详情弹窗 + 写写看法（列表和弹窗共用）
   const [newsDetailItem, setNewsDetailItem] = useState<NewsItem | null>(null);
   const writeAboutNews = (n: NewsItem, extra?: { points: string[]; question: string }) => {
+    trackNews(n.id, "write");
     const full = n.full || n.title;
     const lines = [`今天看到一条新闻：${full}`];
     if (extra?.points?.length) lines.push(...extra.points.map((p) => `· ${p}`));
@@ -363,19 +366,20 @@ export default function TodayPage({ diaries }: Props) {
     try { localStorage.setItem("mydiary.today.news", newsOn ? "1" : "0"); } catch {}
     try { localStorage.setItem("mydiary.today.channel", channel); } catch {}
     if (!newsOn) return;
-    const c = newsCacheRef.current[channel];
+    const ck = channel + "|" + newsDay;
+    const c = newsCacheRef.current[ck];
     if (c) { setNews(c); return; }
     setNews(null);
     let cancelled = false;
-    listNews(false, channel).then((r) => {
+    listNews(false, channel, newsDay || undefined).then((r) => {
       if (cancelled) return;
-      newsCacheRef.current[channel] = r;
+      newsCacheRef.current[ck] = r;
       setNews(r);
       if (r.channels?.length) setChannels(r.channels);
     }).catch(() => { if (!cancelled) setNews({ enabled: true, items: [] }); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newsOn, channel]);
+  }, [newsOn, channel, newsDay]);
 
   const tip = weather ? weatherTip(weather.description, weather.temp) : "";
 
@@ -817,11 +821,26 @@ export default function TodayPage({ diaries }: Props) {
             {shownChannels.length > 1 && (
               <div className="mt-2 flex gap-1.5 overflow-x-auto no-scrollbar">
                 {shownChannels.map((c) => (
-                  <button key={c} type="button" onClick={() => { setChannel(c); setNewsPage(0); }}
+                  <button key={c} type="button" onClick={() => { setChannel(c); setNewsPage(0); setNewsDay(""); }}
                     className={`shrink-0 text-[11px] px-2.5 py-1 rounded-full border transition ${c === channel ? "bg-paper-ink text-paper-bg border-paper-ink" : "bg-paper-card text-paper-ink2 border-paper-line/70 hover:text-paper-ink"}`}>
                     {CHANNEL_META[c].icon} {CHANNEL_META[c].name}
                   </button>
                 ))}
+              </div>
+            )}
+            {/* 往期：最近 7 天（一句话 / 心理是本地内容，不分天） */}
+            {channel !== "quote" && channel !== "psy" && (news?.days?.length || 0) > 1 && (
+              <div className="mt-2 flex items-center gap-1 overflow-x-auto no-scrollbar text-[11px]">
+                {(news?.days || []).map((d, k) => {
+                  const on = (newsDay || news?.days?.[0]) === d;
+                  const label = k === 0 ? "今天" : k === 1 ? "昨天" : `${Number(d.slice(5, 7))}/${Number(d.slice(8))}`;
+                  return (
+                    <button key={d} type="button" onClick={() => { setNewsDay(k === 0 ? "" : d); setNewsPage(0); }}
+                      className={`shrink-0 px-2 py-0.5 rounded-full transition ${on ? "bg-amber-100 text-amber-900" : "text-paper-ink3 hover:text-paper-ink"}`}>
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             )}
             {/* 🌙 一句话：今天的壁纸当书签头图（取不到就不显示） */}
@@ -863,8 +882,9 @@ export default function TodayPage({ diaries }: Props) {
                       <div className="flex items-start gap-2">
                         <span className={`shrink-0 mt-0.5 text-[10px] px-1.5 py-0.5 rounded-full ${tag.cls}`}>{tag.icon} {n.tag || "社会"}</span>
                         {/* 点标题：弹出详情（小麦划重点 / 和你有什么关系 / 看原文） */}
-                        <button type="button" onClick={() => setNewsDetailItem(n)} title={full}
+                        <button type="button" onClick={() => { setNewsDetailItem(n); trackNews(n.id, "open"); }} title={full}
                           className="flex-1 min-w-0 text-left line-clamp-2 text-sm leading-snug text-paper-ink hover:text-paper-accent">
+                          {n.isNew && !newsDay ? <span className="mr-1 align-middle text-[9px] px-1 py-px rounded bg-rose-500 text-white">新</span> : null}
                           {n.title}
                           {n.summary ? <span className="ml-1 text-[11px] text-paper-ink3">›</span> : null}
                         </button>
@@ -892,7 +912,7 @@ export default function TodayPage({ diaries }: Props) {
               <div className="mt-2 pt-2 border-t border-paper-line/50 flex items-center justify-between text-[11px] text-paper-ink3">
                 {hiddenTags.length > 0
                   ? <button type="button" onClick={() => { setHiddenTags([]); try { localStorage.removeItem("mydiary.news.hidden"); } catch {} }} className="hover:text-paper-ink truncate">已隐藏：{hiddenTags.join("、")} · 恢复</button>
-                  : <span>{newsPicks.length > 3 ? `第 ${(newsPage % newsPages) + 1}/${newsPages} 组 · 共 ${newsPicks.length} 条` : ""}</span>}
+                  : <span>{newsPicks.length > 3 ? `第 ${(newsPage % newsPages) + 1}/${newsPages} 组 · ${newsDay ? "这天" : "今天"}共 ${newsPicks.length} 条` : ""}</span>}
                 <span className="flex items-center gap-3 shrink-0">
                   {newsPicks.length > 3 && (
                     <button type="button" onClick={() => setNewsPage((p) => p + 1)} className="hover:text-paper-ink">🔄 换一批</button>
