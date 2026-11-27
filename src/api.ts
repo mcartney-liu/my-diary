@@ -510,6 +510,22 @@ export function lifeRepairLinks() {
 export function lifeRecent(days = 3) {
   return request<{ created: LifeLink[]; updated: LifeLink[] }>("/api/life/recent?days=" + days);
 }
+// 🌾 小麦这几天帮你做了什么（今天页卡片）
+export type XiaomaiActivityItem = {
+  kind: "milestone" | "met" | "linked" | "organized" | "pending" | "collected" | "grew" | "remembered" | "recalled" | "wrote" | "picked" | "voice" | "connected" | "tidied";
+  priority: number; at: number;
+  text?: string; count?: number; diaries?: number; scanned?: number; fixed?: number;
+  links?: { id: string; title: string; kind: string }[];
+  pairs?: { a: string; b: string; relation: string }[];
+  kbs?: { id: string; title: string; count: number }[];
+  memories?: { id: number; type: string; content: string }[];
+  diary?: { id: string; title: string };
+  ref?: { diary_id: string; date: string };
+  merges?: { from: string; into: string; into_id: string }[];
+};
+export function xiaomaiActivity(days = 7) {
+  return request<{ days: number; items: XiaomaiActivityItem[] }>("/api/xiaomai/activity?days=" + days);
+}
 export interface KbCard { id: string; title: string; description: string; pages: number; pending: number; last_at: number | null }
 export function kbOverview() {
   return request<{ life: KbCard | null; kbs: KbCard[]; presets?: KbCard[] }>("/api/kb/overview");

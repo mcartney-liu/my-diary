@@ -36,7 +36,7 @@ import {
   handleWikiDebugLog,
   handleWikiSuggestTitle, handleWikiCheckMatch,
   handleWikiAIDesignCategories, handleWikiOptimizeDescription,
-  dblog,
+  dblog, logActivity as logXiaomaiActivity, LIFE_KB_SLUG,
 } from "./wiki.js";
 
 const ALLOWED_ORIGINS = [
@@ -164,6 +164,7 @@ export default {
       ["POST",   "/api/ai/reply",        handleDiaryReply],
       ["POST",   "/api/ai/daily-note",   handleDailyNote],
       ["GET",    "/api/news",            handleNews],
+      ["GET",    "/api/xiaomai/activity", handleXiaomaiActivity],
       ["GET",    "/api/news/days",       handleNewsDays],
       ["POST",   "/api/news/detail",     handleNewsDetail],
       ["POST",   "/api/news/track",      handleNewsTrack],
@@ -1987,7 +1988,7 @@ async function embedText(env, text) {
 
 // ========== ASR：语音转文字（Workers AI Whisper） ==========
 // 前端用 MediaRecorder 录音 → Blob → POST /api/transcribe（application/octet-stream）
-async function handleTranscribe(request, env) {
+async function handleTranscribe(request, env, _JWT_SECRET, _params, ctx) {
   // 必须登录才能用 Whisper 转写——防匿名滥用 Workers AI 额度
   const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: "unauthorized" }, 401);
@@ -2024,6 +2025,8 @@ async function handleTranscribe(request, env) {
     const text = (res?.text || '').trim();
     const cost = Date.now() - startTs;
     console.log(`[asr] 转写完成 ${text.length}字, 耗时 ${cost}ms`);
+    // 「小麦这几天帮你做了」：语音变文字（只记转写成功、有内容的）
+    if (text) ctx?.waitUntil?.(logXiaomaiActivity(env, user.uid, 'voice', { chars: text.length }));
 
     return json({
       text,
@@ -2914,7 +2917,7 @@ ${contextBlock}
 // 不是总结、不是建议，是像朋友一样的回应；能联想到过去的日记时自然提一句
 // 入参 { diary_id }，返回 { reply, ref: { diary_id, date } | null }
 const REPLY_PAST_MIN_SCORE = 0.6;   // 联想过去日记的相似度下限（bge-m3，初始值，需校准）
-async function handleDiaryReply(request, env) {
+async function handleDiaryReply(request, env, _JWT_SECRET, _params, ctx) {
   const user = await authUser(request, jwtSecrets(env));
   if (!user) return json({ error: 'unauthorized' }, 401);
   const { diary_id } = await readBody(request);
@@ -2976,6 +2979,7 @@ ${memoriesText ? '\n【你记得关于 TA 的事】\n' + memoriesText + '\n（�
       { role: 'system', content: sys },
       { role: 'user', content: `日期：${diary.date}${diary.mood_id ? '｜心情：' + diary.mood_id : ''}\n${text}` },
     ], 120) || '').trim().replace(/^["“'「]+|["”'」]+$/g, '').slice(0, 120);
+    if (reply && ref?.diary_id) ctx?.waitUntil?.(logXiaomaiActivity(env, user.uid, 'recall', { diary_id: diary.id, ref_id: ref.diary_id, ref_date: ref.date }));
     return json({ reply, ref: reply ? ref : null });
   } catch (e) {
     console.error('[reply] 失败:', e.message);
@@ -3528,6 +3532,115 @@ async function handleNewsTrack(request, env) {
     await env.DB.prepare(`UPDATE news_items SET ${col} = ${col} + 1 WHERE id = ?`).bind(String(b.id).slice(0, 80)).run();
   } catch {}
   return json({ ok: true });
+}
+
+// ===== GET /api/xiaomai/activity —「小麦这几天帮你做了什么」=====
+// 汇总最近 N 天（默认 7）小麦做过、用户能感知的事：每类一行，前端按 priority / at 排序，卡片只显示前 4 行
+async function handleXiaomaiActivity(request, env) {
+  const user = await authUser(request, jwtSecrets(env));
+  if (!user) return json({ error: 'unauthorized' }, 401);
+  const uid = user.uid;
+  const days = Math.min(Math.max(parseInt(new URL(request.url).searchParams.get('days') || '7', 10) || 7, 1), 30);
+  const since = Date.now() - days * 86400000;
+  const sinceIso = new Date(since).toISOString().replace('T', ' ').slice(0, 19);
+  const items = [];
+  const q = async (sql, ...b) => { try { return (await env.DB.prepare(sql).bind(...b).all()).results || []; } catch { return []; } };
+  const one = async (sql, ...b) => { try { return await env.DB.prepare(sql).bind(...b).first(); } catch { return null; } };
+  const life = await one('SELECT id FROM wiki_knowledge_bases WHERE user_id=? AND slug=?', uid, LIFE_KB_SLUG);
+  const KIND = { renwu: 'person', didian: 'place', shijian: 'event' };
+
+  // 1. 🧑 新认识了（我的生活里新建的人物 / 地点 / 事件）
+  if (life) {
+    const rows = await q(`SELECT p.id, p.title, p.created_at, c.slug FROM wiki_pages p LEFT JOIN wiki_categories c ON c.id = p.category_id
+      WHERE p.kb_id=? AND p.user_id=? AND (p.is_system=0 OR p.is_system IS NULL) AND p.created_at >= ? ORDER BY p.created_at DESC LIMIT 8`, life.id, uid, since);
+    if (rows.length) items.push({ kind: 'met', priority: 2, at: rows[0].created_at,
+      links: rows.map((r) => ({ id: r.id, title: r.title, kind: KIND[r.slug] || 'other' })) });
+  }
+  // 2. 🔗 发现了联系（我的生活里新建立的关系）
+  if (life) {
+    const rows = await q('SELECT from_title, to_title, relation, created_at FROM wiki_links WHERE kb_id=? AND user_id=? AND created_at >= ? ORDER BY created_at DESC LIMIT 5', life.id, uid, since);
+    const n = (await one('SELECT COUNT(*) AS n FROM wiki_links WHERE kb_id=? AND user_id=? AND created_at >= ?', life.id, uid, since))?.n || 0;
+    if (rows.length) items.push({ kind: 'linked', priority: 3, at: rows[0].created_at, count: n,
+      pairs: rows.slice(0, 3).map((r) => ({ a: r.from_title, b: r.to_title, relation: r.relation || '' })) });
+  }
+  // 3. 📚 整理好了 / ⏳ 正在整理 / 📥 帮你收藏的（自建知识库里的资料）
+  {
+    const done = await q(`SELECT s.kb_id, k.title AS kb_title, COUNT(*) AS n, MAX(s.ingested_at) AS at FROM wiki_sources s JOIN wiki_knowledge_bases k ON k.id = s.kb_id
+      WHERE s.user_id=? AND (k.slug IS NULL OR k.slug != ?) AND s.ingested=1 AND s.ingested_at >= ? GROUP BY s.kb_id ORDER BY at DESC LIMIT 3`, uid, LIFE_KB_SLUG, since);
+    if (done.length) items.push({ kind: 'organized', priority: 2, at: done[0].at, count: done.reduce((a, r) => a + r.n, 0),
+      kbs: done.map((r) => ({ id: r.kb_id, title: r.kb_title, count: r.n })) });
+    const pend = await one(`SELECT COUNT(*) AS n, MIN(s.created_at) AS at FROM wiki_sources s JOIN wiki_knowledge_bases k ON k.id = s.kb_id
+      WHERE s.user_id=? AND s.ingested=0 AND (k.slug IS NULL OR k.slug != ?)`, uid, LIFE_KB_SLUG);
+    if (pend?.n) items.push({ kind: 'pending', priority: 4, at: pend.at, count: pend.n });
+    const col = await q(`SELECT s.kb_id, k.title AS kb_title, COUNT(*) AS n, MAX(s.created_at) AS at FROM wiki_sources s JOIN wiki_knowledge_bases k ON k.id = s.kb_id
+      WHERE s.user_id=? AND (k.slug IS NULL OR k.slug != ?) AND s.created_at >= ? GROUP BY s.kb_id ORDER BY n DESC LIMIT 3`, uid, LIFE_KB_SLUG, since);
+    if (col.length) items.push({ kind: 'collected', priority: 5, at: Math.max(...col.map((r) => r.at)), count: col.reduce((a, r) => a + r.n, 0),
+      kbs: col.map((r) => ({ id: r.kb_id, title: r.kb_title, count: r.n })) });
+  }
+  // 4. 🌱 知识库长大了（自建库这几天新增的页面）
+  {
+    const rows = await q(`SELECT p.kb_id, k.title AS kb_title, COUNT(*) AS n, MAX(p.created_at) AS at FROM wiki_pages p JOIN wiki_knowledge_bases k ON k.id = p.kb_id
+      WHERE p.user_id=? AND (k.slug IS NULL OR k.slug != ?) AND (p.is_system=0 OR p.is_system IS NULL) AND p.created_at >= ? GROUP BY p.kb_id ORDER BY n DESC LIMIT 3`, uid, LIFE_KB_SLUG, since);
+    if (rows.length) items.push({ kind: 'grew', priority: 4, at: Math.max(...rows.map((r) => r.at)), count: rows.reduce((a, r) => a + r.n, 0),
+      kbs: rows.map((r) => ({ id: r.kb_id, title: r.kb_title, count: r.n })) });
+  }
+  // 5. 💡 记住了（小麦从对话里记下的偏好 / 事实，每条都能删）
+  {
+    const rows = await q("SELECT id, type, content, created_at FROM user_memory WHERE user_id=? AND status='active' AND created_at >= ? ORDER BY created_at DESC LIMIT 5", uid, sinceIso);
+    if (rows.length) items.push({ kind: 'remembered', priority: 5, at: Date.parse(String(rows[0].created_at).replace(' ', 'T') + 'Z') || Date.now(),
+      memories: rows.map((r) => ({ id: r.id, type: r.type, content: r.content })) });
+  }
+  // 6. 💬 帮你回忆了（这几天问了几次、翻了几篇日记）
+  {
+    const rows = await q('SELECT msgs, updated_at FROM chat_sessions WHERE user_id=? AND updated_at >= ?', uid, since);
+    let asks = 0; const diaries = new Set(); let at = 0;
+    for (const r of rows) {
+      let msgs = []; try { msgs = JSON.parse(r.msgs || '[]'); } catch {}
+      for (const m of msgs) {
+        if (m?.role === 'user') asks++;
+        for (const s of (m?.role === 'ai' && Array.isArray(m.sources) ? m.sources : [])) if (s?.diary_id) diaries.add(s.diary_id);
+      }
+      at = Math.max(at, r.updated_at || 0);
+    }
+    if (asks) items.push({ kind: 'recalled', priority: 4, at, count: asks, diaries: diaries.size });
+  }
+  // 7. ✍️ 读后写下的（带「看点」标签的日记）
+  {
+    const rows = await q(`SELECT id, title, date, updated_at FROM diaries WHERE user_id=? AND tags LIKE ? AND updated_at >= ? AND (deleted_at IS NULL OR deleted_at='') ORDER BY updated_at DESC LIMIT 5`, uid, '%"看点"%', since);
+    if (rows.length) items.push({ kind: 'wrote', priority: 3, at: rows[0].updated_at, count: rows.length, diary: { id: rows[0].id, title: rows[0].title } });
+  }
+  // 8. 🏅 小小里程碑（篇数 / 天数到整数关口；只在关口这 7 天里出现）
+  {
+    const tot = await one("SELECT COUNT(*) AS n, COUNT(DISTINCT date) AS d, MIN(date) AS first FROM diaries WHERE user_id=? AND (deleted_at IS NULL OR deleted_at='')", uid);
+    const recent = await one("SELECT COUNT(*) AS n, COUNT(DISTINCT date) AS d FROM diaries WHERE user_id=? AND created_at >= ? AND (deleted_at IS NULL OR deleted_at='')", uid, since);
+    const marks = [10, 30, 50, 100, 200, 300, 365, 500, 1000];
+    const hit = (total, gained) => marks.filter((m) => total >= m && total - (gained || 0) < m).pop();
+    const nMark = tot ? hit(tot.n, recent?.n) : null;
+    const dMark = tot ? hit(tot.d, recent?.d) : null;
+    if (nMark) items.push({ kind: 'milestone', priority: 1, at: Date.now(), text: `你写满 ${nMark} 篇日记了` });
+    else if (dMark) items.push({ kind: 'milestone', priority: 1, at: Date.now(), text: `这是你写日记的第 ${dMark} 天` });
+  }
+  // 9. 📰 帮你挑的（今日看点：今天各频道一共挑了多少条）
+  {
+    const today = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
+    const r = await one('SELECT COUNT(*) AS n FROM news_items WHERE day = ? AND light >= 0', today);
+    const all = await one('SELECT COUNT(*) AS n FROM news_items WHERE day = ?', today);
+    if (r?.n) items.push({ kind: 'picked', priority: 6, at: Date.now() - 3600_000, count: r.n, scanned: all?.n || r.n });
+  }
+  // 10. 🎙️ 语音变日记 / 🕰️ 连起了过去 / 🧹 帮你整理了（xiaomai_activity 里记下的）
+  {
+    const rows = await q('SELECT kind, data, created_at FROM xiaomai_activity WHERE user_id=? AND created_at >= ? ORDER BY created_at DESC LIMIT 60', uid, since);
+    const by = {};
+    for (const r of rows) { (by[r.kind] = by[r.kind] || []).push({ ...(() => { try { return JSON.parse(r.data || '{}'); } catch { return {}; } })(), at: r.created_at }); }
+    if (by.voice) items.push({ kind: 'voice', priority: 3, at: by.voice[0].at, count: by.voice.length });
+    if (by.recall) items.push({ kind: 'connected', priority: 3, at: by.recall[0].at, count: by.recall.length, ref: { diary_id: by.recall[0].ref_id, date: by.recall[0].ref_date } });
+    const tidy = [...(by.merge || []), ...(by.repair || [])].sort((a, b) => b.at - a.at);
+    if (tidy.length) items.push({ kind: 'tidied', priority: 5, at: tidy[0].at, merges: (by.merge || []).slice(0, 3).map((m) => ({ from: m.from, into: m.into, into_id: m.into_id })),
+      fixed: (by.repair || []).reduce((a, r) => a + (r.fixed || 0) + (r.removed || 0), 0) });
+  }
+
+  items.sort((a, b) => a.priority - b.priority || (b.at || 0) - (a.at || 0));
+  return json({ days, items });
 }
 
 // ===== GET /api/news — 「今天」页的今日看点 =====

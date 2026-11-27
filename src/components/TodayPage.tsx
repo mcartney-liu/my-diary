@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import type { Diary } from "../types";
 import { computeStreak, fmtDate, moodById, MOOD_TAGS, PROMPTS, onThisDay } from "../data";
 import { templateById } from "../templates";
-import { getProfile, listMilestones, listPlans, diaryReply, dailyNote, listNews, trackNews, newsDays, getToken, lifeRecent, type Milestone, type Plan, type LifeLink, type NewsData, type NewsItem, type NewsChannel } from "../api";
+import { getProfile, listMilestones, listPlans, diaryReply, dailyNote, listNews, trackNews, newsDays, getToken, type Milestone, type Plan, type NewsData, type NewsItem, type NewsChannel } from "../api";
 import { fetchLocationAuto, fetchWeather } from "../weather";
 import { dayEvents, springFestivalCountdown, weatherTip } from "../today";
 import type { WeatherInfo } from "../types";
@@ -14,6 +14,7 @@ import Xiaomai, { moodFor } from "./Xiaomai";
 import { useHint } from "./useOnce";
 import BottomDock from "./BottomDock";
 import NewsDetailSheet from "./NewsDetailSheet";
+import XiaomaiActivityCard from "./XiaomaiActivityCard";
 import { CHANNEL_META, ALL_CHANNELS, NEWS_TAG_STYLE, openEditorWith, newsTime } from "../newsMeta";
 import SafeImg from "./SafeImg";
 import Modal from "./Modal";
@@ -174,7 +175,6 @@ export default function TodayPage({ diaries }: Props) {
   const [plans, setPlans] = useState<Plan[]>(() => peek<any>("plans:all")?.plans ?? []);
   const [profile, setProfile] = useState<any>(() => peek<any>("profile")?.user ?? null);
   const [promptShift, setPromptShift] = useState(0);
-  const [recent, setRecent] = useState<{ created: LifeLink[]; updated: LifeLink[] } | null>(null);
   // 天气：按小时缓存在本地，避免每次打开都请求定位 + 天气
   const [weather, setWeather] = useState<(WeatherInfo & { place?: string }) | null>(() => {
     try {
@@ -235,7 +235,6 @@ export default function TodayPage({ diaries }: Props) {
   useEffect(() => {
     cachedGet<any>("milestones:all", listMilestones).then((r) => setMilestones(r?.milestones ?? [])).catch(() => {});
     cachedGet<any>("plans:all", listPlans).then((r) => setPlans(r?.plans ?? [])).catch(() => {});
-    lifeRecent(3).then(setRecent).catch(() => {});
     // 新手引导：原来挂在月历首页，首页换成「今天」后搬到这里
     cachedGet<any>("profile", getProfile, { ttl: 0 }).then((p) => {
       const u = p?.user;
@@ -700,37 +699,8 @@ export default function TodayPage({ diaries }: Props) {
           </section>
         )}
 
-        {/* 🌾 小麦最近整理了：让用户看到知识库在长 */}
-        {recent && (recent.created.length > 0 || recent.updated.length > 0) && (
-          <section className="rounded-2xl bg-gradient-to-br from-amber-50 to-paper-card border border-amber-100 shadow-card px-4 py-3.5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="section-label">🌾 小麦最近整理了</span>
-              <button type="button" onClick={() => nav("/people")} className="text-[11px] text-paper-ink3 hover:text-paper-ink">去看看 ›</button>
-            </div>
-            {recent.created.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
-                <span className="text-xs text-paper-ink2">新认识了</span>
-                {recent.created.map((l) => (
-                  <button key={l.id} type="button" onClick={() => nav("/people/" + l.id)}
-                    className="text-xs px-2.5 py-0.5 rounded-full bg-paper-card border border-amber-200 text-paper-ink hover:bg-amber-50">
-                    {l.kind === "person" ? "👤" : l.kind === "place" ? "📍" : "✨"} {l.title}
-                  </button>
-                ))}
-              </div>
-            )}
-            {recent.updated.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-paper-ink2">又多了解了</span>
-                {recent.updated.map((l) => (
-                  <button key={l.id} type="button" onClick={() => nav("/people/" + l.id)}
-                    className="text-xs px-2.5 py-0.5 rounded-full bg-paper-card border border-paper-line/70 text-paper-ink2 hover:text-paper-ink">
-                    {l.title}
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
+        {/* 🌾 小麦这几天帮你做了什么：新认识、整理好、收藏、记住了、里程碑……（没有动态就不显示） */}
+        <XiaomaiActivityCard />
 
         {/* 📰 今日看点：默认 3 条，「换一批」看别的；按兴趣 / 心情 / 不感兴趣挑；心情不好时默认收起 */}
         {newsOn && !isNewUser && (lowMood && channel === "news" && !newsOpen ? (

@@ -16,6 +16,23 @@ function json(obj, status = 200) {
   return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...cors } });
 }
 
+// ====== 小麦做过的事（「小麦这几天帮你做了什么」用）======
+// 只记那些现有表里查不出来的：语音变日记、连起了过去、自动合并 / 修复；首次用到自动建表
+let ACTIVITY_READY = false;
+export async function logActivity(env, uid, kind, data = {}) {
+  if (!uid || !kind) return;
+  try {
+    if (!ACTIVITY_READY) {
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS xiaomai_activity (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL, data TEXT, created_at INTEGER NOT NULL)`).run();
+      await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_xm_act_user ON xiaomai_activity(user_id, created_at)').run();
+      ACTIVITY_READY = true;
+    }
+    await env.DB.prepare('INSERT INTO xiaomai_activity (id, user_id, kind, data, created_at) VALUES (?,?,?,?,?)')
+      .bind(uuid(), uid, kind, JSON.stringify(data).slice(0, 1000), Date.now()).run();
+  } catch (e) { console.warn('[activity] 记录失败:', e.message); }
+}
+
 // ====== DB 日志（tail 连不上时的替代日志通路） ======
 export async function dblog(env, tag, msg, data = null) {
   try {
@@ -878,6 +895,7 @@ export async function handleLifeMerge(request, env, JWT_SECRET, params) {
   }
   await env.DB.prepare("DELETE FROM wiki_pages WHERE id=?").bind(from.id).run();
   await refreshPageVector(env, into.id);
+  await logActivity(env, user.uid, 'merge', { from: from.title, into: into.title, into_id: into.id });
   return json({ ok: true, into_id: into.id, title: into.title });
 }
 
@@ -1084,7 +1102,7 @@ export async function handleKbCollect(request, env, JWT_SECRET, _params, ctx) {
   // 立刻后台整理这一份（失败也没关系，定时任务会补）
   ctx?.waitUntil?.(ingestKbCore(env, user, { id: target.id, title: target.title }, { kb_id: target.id }, [sid], { maxSources: 1, auto: true })
     .catch(e => console.error('[kb collect] 整理失败:', e.message)));
-  return json({ ok: true, kb: { id: target.id, title: target.title } });
+  return json({ ok: true, kb: { id: target.id, title: target.title }, source_id: sid });
 }
 
 // POST /api/life/repair-links — 修复历史数据：按「标题是否出现在日记原文里」重算每个页面的来源
@@ -1115,6 +1133,7 @@ export async function handleLifeRepairLinks(request, env, JWT_SECRET) {
       fixed++;
     }
   }
+  if (fixed || removed) await logActivity(env, user.uid, 'repair', { fixed, removed });
   return json({ ok: true, fixed, removed, pages: pages.length });
 }
 
