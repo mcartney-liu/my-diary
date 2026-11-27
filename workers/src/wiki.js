@@ -74,7 +74,7 @@ export async function refreshPageVector(env, pageId) {
 
 // ====== AI 调用（优先 DeepSeek，fallback Workers AI，temperature 低保证 JSON 稳定） ======
 const WIKI_LLM_MODEL = 'deepseek-v4-flash';
-const WIKI_WORKERS_MODEL = '@cf/qwen/qwen3.8-27b';
+const WIKI_WORKERS_MODEL = '@cf/zai-org/glm-4.7-flash';
 const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/v1/chat/completions';
 async function wikiCallLLM(env, messages, maxTokens = 4096) {
   const endpoint = DEEPSEEK_ENDPOINT;
@@ -143,10 +143,17 @@ async function wikiCallLLM(env, messages, maxTokens = 4096) {
     await dblog(env, 'ingest', 'LLM_NO_SECRETS', { hasEndpoint: !!endpoint, hasKey: !!apiKey });
   }
   // fallback: Workers AI
-  console.log('[wiki] fallback Workers AI llama-3.1-8b');
+  console.log('[wiki] fallback Workers AI', WIKI_WORKERS_MODEL);
   await dblog(env, 'ingest', 'LLM_FALLBACK_WORKERS', { model: WIKI_WORKERS_MODEL });
-  const r = await env.AI.run(WIKI_WORKERS_MODEL, { messages, max_tokens: maxTokens, temperature: 0.1 });
-  return r.response || '';
+  try {
+    const r = await env.AI.run(WIKI_WORKERS_MODEL, { messages, max_tokens: maxTokens, temperature: 0.1 });
+    // qwen3 可能返回 OpenAI 格式（choices）或带 <think> 思考内容：统一取正文
+    const t = typeof r === 'string' ? r : (r?.response ?? r?.choices?.[0]?.message?.content ?? '');
+    return String(typeof t === 'string' ? t : JSON.stringify(t)).replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  } catch (e) {
+    await dblog(env, 'ingest', 'LLM_WORKERS_FAIL', { model: WIKI_WORKERS_MODEL, msg: String(e?.message || e).slice(0, 200) });
+    return '';
+  }
 }
 
 // ====== KB ======

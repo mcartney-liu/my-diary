@@ -1640,11 +1640,11 @@ async function extractMemoryCandidates(env, userMsg, _aiReply) {
   ];
   try {
     // 用 Workers AI 免费模型（快速稳定，不依赖 Agnes）
-    const res = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+    const res = await env.AI.run(LLM_MODEL, {
       messages: msgs,
       max_tokens: 300,
     });
-    const raw = res?.response || res?.output || (typeof res === 'string' ? res : JSON.stringify(res));
+    const raw = workersAIText(res) || res?.output || (typeof res === 'string' ? res : JSON.stringify(res));
     console.log('[extract] raw=', String(raw).slice(0, 200));
     // 用正则提取 JSON 块
     const m = String(raw).match(/\{[\s\S]*\}/);
@@ -1794,7 +1794,8 @@ function float32ToJson(arr) { return JSON.stringify(Array.from(arr)); }
 function jsonToFloat32(text) { return new Float32Array(JSON.parse(text)); }
 
 const EMBEDDING_MODEL = '@cf/baai/bge-m3';
-const LLM_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+// Workers AI 兜底模型：llama-3.1-8b 已于 2026-05-30 下线（报 5028）；qwen 太贵 → glm-4.7-flash（和 wiki.js 一致）
+const LLM_MODEL = '@cf/zai-org/glm-4.7-flash';
 const LLM_MODEL_NAME = 'agnes-3.0-flash';
 // 小麦问答检索参数
 const HISTORY_MSG_MAX_CHARS = 1200; // 每条历史消息最多带多少字（原 500，长回答被截断后小麦会"忘了"自己说过什么）
@@ -1802,7 +1803,7 @@ const RAG_SCAN_LIMIT = 200;       // 每次最多扫描最近多少篇日记的�
 const RERANK_MIN_SCORE = 0.05;    // reranker 相关度下限（初始值，需按实际数据校准）
 const VECTOR_MIN_SCORE = 0.45;    // rerank 失败时的向量相似度下限（bge-m3，初始值）
 
-// 统一 LLM 调用：优先走 agnes-3.0-flash，失败/fallback 用 Workers AI llama-3.1-8b
+// 统一 LLM 调用：优先走 agnes-3.0-flash，失败/fallback 用 Workers AI qwen
 // ===== 流式输出工具 =====
 // 解析 SSE 字节流：兼容 OpenAI 格式（choices[0].delta.content）和 Workers AI 格式（response）
 async function readSSEText(stream, onText) {
@@ -1917,6 +1918,10 @@ function sseResponse(ctx, run) {
 
 // 最近一次 callLLM 的失败原因（同一个请求里读，用来在接口返回里带上诊断信息；tail 连不上时也能看到）
 let LAST_LLM_TRACE = [];
+function workersAIText(r) {
+  const t = typeof r === 'string' ? r : (r?.response ?? r?.choices?.[0]?.message?.content ?? r?.result?.response ?? '');
+  return String(typeof t === 'string' ? t : JSON.stringify(t)).replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}
 async function callLLM(env, messages, maxTokens = 512, onDelta = null) {
   if (typeof onDelta === 'function') return callLLMStreaming(env, messages, maxTokens, onDelta);
   LAST_LLM_TRACE = [];
@@ -1958,7 +1963,8 @@ async function callLLM(env, messages, maxTokens = 512, onDelta = null) {
   // fallback: Workers AI llama
   try {
     const r = await env.AI.run(LLM_MODEL, { messages, max_tokens: maxTokens, reasoning: { effort: 'low' }, temperature: 0.3 });
-    const content = r?.response || '';
+    // qwen3 在 Workers AI 上可能返回 OpenAI 格式（choices），也可能带 <think> 思考内容：统一取正文
+    const content = workersAIText(r);
     if (content) { LAST_LLM_TRACE.push('workers-ai ok'); return content; }
     LAST_LLM_TRACE.push('workers-ai 空 response: ' + JSON.stringify(r || {}).slice(0, 120));
     console.warn('[callLLM] Workers AI 返回空 response');
@@ -2444,7 +2450,7 @@ async function handleWikiAskImport(env, user, question, kb, web_search) {
     let matchResult = { level: 'high', reason: '', suggested_category: null };
     if (!isFixedTrigger) {
       try {
-        const matchResp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        const matchResp = await env.AI.run(LLM_MODEL, {
           messages: [{
             role: 'user',
             content: `判断这个问题和知识库「${kb.title}」的主题相关性：
@@ -2454,7 +2460,7 @@ async function handleWikiAskImport(env, user, question, kb, web_search) {
 理由：xxx`
           }]
         });
-        const text = matchResp?.response?.trim?.() || '';
+        const text = workersAIText(matchResp);
         if (text.startsWith('LOW')) matchResult.level = 'low';
         else if (text.startsWith('MEDIUM')) matchResult.level = 'medium';
       } catch {}
@@ -2548,11 +2554,11 @@ async function handleWikiSuggestEntities(request, env, JWT_SECRET, params) {
 不要和已有页面重复。
 每行一个，格式：分类名|实体名`;
 
-      const resp = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      const resp = await env.AI.run(LLM_MODEL, {
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 200,
       });
-      const text = resp?.response || '';
+      const text = workersAIText(resp);
       const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('-') && !l.startsWith('*'));
       for (const line of lines) {
         const parts = line.split('|');
